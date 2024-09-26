@@ -1,0 +1,67 @@
+name: Test, Build and Test - MAIN
+
+on: 
+  push:
+    branches:
+      - main
+
+jobs:
+  Testing_Code_Quality: 
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          submodules: true
+
+      #instalando dependencias das libraries
+      - name: Installing Dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install build-essential
+          sudo apt install cmake -y
+          sudo apt install clang-15 clang-tidy-15 clang-format ninja-build -y
+          sudo apt-get update && sudo apt-get install libcurl4 libcurl4-openssl-dev libpoco-dev -y
+          sudo apt install libgtest-dev googletest -y
+          sudo apt install python3-pip chromium-chromedriver -y
+      
+      - name: Setup cmake
+        uses: jwlawson/actions-setup-cmake@v1.8
+        with:
+          cmake-version: '3.16.x'
+
+      - name: Mkdir build
+        run: |
+          mkdir -p build
+
+      - name: Start python webserver on test
+        run: |
+          pushd tests/html
+          python3 -m http.server 8080 &
+          popd
+
+      - name: Start chrome driver
+        run: |
+          chromedriver --port=9515 &
+
+      - name: Build project
+        run: |
+          export CC=$(which clang-15)
+          export CXX=$(which clang++-15)
+          export CURRENT_SOURCE_DIR=$(pwd)
+          mkdir -p build && cd build
+          export CURRENT_BUILD_DIR=$(pwd)
+          cmake .. -G Ninja
+          cmake --build . --config Debug --target all -j $(nproc) --
+
+      - name: Test project
+        run: |
+          export CC=$(which clang-15)
+          export CXX=$(which clang++-15)
+          cd build
+          ctest -j 20 -C Debug -T test --output-on-failure
+
+      - name: Finish servers
+        run: |
+          killall python3
+          killall chromedriver

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sample Test Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        form {
+            margin-bottom: 30px;
+        }
+        label, input, select, button {
+            display: block;
+            margin: 10px 0;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>Sample Test Page - generated with ChatGPT</h1>
+
+    <!-- Form for testing -->
+    <form id="test-form">
+        <label for="name">Name:</label>
+        <input type="text" id="name" name="name" placeholder="Enter your name">
+
+        <label for="email">Email:</label>
+        <input type="email" id="email" name="email" placeholder="Enter your email">
+
+        <label for="gender">Gender:</label>
+        <select id="gender" name="gender">
+            <option value="">Select gender</option>
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+            <option value="other">Other</option>
+        </select>
+
+        <label for="agree">Agree to Terms:</label>
+        <input type="checkbox" id="agree" name="agree"> I agree
+
+        <button type="submit">Submit</button>
+    </form>
+
+    <!-- Button interaction -->
+    <h2>Button Interaction</h2>
+    <button id="click-me-button">Click Me</button>
+    <p id="click-result" class="hidden">Button clicked!</p>
+
+    <!-- Dynamic content loading -->
+    <h2>Dynamic Content</h2>
+    <button id="load-content">Load Content</button>
+    <div id="dynamic-content"></div>
+
+    <!-- Link navigation -->
+    <h2>Navigation Links</h2>
+    <a href="https://www.example.com" target="_blank">Visit Example</a>
+
+    <script>
+        // Button click interaction
+        document.getElementById('click-me-button').addEventListener('click', function() {
+            document.getElementById('click-result').classList.remove('hidden');
+        });
+
+        // Load dynamic content
+        document.getElementById('load-content').addEventListener('click', function() {
+            document.getElementById('dynamic-content').innerHTML = "<p>Content loaded!</p>";
+        });
+
+        // Form submit handler (can be used to test form submission validation)
+        document.getElementById('test-form').addEventListener('submit', function(event) {
+            event.preventDefault();
+            alert('Form submitted successfully!');
+        });
+    </script>
+</body>
+</html>
