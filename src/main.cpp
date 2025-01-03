@@ -4,8 +4,10 @@
 #include <Poco/JSON/Object.h>
 #include <Poco/String.h>
 #include <chrono>
+#include <csignal>
 #include <cstddef>
 #include <cstdlib>
+#include <exception>
 #include <fstream>
 #include <functional>
 #include <string_view>
@@ -62,15 +64,41 @@ static void load_dotenv(std::string path = ".env") {
     }
 }
 
-int main(int argc, char **argv) {
+void interruptsignal(int signal) {
+    std::cerr << "Interrupt signal (" << signal << ") received.\n";
+    throw std::runtime_error("Interrupt signal received");
+}
+
+void maincode() {
+    signal(SIGINT, interruptsignal);
+    signal(SIGTERM, interruptsignal);
     load_dotenv();
     std::cout << "Hello, World!" << std::endl;
 
     WebDriver browser;
 
-    browser.connect();
+    Poco::JSON::Array::Ptr args = new Poco::JSON::Array;
 
-    browser.get("https://www.google.com");
+    args->add("--headless");
+
+    browser.connect(args, "firefox");
+
+    browser.get("https://duckduckgo.com");
+
+    auto searchBox = browser.findElement("xpath", "//input[@name='q']");
+
+    browser.sendKeysToElement(searchBox, "Hello, World!");
     // webdriverTest();
+
+    std::this_thread::sleep_for(std::chrono::seconds(5));
+}
+
+int main(int argc, char **argv) {
+    try {
+        maincode();
+    } catch (const std::exception &e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
     return 0;
 }

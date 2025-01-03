@@ -74,16 +74,27 @@ chrome=129.0.6668.70)", "stacktrace": "#0 0x5dd8a5bff10a \u003Cunknown>\n#1
         throw std::runtime_error("Error: " + error + "\n" + message);
     }
 
-    void connect(const Poco::JSON::Array::Ptr &args = {}) {
+    void connect(const Poco::JSON::Array::Ptr &args = {},
+                 const std::string &browserName = "chrome") {
         Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
         Poco::JSON::Object::Ptr capabilities = new Poco::JSON::Object();
         Poco::JSON::Object::Ptr alwaysMatch = new Poco::JSON::Object();
-        alwaysMatch->set("browserName", "chrome");
+        alwaysMatch->set("browserName", browserName);
 
         if (!args.isNull() && args->size() > 0) {
             Poco::JSON::Object::Ptr chromeOptions = new Poco::JSON::Object();
             chromeOptions->set("args", args);
-            alwaysMatch->set("goog:chromeOptions", chromeOptions);
+
+            std::string key;
+            if (browserName == "chrome") {
+                key = "goog:chromeOptions";
+            } else if (browserName == "firefox") {
+                key = "moz:firefoxOptions";
+            } else {
+                key = "ms:edgeOptions";
+            }
+
+            alwaysMatch->set(key, chromeOptions);
         }
 
         capabilities->set("alwaysMatch", alwaysMatch);
@@ -865,6 +876,14 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
 
         return resObj->get("value");
     }
+
+    WebDriver() = default;
+
+    WebDriver(const WebDriver &) = default;
+    WebDriver &operator=(const WebDriver &) = default;
+
+    WebDriver(WebDriver &&) = default;
+    WebDriver &operator=(WebDriver &&) = default;
 
     ~WebDriver() {
         if (sessionId.empty()) {
