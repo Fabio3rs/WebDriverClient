@@ -85,7 +85,8 @@ void maincode() {
 
     browser.get("https://duckduckgo.com");
 
-    auto searchBox = browser.findElement("xpath", "//input[@name='q']");
+    auto searchBox =
+        browser.waitElement("css", "input[name=q]", std::chrono::seconds(10));
 
     browser.sendKeysToElement(searchBox, "Hello, World!");
     // webdriverTest();

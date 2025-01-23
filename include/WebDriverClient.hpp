@@ -382,6 +382,71 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
         return callUrlDriver("POST", webDriverUrl + path, reqStr);
     }
 
+    auto
+    waitElement(const std::string &selector, const std::string &value,
+                std::chrono::milliseconds maxTime = std::chrono::seconds(5)) {
+        auto script = R"js(
+            function waitForElement(selector, selectorType, timeout = 5000) {
+                return new Promise((resolve, reject) => {
+                    // Function to find an element by CSS or XPath
+                    function getElement(selector, type) {
+                        if (type === "css") {
+                            return document.querySelector(selector); // CSS Selector
+                        } else if (type === "xpath") {
+                            return document.evaluate(
+                                selector,
+                                document,
+                                null,
+                                XPathResult.FIRST_ORDERED_NODE_TYPE,
+                                null
+                            ).singleNodeValue; // XPath
+                        }
+                        throw new Error("Unsupported selector type: " + type);
+                    }
+
+                    // Check if the element already exists
+                    const existingElement = getElement(selector, selectorType);
+                    if (existingElement) {
+                        resolve(existingElement); // Resolve immediately if found
+                        return;
+                    }
+
+                    const observer = new MutationObserver(() => {
+                        const element = getElement(selector, selectorType);
+                        if (element) {
+                            observer.disconnect(); // Stop observing once found
+                            resolve(element); // Resolve with the element
+                        }
+                    });
+
+                    // Start observing the DOM
+                    observer.observe(document.body, { childList: true, subtree: true });
+
+                    // Set a timeout to stop observing after the specified time
+                    setTimeout(() => {
+                        observer.disconnect();
+                        reject(new Error(`Timeout reached: Element "${selector}" not found.`));
+                    }, timeout);
+                });
+            }
+
+            // Usage
+            return (async () => {
+                return await waitForElement(arguments[0], arguments[1], arguments[2]);
+            })();
+        )js";
+
+        auto element =
+            executeSyncScript(script, value, selector, maxTime.count());
+
+        if (element.isEmpty()) {
+            throw std::runtime_error("Element " + selector + "  " + value +
+                                     " not found");
+        }
+
+        return element;
+    }
+
     auto findChildElements(const std::string &id,
                            const std::string &usingSelector,
                            const std::string &value) {
