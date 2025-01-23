@@ -414,6 +414,7 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
                     const observer = new MutationObserver(() => {
                         const element = getElement(selector, selectorType);
                         if (element) {
+                            if (timeoutId) { clearTimeout(timeoutId) };
                             observer.disconnect(); // Stop observing once found
                             resolve(element); // Resolve with the element
                         }
@@ -423,7 +424,7 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
                     observer.observe(document.body, { childList: true, subtree: true });
 
                     // Set a timeout to stop observing after the specified time
-                    setTimeout(() => {
+                    const timeoutId = setTimeout(() => {
                         observer.disconnect();
                         reject(new Error(`Timeout reached: Element "${selector}" not found.`));
                     }, timeout);
