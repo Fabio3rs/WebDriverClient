@@ -1,7 +1,5 @@
 #include "WebDriverClient.hpp"
-#include <Poco/JSON/Array.h>
 #include <gtest/gtest.h>
-#include <nlohmann/json.hpp>
 
 static const char *serverUrl = "http://localhost:8080";
 

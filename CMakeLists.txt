@@ -21,7 +21,7 @@ elseif(${CMAKE_CXX_COMPILER_ID} STREQUAL "MSVC")
     add_compile_options(/W4 /WX)
 elseif(${CMAKE_CXX_COMPILER_ID} STREQUAL "Clang")
     message(STATUS "Setting Clang flags")
-    add_compile_options(-Weverything -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-padded -Wno-global-constructors -Wno-exit-time-destructors -Wno-weak-vtables -Wno-documentation -Wno-documentation-unknown-command)
+    add_compile_options(-Weverything -Wno-c++98-compat -Wno-disabled-macro-expansion -Wno-c++98-compat-pedantic -Wno-padded -Wno-global-constructors -Wno-exit-time-destructors -Wno-weak-vtables -Wno-documentation -Wno-documentation-unknown-command)
 endif()
 
 if(ENABLE_TESTS)
@@ -47,7 +47,7 @@ endif()
 
 find_package(Poco REQUIRED COMPONENTS Crypto JSON Net NetSSL Redis)
 
-add_definitions(${LIBXML2_DEFINITIONS} -DCURRENT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+add_definitions(-DCURRENT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 # Add include directory
 include_directories(include)
