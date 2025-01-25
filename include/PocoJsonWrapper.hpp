@@ -177,13 +177,14 @@ struct PocoJsonWrapper {
             if (index_ >= arr_->size()) {
                 arr_->add(val.value);
             } else {
-                arr_->set(index_, val.value);
+                arr_->set(static_cast<unsigned int>(index_), val.value);
             }
             return *this;
         }
 
         operator PocoJsonWrapper() const {
-            return PocoJsonWrapper(arr_->get(index_));
+            return PocoJsonWrapper(
+                arr_->get(static_cast<unsigned int>(index_)));
         }
     };
 

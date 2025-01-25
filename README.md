@@ -18,7 +18,7 @@ This project uses CMake for the build system, along with Clang and various depen
 Ensure that the following dependencies are installed on your system before building and testing the project:
 
 - Clang or GCC (Build examples with Clang 15)
-- CMake 3.16.x
+- CMake
 - Ninja build system
 - GoogleTest framework
 - Chromium ChromeDriver
