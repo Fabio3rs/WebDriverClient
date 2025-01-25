@@ -1,5 +1,6 @@
 #include "WebDriverClient.hpp"
 #include <gtest/gtest.h>
+#include <stdexcept>
 
 static const char *serverUrl = "http://localhost:8080";
 
@@ -8,24 +9,26 @@ static const char *serverUrl = "http://localhost:8080";
     std::system(cmd.c_str());
 }*/
 
-static auto initWebDriverClient() -> WebDriver {
+class SimpleTests : public ::testing::Test {
+  protected:
+    void SetUp() override {
+        WebDriver::json args = WebDriver::json::array({
+            "--headless",
+            "--disable-gpu",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+        });
+
+        browser.connect(args);
+    }
+
+    void TearDown() override {
+        // std::system("pkill chromedriver");
+    }
     WebDriver browser;
+};
 
-    WebDriver::json args = WebDriver::json::array({
-        "--headless",
-        "--disable-gpu",
-        "--no-sandbox",
-        "--disable-dev-shm-usage",
-    });
-
-    browser.connect(args);
-
-    return browser;
-}
-
-TEST(SampleTest, Test1) {
-    WebDriver browser = initWebDriverClient();
-
+TEST_F(SimpleTests, Test1) {
     browser.get(serverUrl);
 
     auto title = browser.getTitle().get<std::string>();
@@ -33,9 +36,7 @@ TEST(SampleTest, Test1) {
     EXPECT_EQ(1, 1);
 }
 
-TEST(SampleTest, LocateClickMeButton) {
-    WebDriver browser = initWebDriverClient();
-
+TEST_F(SimpleTests, LocateClickMeButton) {
     browser.get(serverUrl);
 
     auto button = browser.findElement("css selector", "[id=click-me-button]");
@@ -44,9 +45,24 @@ TEST(SampleTest, LocateClickMeButton) {
     browser.getElementText(button);
 }
 
-TEST(SampleTest, LocateMultipleElements) {
-    WebDriver browser = initWebDriverClient();
+TEST_F(SimpleTests, WaitForElement) {
+    using namespace std::chrono_literals;
+    browser.get(serverUrl);
 
+    auto newElement = browser.waitElement("css", "#new-timed-element", 2000ms);
+    EXPECT_FALSE(newElement.empty());
+}
+
+TEST_F(SimpleTests, WaitForElementTimeout) {
+    using namespace std::chrono_literals;
+    browser.get(serverUrl);
+
+    EXPECT_THROW(auto newElement =
+                     browser.waitElement("css", "#new-timed-element", 100ms);
+                 , std::runtime_error);
+}
+
+TEST_F(SimpleTests, LocateMultipleElements) {
     browser.get(serverUrl);
 
     auto genderOptions = browser.findElement("css selector", "[id=gender]");

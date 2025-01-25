@@ -76,6 +76,14 @@
             event.preventDefault();
             alert('Form submitted successfully!');
         });
+
+        // Create a element after some time
+        setTimeout(function() {
+            var newElement = document.createElement('p');
+            newElement.textContent = 'New element created!';
+            newElement.id = 'new-timed-element';
+            document.body.appendChild(newElement);
+        }, 500);
     </script>
 </body>
 </html>

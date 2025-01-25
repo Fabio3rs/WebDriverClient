@@ -427,6 +427,11 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
                     // Set a timeout to stop observing after the specified time
                     const timeoutId = setTimeout(() => {
                         observer.disconnect();
+                        const element = getElement(selector, selectorType);
+                        if (element) {
+                            resolve(element);
+                            return;
+                        }
                         reject(new Error(`Timeout reached: Element "${selector}" not found.`));
                     }, timeout);
                 });
