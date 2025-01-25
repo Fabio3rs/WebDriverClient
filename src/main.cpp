@@ -10,7 +10,10 @@
 #include <exception>
 #include <fstream>
 #include <functional>
+#include <nlohmann/json.hpp>
+#include <span>
 #include <string_view>
+#include <thread>
 #include <unistd.h>
 #include <unordered_map>
 #include <utility>
@@ -77,11 +80,9 @@ void maincode() {
 
     WebDriver browser;
 
-    Poco::JSON::Array::Ptr args = new Poco::JSON::Array;
+    WebDriver::json args = WebDriver::json::array(/*{"--headless"}*/);
 
-    args->add("--headless");
-
-    browser.connect(args, "firefox");
+    browser.connect(args, "chrome");
 
     browser.get("https://duckduckgo.com");
 

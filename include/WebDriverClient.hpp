@@ -13,26 +13,26 @@
  */
 
 #include "CurlRAII.hpp"
-#include <Poco/Dynamic/Var.h>
-#include <Poco/JSON/Array.h>
-#include <Poco/JSON/Object.h>
-#include <Poco/JSON/Parser.h>
 #include <chrono>
-#include <span>
-#include <string_view>
-#include <thread>
-#include <unordered_map>
+
+// #define USE_POCO_JSON
+
+#ifdef USE_POCO_JSON
+#include "PocoJsonWrapper.hpp"
+#else
+#include <nlohmann/json.hpp>
+#endif
 
 struct WebDriver {
-    using elementType = Poco::Dynamic::Var;
+#ifdef USE_POCO_JSON
+    using json = PocoJsonWrapper;
+#else
+    using json = nlohmann::json;
+#endif
 
-    auto jsonToString(const Poco::JSON::Object::Ptr &obj) {
-        std::stringstream ss;
-        obj->stringify(ss);
-        return ss.str();
-    }
+    auto jsonToString(const json &obj) { return obj.dump(); }
 
-    auto analyzeError(const Poco::JSON::Object::Ptr &obj) {
+    auto analyzeError(const json &obj) {
         /*
         {
     "value": {
@@ -53,37 +53,33 @@ chrome=129.0.6668.70)", "stacktrace": "#0 0x5dd8a5bff10a \u003Cunknown>\n#1
     }
 }
         */
-        if (!obj->has("value") || obj->isNull("value")) {
+        auto value = obj.find("value");
+        if (value == obj.end() || !value->is_object()) {
             return;
         }
 
-        auto value = obj->getObject("value");
+        auto errorIt = value->find("error");
 
-        if (value.isNull()) {
+        if (errorIt == value->end()) {
             return;
         }
 
-        if (!value->has("error")) {
-            return;
-        }
-
-        auto error = value->getValue<std::string>("error");
-
-        auto message = value->get("message").toString();
+        auto message = (*value)["message"].get<std::string>();
         std::cerr << "Error: " << message << std::endl;
-        throw std::runtime_error("Error: " + error + "\n" + message);
+        throw std::runtime_error("Error: " + errorIt->get<std::string>() +
+                                 "\n" + message);
     }
 
-    void connect(const Poco::JSON::Array::Ptr &args = {},
+    void connect(const json &args = {},
                  const std::string &browserName = "chrome") {
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        Poco::JSON::Object::Ptr capabilities = new Poco::JSON::Object();
-        Poco::JSON::Object::Ptr alwaysMatch = new Poco::JSON::Object();
-        alwaysMatch->set("browserName", browserName);
+        json obj;
+        json capabilities;
+        json alwaysMatch;
+        alwaysMatch["browserName"] = browserName;
 
-        if (!args.isNull() && args->size() > 0) {
-            Poco::JSON::Object::Ptr chromeOptions = new Poco::JSON::Object();
-            chromeOptions->set("args", args);
+        if (!args.empty()) {
+            json browserOptions;
+            browserOptions["args"] = args;
 
             std::string key;
             if (browserName == "chrome") {
@@ -94,25 +90,25 @@ chrome=129.0.6668.70)", "stacktrace": "#0 0x5dd8a5bff10a \u003Cunknown>\n#1
                 key = "ms:edgeOptions";
             }
 
-            alwaysMatch->set(key, chromeOptions);
+            alwaysMatch[key] = browserOptions;
         }
 
-        capabilities->set("alwaysMatch", alwaysMatch);
-        obj->set("capabilities", capabilities);
+        capabilities["alwaysMatch"] = alwaysMatch;
+        obj["capabilities"] = capabilities;
 
         auto reqStr = jsonToString(obj);
 
         std::cout << reqStr << std::endl;
 
         auto URL = webDriverUrl + "/session";
-        auto value = callUrlDriver("POST", URL, reqStr)
-                         .extract<Poco::JSON::Object::Ptr>();
-        sessionId = value->get("sessionId").toString();
+        auto value = callUrlDriver("POST", URL, reqStr);
+        sessionId = value["sessionId"].get<std::string>();
     }
 
     void gotoUrl(const std::string &url) {
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("url", url);
+        json obj = json::object({
+            {"url", url},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -124,8 +120,9 @@ chrome=129.0.6668.70)", "stacktrace": "#0 0x5dd8a5bff10a \u003Cunknown>\n#1
 
     void sendKeysToElement(const std::string &elementId,
                            const std::string &keys) {
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("text", keys);
+        json obj = json::object({
+            {"text", keys},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -136,24 +133,23 @@ chrome=129.0.6668.70)", "stacktrace": "#0 0x5dd8a5bff10a \u003Cunknown>\n#1
         callUrlDriver("POST", URL, reqStr);
     }
 
-    static auto getIdFromElement(const Poco::Dynamic::Var &element) {
-        return element.extract<Poco::JSON::Object::Ptr>()
-            ->getValue<std::string>("element-6066-11e4-a52e-4f735466cecf");
+    static auto getIdFromElement(const json &element) {
+        return element["element-6066-11e4-a52e-4f735466cecf"]
+            .get<std::string>();
     }
 
-    void sendKeysToElement(const Poco::Dynamic::Var &element,
-                           const std::string &keys) {
+    void sendKeysToElement(const json &element, const std::string &keys) {
         auto elementId =
-            element.extract<Poco::JSON::Object::Ptr>()->getValue<std::string>(
-                "element-6066-11e4-a52e-4f735466cecf");
+            element["element-6066-11e4-a52e-4f735466cecf"].get<std::string>();
         sendKeysToElement(elementId, keys);
     }
 
     auto selectElement(const std::string &usingSelector,
                        const std::string &value) {
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("using", usingSelector);
-        obj->set("value", value);
+        json obj = json::object({
+            {"using", usingSelector},
+            {"value", value},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -165,12 +161,13 @@ chrome=129.0.6668.70)", "stacktrace": "#0 0x5dd8a5bff10a \u003Cunknown>\n#1
 
     template <class... T>
     auto executeSyncScript(const std::string &script, const T &...args) {
-        Poco::JSON::Array::Ptr argsjs = new Poco::JSON::Array;
-        (argsjs->add(args), ...);
+        json argsjs = json::array();
+        (argsjs.push_back(args), ...);
 
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("script", script);
-        obj->set("args", argsjs);
+        json obj = json::object({
+            {"script", script},
+            {"args", argsjs},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -178,7 +175,7 @@ chrome=129.0.6668.70)", "stacktrace": "#0 0x5dd8a5bff10a \u003Cunknown>\n#1
         return callUrlDriver("POST", URL, reqStr);
     }
 
-    auto submitElement(const Poco::Dynamic::Var &elementId) {
+    auto submitElement(const json &elementId) {
         std::string script = R"js(/* submitForm */var form = arguments[0];
 while (form.nodeName != "FORM" && form.parentNode) {
   form = form.parentNode;
@@ -192,16 +189,17 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
 
         auto res = executeSyncScript(script, elementId);
 
-        if (res.isEmpty()) {
+        if (res.empty()) {
             return;
         }
 
-        std::cout << "Response: " << res.toString() << std::endl;
+        std::cout << "Response: " << res.dump() << std::endl;
     }
 
     auto uploadFile(const std::string &filePath) {
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("file", filePath);
+        json obj = json::object({
+            {"file", filePath},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -298,10 +296,11 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
     }
 
     auto setTimeouts(const int implicit, const int pageLoad, const int script) {
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("implicit", implicit);
-        obj->set("pageLoad", pageLoad);
-        obj->set("script", script);
+        json obj = json::object({
+            {"implicit", implicit},
+            {"pageLoad", pageLoad},
+            {"script", script},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -344,9 +343,10 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
     auto findChildElement(const std::string &id,
                           const std::string &usingSelector,
                           const std::string &value) {
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("using", usingSelector);
-        obj->set("value", value);
+        json obj = json::object({
+            {"using", usingSelector},
+            {"value", value},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -371,9 +371,10 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
 
     auto findElements(const std::string &usingSelector,
                       const std::string &value) {
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("using", usingSelector);
-        obj->set("value", value);
+        json obj = json::object({
+            {"using", usingSelector},
+            {"value", value},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -440,7 +441,7 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
         auto element =
             executeSyncScript(script, value, selector, maxTime.count());
 
-        if (element.isEmpty()) {
+        if (element.empty()) {
             throw std::runtime_error("Element " + selector + "  " + value +
                                      " not found");
         }
@@ -451,9 +452,10 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
     auto findChildElements(const std::string &id,
                            const std::string &usingSelector,
                            const std::string &value) {
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("using", usingSelector);
-        obj->set("value", value);
+        json obj = json::object({
+            {"using", usingSelector},
+            {"value", value},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -465,9 +467,10 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
 
     auto findElement(const std::string &usingSelector,
                      const std::string &value) {
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("using", usingSelector);
-        obj->set("value", value);
+        json obj = json::object({
+            {"using", usingSelector},
+            {"value", value},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -483,8 +486,9 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
     }
 
     auto w3cSetAlertValue(const std::string &text) {
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("text", text);
+        json obj = json::object({
+            {"text", text},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -559,8 +563,9 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
     }
 
     auto setScreenOrientation(const std::string &orientation) {
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("orientation", orientation);
+        json obj = json::object({
+            {"orientation", orientation},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -588,8 +593,9 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
     }
 
     auto switchToContext(const std::string &name) {
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("name", name);
+        json obj = json::object({
+            {"name", name},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -612,12 +618,12 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
 
     template <class... T>
     auto w3cExecuteScript(const std::string &script, const T &...args) {
-        Poco::JSON::Array::Ptr argsjs = new Poco::JSON::Array;
-        (argsjs->add(args), ...);
+        json argsjs = json::array(args...);
 
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("script", script);
-        obj->set("args", argsjs);
+        json obj = json::object({
+            {"script", script},
+            {"args", argsjs},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -632,7 +638,7 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
         return callUrlDriver("GET", webDriverUrl + path);
     }
 
-    auto getElementText(const Poco::Dynamic::Var &id) {
+    auto getElementText(const json &id) {
         auto elementId = getIdFromElement(id);
 
         return getElementText(elementId);
@@ -640,12 +646,12 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
 
     template <class... T>
     auto w3cExecuteScriptAsync(const std::string &script, const T &...args) {
-        Poco::JSON::Array::Ptr argsjs = new Poco::JSON::Array;
-        (argsjs->add(args), ...);
+        json argsjs = json::array(args...);
 
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("script", script);
-        obj->set("args", argsjs);
+        json obj = json::object({
+            {"script", script},
+            {"args", argsjs},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -661,8 +667,9 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
     }
 
     auto get(const std::string &url) {
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("url", url);
+        json obj = json::object({
+            {"url", url},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -684,8 +691,9 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
     }
 
     auto newWindow(const std::string &type) {
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("type", type);
+        json obj = json::object({
+            {"type", type},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -694,11 +702,12 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
     }
 
     auto setWindowRect(int x, int y, int width, int height) {
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("x", x);
-        obj->set("y", y);
-        obj->set("width", width);
-        obj->set("height", height);
+        json obj = json::object({
+            {"x", x},
+            {"y", y},
+            {"width", width},
+            {"height", height},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -713,9 +722,10 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
         return callUrlDriver("GET", webDriverUrl + path);
     }
 
-    auto switchToFrame(const Poco::Dynamic::Var &frameId) {
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("id", frameId);
+    auto switchToFrame(const json &frameId) {
+        json obj = json::object({
+            {"id", frameId},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -732,9 +742,10 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
     auto findElementFromShadowRoot(const std::string &shadowId,
                                    const std::string &usingSelector,
                                    const std::string &value) {
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("using", usingSelector);
-        obj->set("value", value);
+        json obj = json::object({
+            {"using", usingSelector},
+            {"value", value},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -765,9 +776,10 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
     auto findElementsFromShadowRoot(const std::string &shadowId,
                                     const std::string &usingSelector,
                                     const std::string &value) {
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("using", usingSelector);
-        obj->set("value", value);
+        json obj = json::object({
+            {"using", usingSelector},
+            {"value", value},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -777,7 +789,7 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
         return callUrlDriver("POST", webDriverUrl + path, reqStr);
     }
 
-    auto addCookie(const Poco::JSON::Object::Ptr &cookieJson) {
+    auto addCookie(const json &cookieJson) {
         auto reqStr = jsonToString(cookieJson);
 
         std::string path = "/session/" + sessionId + "/cookie";
@@ -811,8 +823,9 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
     }
 
     auto switchToWindow(const std::string &handle) {
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("handle", handle);
+        json obj = json::object({
+            {"handle", handle},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -821,8 +834,9 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
     }
 
     auto setNetworkConnection(int connectionType) {
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("network", connectionType);
+        json obj = json::object({
+            {"network", connectionType},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -838,12 +852,12 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
 
     template <class... T>
     auto executeAsyncScript(const std::string &script, const T &...args) {
-        Poco::JSON::Array::Ptr argsjs = new Poco::JSON::Array;
-        (argsjs->add(args), ...);
+        json argsjs = json::array(args...);
 
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("script", script);
-        obj->set("args", argsjs);
+        json obj = json::object({
+            {"script", script},
+            {"args", argsjs},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -880,8 +894,9 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
     }
 
     auto downloadFile(const std::string &fileId) {
-        Poco::JSON::Object::Ptr obj = new Poco::JSON::Object();
-        obj->set("fileId", fileId);
+        json obj = json::object({
+            {"fileId", fileId},
+        });
 
         auto reqStr = jsonToString(obj);
 
@@ -902,7 +917,7 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
         return callUrlDriver("DELETE", webDriverUrl + path);
     }
 
-    auto actions(const Poco::JSON::Object::Ptr &actionsJson) {
+    auto actions(const json &actionsJson) {
         auto reqStr = jsonToString(actionsJson);
 
         std::string path = "/session/" + sessionId + "/actions";
@@ -916,7 +931,7 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
     }
 
     auto callUrlDriver(const std::string &verb, const std::string &url,
-                       const std::string &body = "") -> Poco::Dynamic::Var {
+                       const std::string &body = "") -> json {
         auto &req = CurlRAII::instance();
 
         auto res =
@@ -933,14 +948,11 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
             return {};
         }
 
-        Poco::JSON::Object::Ptr resObj =
-            Poco::JSON::Parser()
-                .parse(res.buffer)
-                .extract<Poco::JSON::Object::Ptr>();
+        auto resObj = json::parse(res.buffer);
 
         analyzeError(resObj);
 
-        return resObj->get("value");
+        return resObj["value"];
     }
 
     WebDriver() = default;

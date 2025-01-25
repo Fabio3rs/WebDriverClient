@@ -1,6 +1,7 @@
 #include "WebDriverClient.hpp"
 #include <Poco/JSON/Array.h>
 #include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
 
 static const char *serverUrl = "http://localhost:8080";
 
@@ -12,11 +13,12 @@ static const char *serverUrl = "http://localhost:8080";
 static auto initWebDriverClient() -> WebDriver {
     WebDriver browser;
 
-    Poco::JSON::Array::Ptr args = new Poco::JSON::Array;
-    args->add("--headless");
-    args->add("--disable-gpu");
-    args->add("--no-sandbox");
-    args->add("--disable-dev-shm-usage");
+    WebDriver::json args = WebDriver::json::array({
+        "--headless",
+        "--disable-gpu",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+    });
 
     browser.connect(args);
 
@@ -28,7 +30,7 @@ TEST(SampleTest, Test1) {
 
     browser.get(serverUrl);
 
-    auto title = browser.getTitle().toString();
+    auto title = browser.getTitle().get<std::string>();
     EXPECT_EQ(title, "Sample Test Page");
     EXPECT_EQ(1, 1);
 }
@@ -39,7 +41,7 @@ TEST(SampleTest, LocateClickMeButton) {
     browser.get(serverUrl);
 
     auto button = browser.findElement("css selector", "[id=click-me-button]");
-    EXPECT_FALSE(button.isEmpty());
+    EXPECT_FALSE(button.empty());
 
     browser.getElementText(button);
 }
@@ -50,14 +52,12 @@ TEST(SampleTest, LocateMultipleElements) {
     browser.get(serverUrl);
 
     auto genderOptions = browser.findElement("css selector", "[id=gender]");
-    EXPECT_FALSE(genderOptions.isEmpty());
+    EXPECT_FALSE(genderOptions.empty());
 
     auto options = browser.findChildElements(
         WebDriver::getIdFromElement(genderOptions), "css selector", "option");
 
-    EXPECT_TRUE(options.isArray());
-
-    auto arrayVal = options.extract<Poco::JSON::Array::Ptr>();
+    EXPECT_TRUE(options.is_array());
 
     /*
             <option value="">Select gender</option>
@@ -65,5 +65,5 @@ TEST(SampleTest, LocateMultipleElements) {
             <option value="female">Female</option>
             <option value="other">Other</option>
     */
-    EXPECT_EQ(arrayVal->size(), 4);
+    EXPECT_EQ(options.size(), 4);
 }

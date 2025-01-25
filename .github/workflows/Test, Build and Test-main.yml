@@ -24,7 +24,12 @@ jobs:
           sudo apt-get update && sudo apt-get install libcurl4 libcurl4-openssl-dev libpoco-dev -y
           sudo apt install libgtest-dev googletest -y
           sudo apt install python3-pip chromium-chromedriver -y
-      
+
+      - name: Download nlohmann/json
+        run: |
+          mkdir -p include/nlohmann
+          curl -L https://github.com/nlohmann/json/releases/latest/download/json.hpp -o include/nlohmann/json.hpp
+
       - name: Setup cmake
         uses: jwlawson/actions-setup-cmake@v1.8
         with:
