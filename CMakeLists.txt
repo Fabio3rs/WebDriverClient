@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.12)
-project(clichromewebdriver C CXX)
+project(webdriverclientcpp C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 11)
@@ -72,11 +72,11 @@ filter_out(EXCLUDE_FILES SOURCES)
 
 message(STATUS "Sources: ${SOURCES}")
 
-add_library(clichromewebdriver_lib STATIC ${SOURCES})
+add_library(webdriverclientcpp_lib STATIC ${SOURCES})
 
 # Add executable
-add_executable(clichromewebdriver "src/main.cpp")
-target_link_libraries(clichromewebdriver clichromewebdriver_lib ${CURL_LIBRARIES} ${Poco_LIBRARIES})
+add_executable(webdriverclientcpp "src/main.cpp")
+target_link_libraries(webdriverclientcpp webdriverclientcpp_lib ${CURL_LIBRARIES} ${Poco_LIBRARIES})
 
 if(ENABLE_TESTS)
     add_subdirectory(tests)

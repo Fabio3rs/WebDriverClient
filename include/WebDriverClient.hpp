@@ -968,12 +968,16 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
             return;
         }
 
-        auto &req = CurlRAII::instance();
+        try {
+            auto &req = CurlRAII::instance();
 
-        auto res =
-            req.request("DELETE", webDriverUrl + "/session/" + sessionId);
+            auto res =
+                req.request("DELETE", webDriverUrl + "/session/" + sessionId);
 
-        std::cout << "Response: " << res.response_code << std::endl;
+            std::cout << "Response: " << res.response_code << std::endl;
+        } catch (const std::exception &e) {
+            std::cerr << "Error: " << e.what() << std::endl;
+        }
     }
 
     std::string webDriverUrl = "http://localhost:9515";

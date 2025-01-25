@@ -85,6 +85,9 @@ sudo apt-get install python3-pip chromium-chromedriver
    killall chromedriver
    ```
 
+## Download chromedriver
+https://developer.chrome.com/docs/chromedriver/downloads/version-selection
+
 ## Usage instructions
     ***Note:*** The WebDriverClient is currently only compatible with Chrome WebDriver. Ensure that the ChromeDriver is installed and running before using the WebDriverClient.
     ***TODO:*** Add instructions for installing and running ChromeDriver. Improve the error handling and usability of the WebDriverClient.
