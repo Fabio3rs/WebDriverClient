@@ -29,6 +29,33 @@ class Strutils {
                        });
     }
 
+    static inline void ltrim(std::string &str) {
+        str.erase(str.begin(),
+                  std::find_if(str.begin(), str.end(), [](unsigned char ch) {
+                      return !std::isspace(ch);
+                  }));
+    }
+
+    static inline void rtrim(std::string &str) {
+        str.erase(
+            std::find_if(str.rbegin(), str.rend(),
+                         [](unsigned char ch) { return !std::isspace(ch); })
+                .base(),
+            str.end());
+    }
+
+    static inline void trim(std::string &str) {
+        ltrim(str);
+        rtrim(str);
+    }
+
+    static inline auto trimCopy(std::string str) {
+        ltrim(str);
+        rtrim(str);
+
+        return str;
+    }
+
     static inline void replace_chr(std::string &str, char chin, char chout) {
         for (auto &ch : str) {
             if (ch == chin) {

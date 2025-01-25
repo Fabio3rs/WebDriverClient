@@ -1,22 +1,14 @@
+#include "Strutils.hpp"
 #include "WebDriverClient.hpp"
-#include "stdafx.hpp"
-#include <Poco/JSON/Array.h>
-#include <Poco/JSON/Object.h>
-#include <Poco/String.h>
 #include <chrono>
 #include <csignal>
-#include <cstddef>
 #include <cstdlib>
 #include <exception>
 #include <fstream>
 #include <functional>
 #include <nlohmann/json.hpp>
-#include <span>
-#include <string_view>
 #include <thread>
 #include <unistd.h>
-#include <unordered_map>
-#include <utility>
 
 auto getenvor(const char *name, const char *def = "") -> std::string {
     auto env = std::getenv(name);
@@ -60,8 +52,8 @@ static void load_dotenv(std::string path = ".env") {
             continue;
         }
 
-        auto key = Poco::trim(parts[0]);
-        auto value = Poco::trim(parts[1]);
+        auto key = Strutils::trimCopy(parts[0]);
+        auto value = Strutils::trimCopy(parts[1]);
 
         setenv(key.c_str(), value.c_str(), 1);
     }
