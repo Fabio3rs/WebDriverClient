@@ -391,7 +391,7 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
                 return new Promise((resolve, reject) => {
                     // Function to find an element by CSS or XPath
                     function getElement(selector, type) {
-                        if (type === "css") {
+                        if (type === "css" || type === "css selector") {
                             return document.querySelector(selector); // CSS Selector
                         } else if (type === "xpath") {
                             return document.evaluate(
