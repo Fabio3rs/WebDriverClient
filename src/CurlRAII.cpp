@@ -12,13 +12,13 @@ CurlRAII::CurlRAII() { curl_global_init(CURL_GLOBAL_DEFAULT); }
 
 CurlRAII::~CurlRAII() { curl_global_cleanup(); }
 
-CurlRAII &CurlRAII::instance() {
+auto CurlRAII::instance() -> CurlRAII & {
     static CurlRAII inst;
     return inst;
 }
 
-auto CurlRAII::postJson(const std::string &url, const std::string &json)
-    -> curlCallBack {
+auto CurlRAII::postJson(const std::string &url,
+                        const std::string &json) -> curlCallBack {
 
     curlCallBack result;
     curlraii_t curl = make_curl_easy();

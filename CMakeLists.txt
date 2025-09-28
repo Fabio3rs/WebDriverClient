@@ -30,7 +30,14 @@ option(WEBDRIVER_ENABLE_WARNINGS_AS_ERRORS "Treat warnings as errors" ${WEBDRIVE
 # =============================================================================
 # C++ Standard and Compiler Settings
 # =============================================================================
-set(CMAKE_CXX_STANDARD 20)
+# Prefer C++23 when BiDi (Boost) support is enabled to allow coroutines, std::print
+# and other C++23 ergonomics; otherwise keep C++20 for maximum compatibility.
+if(WEBDRIVER_USE_BOOST)
+    # If Boost/BiDi requested, prefer C++23
+    set(CMAKE_CXX_STANDARD 23)
+else()
+    set(CMAKE_CXX_STANDARD 20)
+endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)  # Use standard C++, not GNU extensions by default
 
@@ -263,6 +270,15 @@ endfunction()
 file(GLOB_RECURSE WEBDRIVER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 list(FILTER WEBDRIVER_SOURCES EXCLUDE REGEX "main\\.cpp$")
 
+# Ensure new BiDi threading and optimization files are included
+list(APPEND WEBDRIVER_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/bidi_threading.cpp"          # Core threading
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/bidi_session_threaded.cpp"   # BiDi session
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/bidi_memory_pool.cpp"        # JSON arena allocation
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/bidi_timer_pool.cpp"         # Timer wheel
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/bidi_buffer_pool.cpp"        # Zero-copy buffers
+)
+
 # Create library target
 if(WEBDRIVER_BUILD_SHARED)
     add_library(webdriverclientcpp SHARED ${WEBDRIVER_SOURCES})
@@ -279,6 +295,28 @@ target_include_directories(webdriverclientcpp
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+# Link dependencies
+# (inserindo SYSTEM include dirs para reduzir warnings de terceiros)
+foreach(_dep IN LISTS WEBDRIVER_REQUIRED_LIBS WEBDRIVER_OPTIONAL_LIBS)
+    if(TARGET ${_dep})
+        get_target_property(_inc_dirs ${_dep} INTERFACE_INCLUDE_DIRECTORIES)
+        if(_inc_dirs)
+            # Adiciona cada include como SYSTEM
+            foreach(_dir IN LISTS _inc_dirs)
+                if(EXISTS "${_dir}")
+                    target_include_directories(webdriverclientcpp SYSTEM PUBLIC $<BUILD_INTERFACE:${_dir}>)
+                endif()
+            endforeach()
+        endif()
+    endif()
+endforeach()
+
+# Mantém includes do próprio projeto
+target_include_directories(webdriverclientcpp
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
@@ -307,6 +345,32 @@ if(WEBDRIVER_BUILD_EXAMPLES)
     )
     configure_compiler_flags(webdriverclientcpp_example)
     configure_sanitizers(webdriverclientcpp_example)
+
+    # BiDi integration demo (requires Boost)
+    if(WEBDRIVER_USE_BOOST)
+        add_executable(demo_integration "demo_integration.cpp")
+        target_link_libraries(demo_integration
+            PRIVATE webdriverclientcpp
+        )
+        configure_compiler_flags(demo_integration)
+        configure_sanitizers(demo_integration)
+
+        # New threaded BiDi demo showcasing zero busy-wait architecture
+        add_executable(demo_threaded_bidi "demo_threaded_bidi.cpp")
+        target_link_libraries(demo_threaded_bidi
+            PRIVATE webdriverclientcpp
+        )
+        configure_compiler_flags(demo_threaded_bidi)
+        configure_sanitizers(demo_threaded_bidi)
+
+        # Optimized threading demo showcasing all performance improvements
+        add_executable(demo_optimized_threading "demo_optimized_threading.cpp")
+        target_link_libraries(demo_optimized_threading
+            PRIVATE webdriverclientcpp
+        )
+        configure_compiler_flags(demo_optimized_threading)
+        configure_sanitizers(demo_optimized_threading)
+    endif()
 endif()
 
 # =============================================================================

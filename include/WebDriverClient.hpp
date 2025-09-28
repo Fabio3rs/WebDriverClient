@@ -20,6 +20,7 @@
 #ifdef USE_POCO_JSON
 #include "PocoJsonWrapper.hpp"
 #else
+#include "bidi/logging.hpp"
 #include <nlohmann/json.hpp>
 #endif
 
@@ -65,7 +66,7 @@ chrome=129.0.6668.70)", "stacktrace": "#0 0x5dd8a5bff10a \u003Cunknown>\n#1
         }
 
         auto message = (*value)["message"].get<std::string>();
-        std::cerr << "Error: " << message << std::endl;
+        bidi::logging::log_error(std::string("Error: ") + message);
         throw std::runtime_error("Error: " + errorIt->get<std::string>() +
                                  "\n" + message);
     }
@@ -100,7 +101,7 @@ chrome=129.0.6668.70)", "stacktrace": "#0 0x5dd8a5bff10a \u003Cunknown>\n#1
 
         auto reqStr = jsonToString(obj);
 
-        std::cout << reqStr << std::endl;
+        bidi::logging::log_info(reqStr);
 
         auto URL = webDriverUrl + "/session";
         auto value = callUrlDriver("POST", URL, reqStr);
@@ -115,7 +116,7 @@ chrome=129.0.6668.70)", "stacktrace": "#0 0x5dd8a5bff10a \u003Cunknown>\n#1
 
         auto reqStr = jsonToString(obj);
 
-        std::cout << reqStr << std::endl;
+        bidi::logging::log_info(reqStr);
 
         auto URL = webDriverUrl + "/session/" + sessionId + "/url";
         callUrlDriver("POST", URL, reqStr);
@@ -129,7 +130,7 @@ chrome=129.0.6668.70)", "stacktrace": "#0 0x5dd8a5bff10a \u003Cunknown>\n#1
 
         auto reqStr = jsonToString(obj);
 
-        std::cout << reqStr << std::endl;
+        bidi::logging::log_info(reqStr);
 
         auto URL = webDriverUrl + "/session/" + sessionId + "/element/" +
                    elementId + "/value";
@@ -156,7 +157,7 @@ chrome=129.0.6668.70)", "stacktrace": "#0 0x5dd8a5bff10a \u003Cunknown>\n#1
 
         auto reqStr = jsonToString(obj);
 
-        std::cout << reqStr << std::endl;
+        bidi::logging::log_info(reqStr);
 
         auto URL = webDriverUrl + "/session/" + sessionId + "/element";
         return callUrlDriver("POST", URL, reqStr);
@@ -196,7 +197,7 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
             return;
         }
 
-        std::cout << "Response: " << res.dump() << std::endl;
+        bidi::logging::log_info(std::string("Response: ") + res.dump());
     }
 
     auto uploadFile(const std::string &filePath) {

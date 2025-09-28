@@ -41,6 +41,46 @@ template <> struct State<void> {
     explicit State(net::any_io_executor e) : ex(e) {}
 };
 
+// awaiter genérico para Async<T> (definido em namespace para permitir
+// member templates como await_suspend). Possui especialização para void.
+template <class T> struct async_awaiter {
+    std::shared_ptr<State<T>> st;
+    bool await_ready() const noexcept { return st->done; }
+    template <class Promise>
+    void await_suspend(std::coroutine_handle<Promise> h) {
+        std::scoped_lock lk(st->mx);
+        st->conts.push_back([h]() mutable { h.resume(); });
+    }
+    T await_resume() {
+        if (auto p = std::get_if<T>(&st->result)) {
+            return std::move(*p);
+        }
+        if (auto ec = std::get_if<EC>(&st->result)) {
+            throw boost::system::system_error(*ec);
+        }
+        std::rethrow_exception(std::get<std::exception_ptr>(st->result));
+    }
+};
+
+template <> struct async_awaiter<void> {
+    std::shared_ptr<State<void>> st;
+    bool await_ready() const noexcept { return st->done; }
+    template <class Promise>
+    void await_suspend(std::coroutine_handle<Promise> h) {
+        std::scoped_lock lk(st->mx);
+        st->conts.push_back([h]() mutable { h.resume(); });
+    }
+    void await_resume() {
+        if (auto ec = std::get_if<EC>(&st->result)) {
+            throw boost::system::system_error(*ec);
+        }
+        if (!std::holds_alternative<std::monostate>(st->result) &&
+            !std::holds_alternative<EC>(st->result)) {
+            std::rethrow_exception(std::get<std::exception_ptr>(st->result));
+        }
+    }
+};
+
 // ---------- Async<T> ----------
 template <class T = void> class Async {
     std::shared_ptr<State<T>> st_;
@@ -60,6 +100,21 @@ template <class T = void> class Async {
     std::stop_token get_stop_token() const { return st_->stop_src.get_token(); }
 
     void request_stop() { st_->stop_src.request_stop(); }
+
+    // Conversão implícita para boost::asio::awaitable<void>
+    operator net::awaitable<void>() const {
+        auto self = *this;
+        return [self]() -> net::awaitable<void> {
+            co_await self;
+            co_return;
+        }();
+    }
+
+    // Conversão implícita para boost::asio::awaitable<T>
+    operator net::awaitable<T>() const {
+        auto self = *this;
+        return [self]() -> net::awaitable<T> { co_return co_await self; }();
+    }
 
     template <class Fn> Async<T> on_error(Fn fn) {
         auto &a = *this;
@@ -250,28 +305,8 @@ template <class T = void> class Async {
         attach_or_run(std::move(cont));
     }
 
-    // awaiter opcional
-    auto operator co_await() const {
-        struct awaiter {
-            std::shared_ptr<State<T>> st;
-            bool await_ready() const noexcept { return st->done; }
-            void await_suspend(std::coroutine_handle<> h) {
-                std::scoped_lock lk(st->mx);
-                st->conts.push_back([h] { h.resume(); });
-            }
-            T await_resume() {
-                if (auto p = std::get_if<T>(&st->result)) {
-                    return std::move(*p);
-                }
-                if (auto ec = std::get_if<EC>(&st->result)) {
-                    throw boost::system::system_error(*ec);
-                }
-                std::rethrow_exception(
-                    std::get<std::exception_ptr>(st->result));
-            }
-        };
-        return awaiter{st_};
-    }
+    // awaiter opcional (usa async_awaiter definido no namespace)
+    auto operator co_await() const { return async_awaiter<T>{st_}; }
 
   private:
     void attach_or_run(std::function<void()> c) const {
@@ -293,8 +328,9 @@ template <class T = void> class Async {
   public:
     // ---------- fábricas ----------
     template <class U>
-    static Async<U> from_future(net::any_io_executor ex, std::future<U> fut,
-                                boost::asio::thread_pool *pool = nullptr) {
+    static Async<U>
+    from_future(net::any_io_executor ex, std::future<U> fut,
+                std::shared_ptr<boost::asio::thread_pool> pool = nullptr) {
         auto a = Async<U>::make(ex);
         auto &target_pool = pool ? *pool : webdriver::global_thread_pool();
         boost::asio::post(target_pool, [a, f = std::move(fut)]() mutable {
@@ -491,27 +527,7 @@ template <> class Async<void> {
         attach_or_run(std::move(cont));
     }
 
-    auto operator co_await() const {
-        struct awaiter {
-            std::shared_ptr<State<void>> st;
-            bool await_ready() const noexcept { return st->done; }
-            void await_suspend(std::coroutine_handle<> h) {
-                std::scoped_lock lk(st->mx);
-                st->conts.push_back([h] { h.resume(); });
-            }
-            void await_resume() {
-                if (auto ec = std::get_if<EC>(&st->result)) {
-                    throw boost::system::system_error(*ec);
-                }
-                if (!std::holds_alternative<std::monostate>(st->result) &&
-                    !std::holds_alternative<EC>(st->result)) {
-                    std::rethrow_exception(
-                        std::get<std::exception_ptr>(st->result));
-                }
-            }
-        };
-        return awaiter{st_};
-    }
+    auto operator co_await() const { return async_awaiter<void>{st_}; }
 
   private:
     void attach_or_run(std::function<void()> c) const {

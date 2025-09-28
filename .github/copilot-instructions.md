@@ -3,6 +3,9 @@
 **Scope**: C++ repositories (C++20/23) for APIs/services, this is a library project for third party integration.
 **Goal**: Generate safe, readable, testable, and efficient code aligned with the *C++ Core Guidelines* and **NASA Power of Ten (P10)**.
 **Priority**: If these rules conflict with history or prior style, **these rules win**.
+**Before any generation**, ensure the context is sufficient to follow these rules, ensure the new code/current code follows the project domain directives.
+**Commentaries**: Add comments to explain non-obvious decisions, especially around error handling, resource management, and performance trade-offs, use the Copilot chat with the User to talk about decisions, explain in detail then write the code.
+**Do not** generate code that violates these rules.
 
 ---
 
@@ -110,6 +113,13 @@ auto UsersHandler::get_by_id(const Request& req) -> Response {
 
   return http::ok(dto::User::from_domain(*res));
 }
+```
+
+---
+# Never omit {…} even for single statements.
+
+```cpp
+if (cond) { return x; } // GOOD
 ```
 
 ---

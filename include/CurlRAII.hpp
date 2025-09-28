@@ -126,11 +126,11 @@ class CurlRAII {
      */
     static CurlRAII &instance();
 
-    auto postJson(const std::string &url, const std::string &json)
+    static auto postJson(const std::string &url, const std::string &json)
         -> curlCallBack;
 
-    auto request(const std::string &httpVerb, const std::string &url,
-                 const std::string &body = "") -> curlCallBack;
+    static auto request(const std::string &httpVerb, const std::string &url,
+                        const std::string &body = "") -> curlCallBack;
 };
 
 #endif

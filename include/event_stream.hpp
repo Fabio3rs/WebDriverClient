@@ -1,8 +1,8 @@
 // event_stream.hpp — versão com Shared-State (copiável/movível)
 #pragma once
-#include <boost/asio.hpp>
-#include <atomic>
 #include <algorithm>
+#include <atomic>
+#include <boost/asio.hpp>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -11,10 +11,9 @@
 
 namespace bidi {
 
-template <class E>
-class EventStream {
+template <class E> class EventStream {
   public:
-    using Handler = std::function<void(const E&)>;
+    using Handler = std::function<void(const E &)>;
 
     struct Subscription {
         std::function<void()> cancel;
@@ -43,23 +42,25 @@ class EventStream {
         : st_(std::make_shared<State>(std::move(ex))) {}
 
     // cópia/move default OK (só move/copia o shared_ptr)
-    EventStream(const EventStream&) = default;
-    EventStream(EventStream&&) noexcept = default;
-    EventStream& operator=(const EventStream&) = default;
-    EventStream& operator=(EventStream&&) noexcept = default;
+    EventStream(const EventStream &) = default;
+    EventStream(EventStream &&) noexcept = default;
+    EventStream &operator=(const EventStream &) = default;
+    EventStream &operator=(EventStream &&) noexcept = default;
 
     bool valid() const { return (bool)st_; }
     boost::asio::any_io_executor get_executor() const { return st_->ex; }
 
     // publica um evento para todos os assinantes (thread-safe)
-    void push(const E& e) const {
+    void push(const E &e) const {
         std::vector<Handler> cbs;
         {
             std::scoped_lock lk(st_->mx);
             cbs.reserve(st_->subs.size());
-            for (auto& p : st_->subs) { cbs.push_back(p.second); }
+            for (auto &p : st_->subs) {
+                cbs.push_back(p.second);
+            }
         }
-        for (auto& cb : cbs) {
+        for (auto &cb : cbs) {
             boost::asio::post(st_->ex, [cb, e]() { cb(e); });
         }
     }
@@ -75,9 +76,9 @@ class EventStream {
         return Subscription{[w, id]() {
             if (auto s = w.lock()) {
                 std::scoped_lock lk(s->mx);
-                auto& v = s->subs;
+                auto &v = s->subs;
                 v.erase(std::remove_if(v.begin(), v.end(),
-                                       [id](auto& p) { return p.first == id; }),
+                                       [id](auto &p) { return p.first == id; }),
                         v.end());
             }
         }};
@@ -85,30 +86,33 @@ class EventStream {
 
     // operadores funcionais — retornam novos streams (copiáveis/movíveis)
 
-    EventStream<E> take_until(const std::shared_ptr<StopToken>& stop) const {
+    EventStream<E> take_until(const std::shared_ptr<StopToken> &stop) const {
         EventStream<E> out(st_->ex);
-        auto sub = subscribe([out, stop](const E& e) mutable {
-            if (!stop->stop.load(std::memory_order_relaxed)) { out.push(e); }
+        auto sub = subscribe([out, stop](const E &e) mutable {
+            if (!stop->stop.load(std::memory_order_relaxed)) {
+                out.push(e);
+            }
         });
         out.st_->holds.push_back(std::move(sub)); // mantém a ligação viva
         return out;
     }
 
-    EventStream<E> filter(std::function<bool(const E&)> pred) const {
+    EventStream<E> filter(std::function<bool(const E &)> pred) const {
         EventStream<E> out(st_->ex);
-        auto sub = subscribe([out, pred = std::move(pred)](const E& e) mutable {
-            if (pred(e)) { out.push(e); }
+        auto sub = subscribe([out, pred = std::move(pred)](const E &e) mutable {
+            if (pred(e)) {
+                out.push(e);
+            }
         });
         out.st_->holds.push_back(std::move(sub));
         return out;
     }
 
-    template <class F, class R = std::invoke_result_t<F, const E&>>
+    template <class F, class R = std::invoke_result_t<F, const E &>>
     EventStream<R> map(F f) const {
         EventStream<R> out(st_->ex);
-        auto sub = subscribe([out, f = std::move(f)](const E& e) mutable {
-            out.push(f(e));
-        });
+        auto sub = subscribe(
+            [out, f = std::move(f)](const E &e) mutable { out.push(f(e)); });
         out.st_->holds.push_back(std::move(sub));
         return out;
     }

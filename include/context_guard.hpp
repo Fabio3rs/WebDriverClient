@@ -1,29 +1,50 @@
 #pragma once
+#include "bidi/client.hpp"
 #include <memory>
-#include "bidi.hpp"
 
 namespace bidi {
 
 class ContextGuard {
   public:
-    ContextGuard(std::shared_ptr<BidiClient> cli, std::string ctx)
-    : cli_{std::move(cli)}, ctx_{std::move(ctx)} { }
+    ContextGuard(std::shared_ptr<Client> client, std::string context_id)
+        : client_{std::move(client)}, context_id_{std::move(context_id)} {}
 
     ~ContextGuard() {
-      try {
-        if (!ctx_.empty()) {
-          // Envia fechamento "fire-and-forget" (padrão seguro; pode-se trocar por Async<void>).
-          cli_->async_send("browsingContext.close",
-                           { {"context", ctx_} });
+        try {
+            if (!context_id_.empty() && client_) {
+                // Close context using new API (fire-and-forget)
+                auto close_task = client_->close_context(context_id_);
+                // Task destructor will handle cleanup
+            }
+        } catch (...) {
+            // Ignore cleanup errors in destructor
         }
-      } catch (...) { }
     }
 
-    auto id() const -> const std::string& { return ctx_; }
+    // Non-copyable, movable
+    ContextGuard(const ContextGuard &) = delete;
+    ContextGuard &operator=(const ContextGuard &) = delete;
+
+    ContextGuard(ContextGuard &&other) noexcept
+        : client_{std::move(other.client_)},
+          context_id_{std::move(other.context_id_)} {
+        other.context_id_.clear();
+    }
+
+    ContextGuard &operator=(ContextGuard &&other) noexcept {
+        if (this != &other) {
+            client_ = std::move(other.client_);
+            context_id_ = std::move(other.context_id_);
+            other.context_id_.clear();
+        }
+        return *this;
+    }
+
+    const std::string &id() const { return context_id_; }
 
   private:
-    std::shared_ptr<BidiClient> cli_;
-    std::string ctx_;
+    std::shared_ptr<Client> client_;
+    std::string context_id_;
 };
 
 } // namespace bidi
