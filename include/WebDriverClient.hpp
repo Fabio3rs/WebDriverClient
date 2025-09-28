@@ -70,12 +70,14 @@ chrome=129.0.6668.70)", "stacktrace": "#0 0x5dd8a5bff10a \u003Cunknown>\n#1
                                  "\n" + message);
     }
 
-    void connect(const json &args = {},
-                 const std::string &browserName = "chrome") {
+    auto connect(const json &args = {},
+                 const std::string &browserName = "chrome",
+                 bool webSocketUrl = true) {
         json obj;
         json capabilities;
         json alwaysMatch;
         alwaysMatch["browserName"] = browserName;
+        alwaysMatch["webSocketUrl"] = webSocketUrl;
 
         if (!args.empty()) {
             json browserOptions;
@@ -103,6 +105,7 @@ chrome=129.0.6668.70)", "stacktrace": "#0 0x5dd8a5bff10a \u003Cunknown>\n#1
         auto URL = webDriverUrl + "/session";
         auto value = callUrlDriver("POST", URL, reqStr);
         sessionId = value["sessionId"].get<std::string>();
+        return value;
     }
 
     void gotoUrl(const std::string &url) {
