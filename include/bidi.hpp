@@ -1,5 +1,6 @@
 // bidi.hpp — C++20 (Boost 1.84+)
 #pragma once
+#include "ThreadPool.hpp"
 #include <atomic>
 #include <boost/asio.hpp>
 #include <boost/beast/core.hpp>
@@ -10,7 +11,6 @@
 #include <mutex>
 #include <optional>
 #include <string>
-#include <thread>
 
 namespace bidi {
 
@@ -68,10 +68,10 @@ class WsSession : public std::enable_shared_from_this<WsSession> {
                             .async_connect(res, [self,
                                                  handler = std::move(handler)](
                                                     boost::system::error_code
-                                                        ec,
+                                                        ec2,
                                                     tcp::endpoint) mutable {
-                                if (ec) {
-                                    std::move(handler)(ec);
+                                if (ec2) {
+                                    std::move(handler)(ec2);
                                     return;
                                 }
 
@@ -89,8 +89,8 @@ class WsSession : public std::enable_shared_from_this<WsSession> {
                                 self->stream_.async_handshake(
                                     self->host_, self->target_,
                                     [handler = std::move(handler)](
-                                        boost::system::error_code ec) mutable {
-                                        std::move(handler)(ec);
+                                        boost::system::error_code ec3) mutable {
+                                        std::move(handler)(ec3);
                                     });
                             });
                     });
@@ -182,11 +182,14 @@ class WsSession : public std::enable_shared_from_this<WsSession> {
 // ======================== BidiClient ========================
 class BidiClient : public std::enable_shared_from_this<BidiClient> {
   public:
-    explicit BidiClient(std::shared_ptr<WsSession> ws) : ws_(std::move(ws)) {
+    explicit BidiClient(std::shared_ptr<WsSession> ws,
+                        boost::asio::thread_pool *tp = nullptr)
+        : ws_(std::move(ws)), thread_pool_(tp) {
         ws_->on_text([this](std::string s) { this->on_raw(std::move(s)); });
     }
 
     net::any_io_executor get_executor() const { return ws_->get_executor(); }
+    boost::asio::thread_pool *get_thread_pool() const { return thread_pool_; }
 
     // Envia {id,method,params} → future<json::object> com "result"/"value"
     std::future<json::object> async_send(std::string method,
@@ -202,7 +205,24 @@ class BidiClient : public std::enable_shared_from_this<BidiClient> {
             std::scoped_lock lk(mx_);
             pending_.emplace(id, std::move(p));
         }
-        ws_->async_write(json::serialize(cmd), net::detached);
+
+        // send via WsSession async_write and propagate write errors to the
+        // promise so callers observe transport failures
+        auto msg = json::serialize(cmd);
+        ws_->async_write(
+            std::move(msg), [this, id](boost::system::error_code ec) {
+                if (ec) {
+                    std::scoped_lock lk(mx_);
+                    if (auto it = pending_.find(id); it != pending_.end()) {
+                        try {
+                            it->second.set_exception(std::make_exception_ptr(
+                                boost::system::system_error(ec)));
+                        } catch (...) {
+                        }
+                        pending_.erase(it);
+                    }
+                }
+            });
         return fut;
     }
 
@@ -299,6 +319,8 @@ class BidiClient : public std::enable_shared_from_this<BidiClient> {
     std::unordered_map<std::string,
                        std::vector<std::function<void(json::object)>>>
         waiters_;
+    // optional injected thread pool for blocking work (futures)
+    boost::asio::thread_pool *thread_pool_{nullptr};
 };
 
 // ===== helper p/ script.callFunction (espera elemento sem polling) =====
@@ -441,11 +463,14 @@ function waitForElement(selector, selectorType, timeout = 5000) {
             auto fut =
                 cli->async_send("script.callFunction", std::move(params));
 
-            // 3) espera o Future em thread separada e entrega no executor
-            std::thread([f = std::move(fut), handler, done, timer,
-                         ex]() mutable {
+            // 3) espera o Future de forma não-detach usando injected thread
+            // pool
+            auto *injected = cli ? cli->get_thread_pool() : nullptr;
+            auto &pool_for_post =
+                injected ? *injected : webdriver::global_thread_pool();
+            boost::asio::post(pool_for_post, [f = std::move(fut), handler, done,
+                                              timer, ex]() mutable {
                 try {
-                    // 'result' aqui já é o objeto "result" do BiDi (inner)
                     auto result = f.get();
 
                     // Pode vir "exceptionDetails" quando a função/rejeição
@@ -463,8 +488,6 @@ function waitForElement(selector, selectorType, timeout = 5000) {
                         return;
                     }
 
-                    // Espera um RemoteValue em result["result"] com type "node"
-                    // e handle
                     auto &rv = result.at("result");
                     if (!rv.is_object()) {
                         throw std::runtime_error("Unexpected result shape");
@@ -472,8 +495,7 @@ function waitForElement(selector, selectorType, timeout = 5000) {
 
                     if (!done->exchange(true)) {
                         timer->cancel();
-                        RemoteElement el{
-                            rv}; // mantém o RemoteValue (inclui 'handle')
+                        RemoteElement el{rv};
                         net::post(ex, [handler, el = std::move(el)]() mutable {
                             (*handler)({}, std::move(el));
                         });
@@ -489,7 +511,7 @@ function waitForElement(selector, selectorType, timeout = 5000) {
                         });
                     }
                 }
-            }).detach();
+            });
         },
         token);
 }

@@ -10,6 +10,8 @@ target_link_libraries(webdriverclientcpp_tests
         GTest::Main
 )
 
+target_compile_definitions(webdriverclientcpp_tests PRIVATE GTEST_LANG_CXX11=1)
+
 # Apply the same compiler flags as the library
 configure_compiler_flags(webdriverclientcpp_tests)
 configure_sanitizers(webdriverclientcpp_tests)

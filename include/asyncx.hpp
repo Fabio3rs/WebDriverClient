@@ -1,4 +1,5 @@
 #pragma once
+#include "ThreadPool.hpp"
 #include <atomic>
 #include <boost/asio.hpp>
 #include <boost/asio/system_executor.hpp> // system_executor
@@ -9,7 +10,6 @@
 #include <mutex>
 #include <optional>
 #include <stop_token>
-#include <thread>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -77,7 +77,7 @@ template <class T = void> class Async {
                 if (ec) {
                     fn(*ec);
                 } else {
-                    //fn(EC{});
+                    // fn(EC{});
                 }
             } catch (...) {
                 // nunca deixe exceção escapar do handler
@@ -293,17 +293,20 @@ template <class T = void> class Async {
   public:
     // ---------- fábricas ----------
     template <class U>
-    static Async<U> from_future(net::any_io_executor ex, std::future<U> fut) {
+    static Async<U> from_future(net::any_io_executor ex, std::future<U> fut,
+                                boost::asio::thread_pool *pool = nullptr) {
         auto a = Async<U>::make(ex);
-        std::thread([a, f = std::move(fut)]() mutable {
+        auto &target_pool = pool ? *pool : webdriver::global_thread_pool();
+        boost::asio::post(target_pool, [a, f = std::move(fut)]() mutable {
             try {
-                a.fulfill(f.get());
+                auto v = f.get();
+                a.fulfill(std::move(v));
             } catch (const boost::system::system_error &se) {
                 a.fail(se.code());
             } catch (...) {
                 a.fail(std::current_exception());
             }
-        }).detach();
+        });
         return a;
     }
 

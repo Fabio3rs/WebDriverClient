@@ -127,4 +127,4 @@ auto UsersHandler::get_by_id(const Request& req) -> Response {
 
 * **Prioritize** RAII, spans/views, `[[nodiscard]]`, short functions, strict validation, emit {} even for single statements, timeouts, structured logs.
 * **Avoid** allocations in hot paths, complex macros, pointer arithmetic, global state, exceptions for normal flow.
-* **Always** keep warnings = 0, `clang-tidy` clean, and tests present.
+* **Always** keep warnings = 0, `clang-tidy` clean, and tests present, run cmake and tests with parallel $(nproc).
