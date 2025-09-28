@@ -1,12 +1,12 @@
 name: Test, Build and Test - MAIN
 
-on: 
+on:
   push:
     branches:
       - main
 
 jobs:
-  Testing_Code_Quality: 
+  Testing_Code_Quality:
     runs-on: ubuntu-latest
     steps:
       # Checkout
