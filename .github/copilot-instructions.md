@@ -1,6 +1,6 @@
 # Copilot Instructions
 
-**Scope**: C++ repositories (C++20/23) for APIs/services.
+**Scope**: C++ repositories (C++20/23) for APIs/services, this is a library project for third party integration.
 **Goal**: Generate safe, readable, testable, and efficient code aligned with the *C++ Core Guidelines* and **NASA Power of Ten (P10)**.
 **Priority**: If these rules conflict with history or prior style, **these rules win**.
 

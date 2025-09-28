@@ -1,5 +1,6 @@
 # Tests executable
-add_executable(webdriverclientcpp_tests test.cpp)
+file(GLOB TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
+add_executable(webdriverclientcpp_tests ${TEST_SOURCES})
 
 # Link with the main library (which handles all dependencies internally)
 target_link_libraries(webdriverclientcpp_tests
