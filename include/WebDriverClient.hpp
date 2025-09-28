@@ -626,12 +626,10 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
 
     template <class... T>
     auto w3cExecuteScript(const std::string &script, const T &...args) {
-        json argsjs = json::array(args...);
+        json argsjs = json::array();
+        (argsjs.push_back(args), ...);
 
-        json obj = json::object({
-            {"script", script},
-            {"args", argsjs},
-        });
+        json obj = json::object({{"script", script}, {"args", argsjs}});
 
         auto reqStr = jsonToString(obj);
 
@@ -654,12 +652,10 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
 
     template <class... T>
     auto w3cExecuteScriptAsync(const std::string &script, const T &...args) {
-        json argsjs = json::array(args...);
+        json argsjs = json::array();
+        (argsjs.push_back(args), ...);
 
-        json obj = json::object({
-            {"script", script},
-            {"args", argsjs},
-        });
+        json obj = json::object({{"script", script}, {"args", argsjs}});
 
         auto reqStr = jsonToString(obj);
 
@@ -860,12 +856,10 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
 
     template <class... T>
     auto executeAsyncScript(const std::string &script, const T &...args) {
-        json argsjs = json::array(args...);
+        json argsjs = json::array();
+        (argsjs.push_back(args), ...);
 
-        json obj = json::object({
-            {"script", script},
-            {"args", argsjs},
-        });
+        json obj = json::object({{"script", script}, {"args", argsjs}});
 
         auto reqStr = jsonToString(obj);
 
