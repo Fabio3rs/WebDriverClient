@@ -391,16 +391,34 @@ void BiDiSession::send_command(std::string_view method,
         });
 }
 
-void BiDiSession::subscribe_event(std::string_view event_method,
+void BiDiSession::subscribe_event(const std::string &event_method,
                                   EventHandler handler) {
-    event_handlers_[std::string(event_method)] = std::move(handler);
+    event_handlers_[event_method] = std::move(handler);
+
+    // Enviar comando para registrar o evento no lado remoto
+    boost::json::object params;
+    params["events"] = boost::json::array({event_method});
+
+    send_command("session.subscribe", params,
+                 [event_method](const ParsedResponse &response) {
+                     if (response.is_success) {
+                         bidi::logging::log_info(
+                             "✅ Evento registrado com sucesso: " +
+                             event_method);
+                     } else {
+                         bidi::logging::log_error(
+                             "❌ Falha ao registrar evento: " + event_method +
+                             ", erro: " + response.error_message);
+                     }
+                 });
 }
 
-void BiDiSession::unsubscribe_event(std::string_view event_method) {
-    event_handlers_.erase(std::string(event_method));
+void BiDiSession::unsubscribe_event(const std::string &event_method) {
+    event_handlers_.erase(event_method);
 }
 
 void BiDiSession::on_message(const std::string &payload) {
+    bidi::logging::log_info("🔍 Received message: " + payload);
     auto kind = detect_message_kind(payload);
 
     switch (kind) {
@@ -414,17 +432,13 @@ void BiDiSession::on_message(const std::string &payload) {
                 response->raw_json = std::string(payload);
                 response->latency =
                     std::chrono::steady_clock::now() - it->second.start;
-                // cancelar timer antes de chamar handler
                 boost::system::error_code ignore_ec;
                 it->second.timer.cancel(ignore_ec);
                 auto handler = std::move(it->second.handler);
                 pending_responses_.erase(it);
-                // Log successful response for telemetry/correlation
-                bidi::logging::log_info(
-                    std::string("BiDi response received id=") +
-                        std::to_string(response->id) +
-                        " method=" + response->method,
-                    response->trace_id);
+                bidi::logging::log_info("✅ Response processed: id=" +
+                                        std::to_string(response->id) +
+                                        " method=" + response->method);
                 handler(*response);
             }
         }
@@ -432,20 +446,28 @@ void BiDiSession::on_message(const std::string &payload) {
     }
 
     case MessageKind::Event: {
+        bidi::logging::log_info("🔔 Detected event message");
         auto event = parse_event(payload);
         if (event) {
+            bidi::logging::log_info("🎯 Event detected: " + event->method);
             auto it = event_handlers_.find(event->method);
             if (it != event_handlers_.end()) {
+                bidi::logging::log_info("📤 Dispatching event to handler: " +
+                                        event->method);
                 it->second(*event);
+            } else {
+                bidi::logging::log_error("❌ No handler found for event: " +
+                                         event->method);
             }
+        } else {
+            bidi::logging::log_error("❌ Failed to parse event message");
         }
         break;
     }
 
     case MessageKind::Command:
     case MessageKind::Unknown:
-        // Commands are sent by client, not received
-        // Unknown messages are ignored
+        bidi::logging::log_error("❌ Unknown or unsupported message type");
         break;
     }
 }

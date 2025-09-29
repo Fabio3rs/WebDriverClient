@@ -156,8 +156,8 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
         std::chrono::milliseconds timeout = std::chrono::milliseconds{5000});
 
     // Subscribe to events
-    void subscribe_event(std::string_view event_method, EventHandler handler);
-    void unsubscribe_event(std::string_view event_method);
+    void subscribe_event(const std::string &event_method, EventHandler handler);
+    void unsubscribe_event(const std::string &event_method);
 
     // Get executor for async operations
     net::any_io_executor get_executor() const;

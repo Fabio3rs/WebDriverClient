@@ -86,37 +86,45 @@ class IntegratedWebDriverDemo {
 
   public:
     IntegratedWebDriverDemo() {
+        using namespace bidi;
         legacy_driver_.webDriverUrl = "http://localhost:9515";
     }
-    ~IntegratedWebDriverDemo() { cleanup(); }
+
+    ~IntegratedWebDriverDemo() {
+        using namespace bidi;
+        cleanup();
+    }
+
+    static void initialize() {
+        using namespace bidi;
+        logging::log_info("=== Initializing WebDriver Legacy Session ===");
+    }
 
     auto initialize_session() -> bool {
+        using namespace bidi;
+        using namespace logging;
         try {
-            bidi::logging::log_info(
-                "=== Initializing WebDriver Legacy Session ===");
+            log_info("=== Initializing WebDriver Legacy Session ===");
             WebDriver::json args =
                 WebDriver::json::array({"--headless", "--no-sandbox"});
             auto session_response =
                 legacy_driver_.connect(args, "chrome", true);
             session_id_ = legacy_driver_.sessionId;
-            bidi::logging::log_info(std::string("✓ Session created: ") +
-                                    session_id_);
+            log_info(std::string("✓ Session created: ") + session_id_);
             if (session_response.contains("capabilities") &&
                 session_response["capabilities"].contains("webSocketUrl")) {
                 websocket_url_ =
                     session_response["capabilities"]["webSocketUrl"]
                         .get<std::string>();
-                bidi::logging::log_info(
-                    std::string("✓ WebSocket URL extracted: ") +
-                    websocket_url_);
+                log_info(std::string("✓ WebSocket URL extracted: ") +
+                         websocket_url_);
                 return true;
             }
-            bidi::logging::log_error(
-                "✗ webSocketUrl not found in session capabilities");
+            log_error("✗ webSocketUrl not found in session capabilities");
             return false;
         } catch (const std::exception &e) {
-            bidi::logging::log_error(
-                std::string("✗ Session initialization failed: ") + e.what());
+            log_error(std::string("✗ Session initialization failed: ") +
+                      e.what());
             return false;
         }
     }
@@ -137,68 +145,125 @@ class IntegratedWebDriverDemo {
 
     static auto on_connect_no_async(const std::shared_ptr<bidi::Client> &client)
         -> std::shared_ptr<bidi::Client> {
+        using namespace bidi;
+        using namespace logging;
         if (!client) {
-            bidi::logging::log_error("✗ BiDi connect returned null");
+            log_error("✗ BiDi connect returned null");
             return {};
         }
 
-        bidi::logging::log_info("✓ BiDi client connected on on_connect_no_async");
+        log_info("✓ BiDi client connected on on_connect_no_async");
         return client;
     }
 
-    auto run_bidi_flow() -> boost::asio::awaitable<int> {
-        try {
-            bidi::logging::log_info("\n=== Connecting BiDi Client (await) ===");
-            auto client_ptr = co_await await_async(
-                bidi::Client::connect(io_context_, websocket_url_)
-                    .map(on_connect_no_async)
-                    .and_then(on_connect));
-            if (!client_ptr) {
-                bidi::logging::log_error("✗ BiDi connect returned null");
-                co_return 1;
-            }
-            bidi_client_ = client_ptr;
-            bidi::logging::log_info("✓ BiDi client connected");
+    static auto subscribe(const std::shared_ptr<bidi::Client> &client)
+        -> std::shared_ptr<bidi::Client> {
+        using namespace bidi;
+        using namespace logging;
+        using bidi::core::ParsedEvent;
 
-            bidi::logging::log_info("1. Creating browsing context...");
-            auto context_id = co_await await_async(bidi_client_->create_context(
-                bidi::commands::browsing_context::CreateType::window));
-            bidi::logging::log_info(std::string("✓ Context: ") + context_id);
+        auto session = client->session();
 
-            bidi::logging::log_info("2. Navigating...");
-            auto nav_url = co_await await_async(
-                bidi_client_->navigate(context_id, "https://example.com"));
-            bidi::logging::log_info(std::string("✓ Navigation OK: ") + nav_url);
+        if (!session) {
+            log_error("✗ Cannot subscribe, session is null");
+            return client;
+        }
 
-            bidi::logging::log_info("3. Evaluating document.title...");
-            auto title_obj = co_await await_async(
-                bidi_client_->evaluate("document.title", context_id));
-            bidi::logging::log_info(std::string("✓ Title: ") +
-                                    boost::json::serialize(title_obj));
+        session->subscribe_event(
+            std::string(ids::events::bc_contextCreated),
+            [](const ParsedEvent &event) {
+                bidi::logging::log_info(std::string("🎯 Event received: ") +
+                                        event.method);
+                bidi::logging::log_info(std::string("   Params: ") +
+                                        boost::json::serialize(event.params));
+            });
 
-            bidi::logging::log_info("4. Evaluating window.location.href...");
-            auto loc_obj = co_await await_async(
-                bidi_client_->evaluate("window.location.href", context_id));
-            bidi::logging::log_info(std::string("✓ Location: ") +
-                                    boost::json::serialize(loc_obj));
-
-            bidi::logging::log_info(
-                "\n🎉 Flow completed successfully (await-based)");
-            // attempt graceful disconnect so io_context can exit
-            try {
-                if (bidi_client_ && bidi_client_->session()) {
-                    bidi_client_->session()->disconnect();
+        session->subscribe_event(
+            std::string(ids::events::log_entryAdded),
+            [](const ParsedEvent &event) {
+                bidi::logging::log_info(
+                    "🎯 Attempting to process log_entryAdded event");
+                if (event.method.empty()) {
+                    bidi::logging::log_error("✗ Event method is empty");
+                } else {
+                    bidi::logging::log_info(
+                        std::string("🎯 Log Event received: ") + event.method);
                 }
-            } catch (const std::exception &e) {
-                bidi::logging::log_error(std::string("Disconnect error: ") +
-                                         e.what());
-            }
-            co_return 0;
-        } catch (const std::exception &e) {
-            bidi::logging::log_error(std::string("✗ Exception in flow: ") +
-                                     e.what());
+                if (event.params.empty()) {
+                    bidi::logging::log_error("✗ Event params are empty");
+                } else {
+                    bidi::logging::log_info(
+                        std::string("   Log Params: ") +
+                        boost::json::serialize(event.params));
+                }
+            });
+        log_info("✓ Subscribed to bc.contextCreated event");
+
+        return client;
+    }
+
+    auto run_flow() -> boost::asio::awaitable<int> {
+        using namespace bidi;
+        using namespace logging;
+        using namespace commands::browsing_context;
+        log_info("\n=== Connecting BiDi Client (await) ===");
+        auto client_ptr =
+            co_await await_async(Client::connect(io_context_, websocket_url_)
+                                     .map(subscribe)
+                                     .map(on_connect_no_async)
+                                     .and_then(on_connect));
+        if (!client_ptr) {
+            log_error("✗ BiDi connect returned null");
             co_return 1;
         }
+        bidi_client_ = client_ptr;
+        log_info("✓ BiDi client connected");
+
+        log_info("1. Creating browsing context...");
+        auto context_id = co_await await_async(
+            bidi_client_->create_context(CreateType::window));
+        log_info(std::string("✓ Context: ") + context_id);
+
+        log_info("2. Navigating...");
+        auto nav_url = co_await await_async(
+            bidi_client_->navigate(context_id, "https://example.com"));
+        log_info(std::string("✓ Navigation OK: ") + nav_url);
+
+        log_info("3. Evaluating document.title...");
+        auto title_obj = co_await await_async(
+            bidi_client_->evaluate("document.title", context_id));
+        log_info(std::string("✓ Title: ") + boost::json::serialize(title_obj));
+
+        co_await await_async(bidi_client_->evaluate(
+            "console.log('Olá mundo! Este é um log')", context_id));
+
+        log_info("4. Evaluating window.location.href...");
+        auto loc_obj = co_await await_async(
+            bidi_client_->evaluate("window.location.href", context_id));
+        log_info(std::string("✓ Location: ") + boost::json::serialize(loc_obj));
+
+        log_info("\n🎉 Flow completed successfully (await-based)");
+        // attempt graceful disconnect so io_context can exit
+        try {
+            if (bidi_client_ && bidi_client_->session()) {
+                bidi_client_->session()->disconnect();
+            }
+        } catch (const std::exception &e) {
+            log_error(std::string("Disconnect error: ") + e.what());
+        }
+        co_return 0;
+    }
+
+    auto run_bidi_flow() -> boost::asio::awaitable<int> {
+        using namespace bidi;
+        using namespace logging;
+        using namespace commands::browsing_context;
+        try {
+            co_return co_await run_flow();
+        } catch (const std::exception &e) {
+            log_error(std::string("✗ Exception in flow: ") + e.what());
+        }
+        co_return 1;
     }
 
     auto run() -> int {
