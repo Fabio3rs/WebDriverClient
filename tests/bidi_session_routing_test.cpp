@@ -37,12 +37,12 @@ TEST(BidiSessionRouting, EventDispatchAndUnsubscribe) {
     auto session = std::make_shared<BiDiSession>(ws);
 
     int event_calls = 0;
-    session->subscribe_event(std::string(bidi::ids::events::log_entryAdded),
-                             [&](const ParsedEvent &ev) {
-                                 EXPECT_EQ(ev.method,
-                                           bidi::ids::events::log_entryAdded);
-                                 event_calls++;
-                             });
+    auto sub = session->subscribe_event(
+        std::string(bidi::ids::events::log_entryAdded),
+        [&](const ParsedEvent &ev) {
+            EXPECT_EQ(ev.method, bidi::ids::events::log_entryAdded);
+            event_calls++;
+        });
 
 #ifdef BIDI_TESTING
     // helper to build event JSON

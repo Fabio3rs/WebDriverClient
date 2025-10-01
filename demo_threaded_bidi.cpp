@@ -5,6 +5,7 @@
 #include "bidi/threading.hpp"
 #include "bidi_methods.hpp"
 #include <chrono>
+#include <optional>
 // #include <iostream> removed (unused)
 
 using namespace bidi::core;
@@ -38,8 +39,8 @@ auto main() -> int {
         bidi::logging::log_info("✅ Connected successfully");
 
         // 4. Subscribe to events (zero busy-wait pub/sub)
-        session->subscribe_event(
-            std::string(bidi::ids::events::bc_contextCreated),
+        static auto sub_global = session->subscribe(
+            std::string(bidi::ids::events::bc_contextCreated), std::nullopt,
             [](const std::string &method, const boost::json::object &params) {
                 bidi::logging::log_info(std::string("🎯 Event received: ") +
                                         method);
@@ -64,11 +65,24 @@ auto main() -> int {
         auto nav_result = session->send_command_await(
             std::string(bidi::ids::methods::bc_navigate),
             boost::json::object{{"context", context_id},
-                                {"url", "https://example.com"}},
+                                {"url", "https://example.com"},
+                                {"wait", "complete"}},
             std::chrono::seconds(10));
 
         bidi::logging::log_info(std::string("✅ Navigation completed: ") +
                                 boost::json::serialize(nav_result));
+
+        // Subscribe scoped to this context (example: log.entryAdded only for
+        // context)
+        static auto sub_scoped = session->subscribe(
+            std::string(bidi::ids::events::log_entryAdded),
+            std::optional<std::string>{context_id},
+            [](const std::string &method, const boost::json::object &params) {
+                bidi::logging::log_info(std::string("🎯 [scoped] Event: ") +
+                                        method);
+                bidi::logging::log_info(std::string("   [scoped] Params: ") +
+                                        boost::json::serialize(params));
+            });
 
         // Evaluate script - thread suspends until execution finishes
         auto eval_result = session->send_command_await(

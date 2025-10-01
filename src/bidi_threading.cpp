@@ -28,7 +28,16 @@ ThreadingContext::ThreadingContext(std::size_t io_threads,
         "Threading context ready - zero busy-wait guaranteed");
 }
 
-ThreadingContext::~ThreadingContext() { stop(); }
+ThreadingContext::~ThreadingContext() {
+    try {
+        stop();
+    } catch (const std::exception &e) {
+        bidi::logging::log_error(std::string("~ThreadingContext exception: ") +
+                                 e.what());
+    } catch (...) {
+        bidi::logging::log_error("~ThreadingContext unknown exception");
+    }
+}
 
 void ThreadingContext::stop() {
     if (io_work_guard_.owns_work()) {

@@ -1,4 +1,5 @@
 // src/bidi_timer_pool.cpp — Timer wheel implementation
+#include "bidi/logging.hpp"
 #include "bidi/timer_pool.hpp"
 #include <algorithm>
 
@@ -10,7 +11,16 @@ TimerWheel::TimerWheel(boost::asio::io_context &ioc,
       tick_timer_{std::make_unique<boost::asio::steady_timer>(ioc)},
       tick_interval_{tick_interval} {}
 
-TimerWheel::~TimerWheel() { stop(); }
+TimerWheel::~TimerWheel() {
+    try {
+        stop();
+    } catch (const std::exception &e) {
+        bidi::logging::log_error(std::string("~TimerWheel exception: ") +
+                                 e.what());
+    } catch (...) {
+        bidi::logging::log_error("~TimerWheel unknown exception");
+    }
+}
 
 auto TimerWheel::schedule_timeout(std::chrono::milliseconds duration,
                                   TimeoutHandler handler) -> TimeoutId {

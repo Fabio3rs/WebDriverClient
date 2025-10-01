@@ -204,7 +204,7 @@ auto Client::subscribe(const std::vector<std::string> &events,
 void Client::set_event_handler(
     const std::string &method,
     std::function<void(boost::json::object)> handler) {
-    session_->subscribe_event(
+    auto sub = session_->subscribe_event(
         method, [handler = std::move(handler)](const core::ParsedEvent &event) {
             handler(event.params);
         });
@@ -229,11 +229,18 @@ Client::Subscription::Subscription(std::weak_ptr<Client> client,
                                    std::vector<std::string> events)
     : client_(std::move(client)), events_(std::move(events)) {}
 
-Client::Subscription::~Subscription() {
-    if (!events_.empty()) {
-        if (auto client = client_.lock()) {
-            client->unsubscribe_events(events_);
+Client::Subscription::~Subscription() noexcept {
+    try {
+        if (!events_.empty()) {
+            if (auto client = client_.lock()) {
+                client->unsubscribe_events(events_);
+            }
         }
+    } catch (const std::exception &e) {
+        bidi::logging::log_error(
+            std::string("~Client::Subscription exception: ") + e.what());
+    } catch (...) {
+        bidi::logging::log_error("~Client::Subscription unknown exception");
     }
 }
 

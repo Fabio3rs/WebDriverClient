@@ -1,5 +1,6 @@
 #pragma once
 #include "ThreadPool.hpp"
+#include "bidi/logging.hpp"
 #include <atomic>
 #include <boost/asio.hpp>
 #include <boost/asio/system_executor.hpp> // system_executor
@@ -27,7 +28,7 @@ template <class T> struct State {
     std::variant<T, EC, std::exception_ptr> result;
     std::vector<std::function<void()>> conts;
     std::stop_source stop_src;
-    explicit State(net::any_io_executor e) : ex(e) {}
+    explicit State(net::any_io_executor e) : ex(std::move(e)) {}
 };
 
 template <> struct State<void> {
@@ -38,7 +39,7 @@ template <> struct State<void> {
         result; // ok = monostate
     std::vector<std::function<void()>> conts;
     std::stop_source stop_src;
-    explicit State(net::any_io_executor e) : ex(e) {}
+    explicit State(net::any_io_executor e) : ex(std::move(e)) {}
 };
 
 // awaiter genérico para Async<T> (definido em namespace para permitir
@@ -71,7 +72,7 @@ template <> struct async_awaiter<void> {
         st->conts.push_back([h]() mutable { h.resume(); });
     }
     void await_resume() {
-        if (auto ec = std::get_if<EC>(&st->result)) {
+        if (auto *ec = std::get_if<EC>(&st->result)) {
             throw boost::system::system_error(*ec);
         }
         if (!std::holds_alternative<std::monostate>(st->result) &&
@@ -101,6 +102,8 @@ template <class T = void> class Async {
 
     void request_stop() { st_->stop_src.request_stop(); }
 
+    using type = T;
+
     // Conversão implícita para boost::asio::awaitable<void>
     operator net::awaitable<void>() const {
         auto self = *this;
@@ -114,6 +117,88 @@ template <class T = void> class Async {
     operator net::awaitable<T>() const {
         auto self = *this;
         return [self]() -> net::awaitable<T> { co_return co_await self; }();
+    }
+
+    void cancel() { st_->stop_src.request_stop(); }
+
+    // ============================
+    // 1) Versão geral: aceita qualquer CompletionToken
+    // ============================
+    template <class CompletionToken> auto operator()(CompletionToken &&token) {
+        // Assinatura da operação conforme T:
+        //   - Se T != void: void(error_code, T)
+        //   - Se T == void: void(error_code)
+        using signature_t =
+            std::conditional_t<std::is_void_v<T>,
+                               void(boost::system::error_code),
+                               void(boost::system::error_code, T)>;
+
+        auto initiation = [this]<class Handler>(Handler &&handler) mutable {
+            using H = std::decay_t<Handler>;
+
+            // Preserva executor/allocator/cancel-slot associados ao handler
+            auto ex = boost::asio::get_associated_executor(
+                handler, boost::asio::system_executor());
+            auto alloc = boost::asio::get_associated_allocator(handler);
+            auto slot = boost::asio::get_associated_cancellation_slot(handler);
+
+            // Move-only handler? Torna-o copiável para capturar em
+            // lambdas/callbacks
+            auto sp = std::make_shared<H>(std::forward<Handler>(handler));
+
+            if (slot.is_connected()) {
+                // Propaga cancelamento do chamador para tua Async
+                slot.assign(
+                    [this](boost::asio::cancellation_type) { this->cancel(); });
+            }
+
+            // Quando tua Async concluir, dispare o handler no executor
+            // associado
+            auto finallyCb = [sp, ex, alloc](
+                                 std::optional<T> v,
+                                 std::optional<boost::system::error_code> ec,
+                                 const std::exception_ptr &) mutable {
+                // Chama via dispatch e com allocator associado
+                auto completionCallback = [sp, v = std::move(v), ec]() mutable {
+                    if constexpr (std::is_void_v<T>) {
+                        // T == void: apenas error_code
+                        (*sp)(ec.value_or(boost::system::error_code{}));
+                    } else {
+                        if (v && !ec) {
+                            (*sp)(boost::system::error_code{}, std::move(*v));
+                        } else if (ec) {
+                            (*sp)(*ec,
+                                  T{}); // ajuste se tiver "valor nulo" melhor
+                        } else {
+                            // Sem valor e sem ec => considere como
+                            // cancelado
+                            (*sp)(boost::asio::error::operation_aborted, T{});
+                        }
+                    }
+                };
+                boost::asio::dispatch(
+                    ex, boost::asio::bind_allocator(alloc, completionCallback));
+            };
+            this->finally(finallyCb);
+        };
+
+        // Converte token -> handler e retorna o tipo certo (awaitable, future,
+        // void…)
+        return boost::asio::async_initiate<CompletionToken, signature_t>(
+            initiation, std::forward<CompletionToken>(token));
+    }
+
+    // ============================
+    // 2) Versão "default": sem args, retorna awaitable<T>
+    // ============================
+    boost::asio::awaitable<T> operator()() {
+        if constexpr (std::is_void_v<T>) {
+            // para T == void, forneço um exemplo que retorna void
+            co_await (*this)(boost::asio::use_awaitable);
+            co_return;
+        } else {
+            co_return co_await (*this)(boost::asio::use_awaitable);
+        }
     }
 
     template <class Fn> Async<T> on_error(Fn fn) {
@@ -307,6 +392,7 @@ template <class T = void> class Async {
 
     // awaiter opcional (usa async_awaiter definido no namespace)
     auto operator co_await() const { return async_awaiter<T>{st_}; }
+    auto operator co_await() { return async_awaiter<T>{st_}; }
 
   private:
     void attach_or_run(std::function<void()> c) const {
@@ -321,7 +407,10 @@ template <class T = void> class Async {
             }
         }
         if (run_now) {
-            net::post(st_->ex, std::move(c));
+            // If the state is already done, run the continuation inline to
+            // ensure composed combinators observe completion immediately
+            // and can cancel other operations deterministically.
+            std::invoke(std::move(c));
         }
     }
 
@@ -426,6 +515,28 @@ template <> class Async<void> {
         for (auto &c : cs) {
             net::post(st_->ex, std::move(c));
         }
+    }
+
+    // Adapt Async<void> into a boost::asio::awaitable<void>
+    auto operator()() -> boost::asio::awaitable<void> {
+        co_await boost::asio::async_initiate<
+            decltype(boost::asio::use_awaitable),
+            void(boost::system::error_code)>(
+            [this](auto &&handler) mutable {
+                using handler_t = std::decay_t<decltype(handler)>;
+                auto sp = std::make_shared<handler_t>(
+                    std::forward<decltype(handler)>(handler));
+                this->finally([sp](std::optional<asyncx::EC> ec,
+                                   const std::exception_ptr & /*ep*/) mutable {
+                    if (!ec) {
+                        (*sp)(boost::system::error_code{});
+                    } else {
+                        (*sp)(*ec);
+                    }
+                });
+            },
+            boost::asio::use_awaitable);
+        co_return;
     }
 
     template <class F> auto map(F f) -> Async<std::invoke_result_t<F>> {
@@ -567,20 +678,54 @@ template <> class Async<void> {
 template <class T>
 Async<std::vector<T>> all(net::any_io_executor ex, std::vector<Async<T>> vs) {
     auto out = Async<std::vector<T>>::make(ex);
-    auto res = std::make_shared<std::vector<std::optional<T>>>(vs.size());
-    auto left = std::make_shared<std::atomic<int>>(static_cast<int>(vs.size()));
+    auto ops = std::make_shared<std::vector<Async<T>>>(std::move(vs));
+    auto res = std::make_shared<std::vector<std::optional<T>>>(ops->size());
+    auto left = std::make_shared<std::atomic<int>>(static_cast<int>(ops->size()));
 
-    if (vs.empty()) {
+    if (ops->empty()) {
         out.fulfill({});
         return out;
     }
 
-    for (std::size_t i = 0; i < vs.size(); ++i) {
-        vs[i].finally([out, res, left, i](std::optional<T> v,
-                                          std::optional<EC> ec,
-                                          std::exception_ptr ep) {
+    // Propagate stop request on the composed Async to all children to make
+    // the combinator cancel-safe. Keep the registration alive until `out`
+    // completes by capturing the registration in an `out.finally` closure.
+    if (ops->size() > 0) {
+        auto token = out.get_stop_token();
+        if (token.stop_possible()) {
+            // allocate registration on heap so we can keep it alive across
+            // asynchronous callbacks; the registration will be destroyed when
+            // `out` completes.
+            auto reg = std::make_shared<std::stop_callback<std::function<void()>>>(
+                token, [ops]() {
+                    for (auto &o : *ops) {
+                        try {
+                            o.request_stop();
+                        } catch (...) {
+                        }
+                    }
+                });
+            // hold reg until out completes
+            out.finally([reg](std::optional<std::vector<T>> /*v*/, std::optional<EC> /*ec*/, std::exception_ptr /*ep*/) {
+                // reg goes out of scope and is destroyed here
+            });
+        }
+    }
+
+    for (std::size_t i = 0; i < ops->size(); ++i) {
+        (*ops)[i].finally([out, res, left, ops, i](std::optional<T> v,
+                                                  std::optional<EC> ec,
+                                                  std::exception_ptr ep) {
             if (ec || ep) {
-                out.fail(ec ? *ec : EC{});
+                // cancel remaining operations to avoid zombi work
+                for (auto &o : *ops) {
+                    try {
+                        o.request_stop();
+                    } catch (...) {
+                    }
+                }
+                    std::fprintf(stderr, "DEBUG: all: child %zu failed, calling out.fail\n", i);
+                    out.fail(ec ? *ec : EC{});
                 return;
             }
             (*res)[i] = std::move(*v);
@@ -590,6 +735,7 @@ Async<std::vector<T>> all(net::any_io_executor ex, std::vector<Async<T>> vs) {
                 for (auto &o : *res) {
                     vals.push_back(std::move(*o));
                 }
+                    std::fprintf(stderr, "DEBUG: all: all children completed, fulfilling with %zu values\n", vals.size());
                 out.fulfill(std::move(vals));
             }
         });
@@ -602,12 +748,39 @@ template <class T>
 Async<T> race(net::any_io_executor ex, std::vector<Async<T>> vs) {
     auto out = Async<T>::make(ex);
     auto done = std::make_shared<std::atomic_bool>(false);
+    auto ops = std::make_shared<std::vector<Async<T>>>(std::move(vs));
 
-    for (auto &a : vs) {
-        a.finally([out, done](std::optional<T> v, std::optional<EC> ec,
-                              std::exception_ptr ep) {
+    // Propagate cancellation from composed Async to children
+    if (ops->size() > 0) {
+        auto token = out.get_stop_token();
+        if (token.stop_possible()) {
+            auto reg = std::make_shared<std::stop_callback<std::function<void()>>>(
+                token, [ops]() {
+                    for (auto &o : *ops) {
+                        try {
+                            o.request_stop();
+                        } catch (...) {
+                        }
+                    }
+                });
+            out.finally([reg](std::optional<T> /*v*/, std::optional<EC> /*ec*/, std::exception_ptr /*ep*/) {
+                // release registration
+            });
+        }
+    }
+
+    for (auto &a : *ops) {
+        a.finally([out, done, ops](std::optional<T> v, std::optional<EC> ec,
+                                  std::exception_ptr ep) {
             if (done->exchange(true)) {
                 return;
+            }
+            // cancel all other operations to avoid extra work
+            for (auto &o : *ops) {
+                try {
+                    o.request_stop();
+                } catch (...) {
+                }
             }
             if (v) {
                 out.fulfill(std::move(*v));
@@ -632,11 +805,38 @@ Async<T> timeout(Async<T> a, net::any_io_executor ex,
     timer->expires_after(d);
 
     // Quando o timer dispara primeiro -> falha por timeout
-    timer->async_wait([out, done](EC ec) {
+    // Capture 'a' by value so we can request_stop() on it.
+    // propagate cancellation from composed Async to the child and timer
+    {
+        auto token = out.get_stop_token();
+        if (token.stop_possible()) {
+            auto reg = std::make_shared<std::stop_callback<std::function<void()>>>(
+                token, [a, timer]() mutable {
+                    try {
+                        a.request_stop();
+                    } catch (...) {
+                    }
+                    try {
+                        timer->cancel();
+                    } catch (...) {
+                    }
+                });
+            out.finally([reg](std::optional<T> /*v*/, std::optional<EC> /*ec*/, std::exception_ptr /*ep*/) {
+                // release registration when out completes
+            });
+        }
+    }
+
+    timer->async_wait([out, done, a](EC ec) mutable {
         if (done->exchange(true)) {
             return;
         }
         if (!ec) {
+            // Ask the operation to stop to avoid any residual work
+            try {
+                a.request_stop();
+            } catch (...) {
+            }
             out.fail(make_error_code(boost::system::errc::timed_out));
         } else {
             // se foi cancelado por quem ganhou a corrida, ignoramos,
@@ -680,4 +880,17 @@ inline Async<void> value() {
     return a;
 }
 
+} // namespace asyncx
+
+// NOTE: Avoid injecting into Boost.Asio internal namespaces (e.g.
+// boost::asio::detail). That is undefined behaviour and fragile across
+// Boost versions. Provide a public adapter instead so callers can write
+// `co_await asyncx::as_awaitable(a)` when explicit conversion is needed.
+
+namespace asyncx {
+template <class T>
+inline net::awaitable<T> as_awaitable(Async<T> val) {
+    // Capture by value to extend the shared state lifetime while awaited.
+    return std::move(val)(boost::asio::use_awaitable);
+}
 } // namespace asyncx

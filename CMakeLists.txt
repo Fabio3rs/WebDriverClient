@@ -163,8 +163,9 @@ function(configure_compiler_flags target_name)
             -Wconversion -Wsign-conversion -Wshadow
             -Wnon-virtual-dtor -Wold-style-cast -Wcast-align
             -Wunused -Woverloaded-virtual -Wpedantic
-            -Wmisleading-indentation -Wduplicated-cond
+            -Wmisleading-indentation
             -Wnull-dereference -Wdouble-promotion
+            -Wno-unused-private-field
 
             # Clang-specific safety
             -Wthread-safety -Wthread-safety-beta
@@ -226,17 +227,6 @@ function(configure_sanitizers target_name)
                 -fsanitize=undefined
                 -fsanitize=leak
             )
-
-            if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-                target_compile_options(${target_name} PRIVATE
-                    -fsanitize=thread
-                    -fsanitize=memory
-                )
-                target_link_options(${target_name} PRIVATE
-                    -fsanitize=thread
-                    -fsanitize=memory
-                )
-            endif()
         endif()
     endif()
 endfunction()

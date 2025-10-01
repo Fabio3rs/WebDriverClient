@@ -10,7 +10,16 @@
 
 CurlRAII::CurlRAII() { curl_global_init(CURL_GLOBAL_DEFAULT); }
 
-CurlRAII::~CurlRAII() { curl_global_cleanup(); }
+CurlRAII::~CurlRAII() {
+    try {
+        curl_global_cleanup();
+    } catch (const std::exception &e) {
+        // Logging subsystem may not be available here; fall back to std::cerr
+        std::cerr << "~CurlRAII exception: " << e.what() << '\n';
+    } catch (...) {
+        std::cerr << "~CurlRAII unknown exception" << '\n';
+    }
+}
 
 auto CurlRAII::instance() -> CurlRAII & {
     static CurlRAII inst;

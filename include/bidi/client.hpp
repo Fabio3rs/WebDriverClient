@@ -25,8 +25,8 @@ class Client : public std::enable_shared_from_this<Client> {
     explicit Client(std::shared_ptr<core::BiDiSession> session);
 
     // Factory: connect to BiDi WebSocket directly
-  static Task<Ptr> connect(boost::asio::io_context &ioc,
-               std::string_view websocket_url);
+    static Task<Ptr> connect(boost::asio::io_context &ioc,
+                             std::string_view websocket_url);
 
     // Generic zero-overhead async_send (CompletionToken based)
     template <class CompletionToken>
@@ -41,28 +41,28 @@ class Client : public std::enable_shared_from_this<Client> {
                        commands::browsing_context::CreateType::window);
 
     // Navigate to URL
-  Task<std::string>
-  navigate(std::string_view context, std::string_view url,
-       commands::browsing_context::ReadinessState wait =
-         commands::browsing_context::ReadinessState::complete);
+    Task<std::string>
+    navigate(std::string_view context, std::string_view url,
+             commands::browsing_context::ReadinessState wait =
+                 commands::browsing_context::ReadinessState::complete);
 
     // Close browsing context
-  Task<bool> close_context(std::string_view context);
+    Task<bool> close_context(std::string_view context);
 
     // Get browsing context tree
-  Task<boost::json::object> get_context_tree(std::string_view root = {});
+    Task<boost::json::object> get_context_tree(std::string_view root = {});
 
     // ======================== Script API ========================
 
     // Evaluate JavaScript expression
-  Task<boost::json::object> evaluate(std::string_view expression,
-                     std::string_view context,
-                     bool await_promise = true);
+    Task<boost::json::object> evaluate(std::string_view expression,
+                                       std::string_view context,
+                                       bool await_promise = true);
 
     // Call JavaScript function
-  Task<boost::json::object> call_function(
-    std::string_view function_declaration, std::string_view context,
-    const boost::json::array &arguments = {}, bool await_promise = true);
+    Task<boost::json::object> call_function(
+        std::string_view function_declaration, std::string_view context,
+        const boost::json::array &arguments = {}, bool await_promise = true);
 
     // ======================== Session API ========================
 
@@ -70,7 +70,7 @@ class Client : public std::enable_shared_from_this<Client> {
     class Subscription {
       public:
         Subscription() = default;
-        ~Subscription();
+        ~Subscription() noexcept;
 
         // Move-only
         Subscription(Subscription &&other) noexcept;

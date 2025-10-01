@@ -71,10 +71,10 @@ template <class T> class PoolVec {
   public:
     enum class Policy : std::uint8_t { Recreate = 0, Keep = 1 };
 
-        explicit PoolVec(std::size_t capacity, Policy policy = Policy::Recreate)
-                : capacity_(capacity), storage_(capacity), states_(capacity),
-                    initialized_(capacity), first_free_(npos), borrowed_count_(0),
-                    policy_(policy) {
+    explicit PoolVec(std::size_t capacity, Policy policy = Policy::Recreate)
+        : capacity_(capacity), storage_(capacity), states_(capacity),
+          initialized_(capacity), first_free_(npos), borrowed_count_(0),
+          policy_(policy) {
         for (std::size_t i = 0; i < capacity_; ++i) {
             states_[i].store(0);
             storage_[i].reset();
@@ -134,14 +134,16 @@ template <class T> class PoolVec {
         states_[idx].store(0);
         // atualiza hint e contador
         first_free_.store(idx);
-        borrowed_count_.fetch_sub(1);
+        borrowed_count_.fetch_sub(1, std::memory_order_relaxed);
         wait_cv_.notify_one();
     }
 
     std::size_t capacity() const noexcept { return capacity_; }
 
     // Number of currently borrowed slots (useful for pool monitoring)
-    std::size_t borrowed_count() const noexcept { return static_cast<std::size_t>(borrowed_count_.load()); }
+    std::size_t borrowed_count() const noexcept {
+        return borrowed_count_.load(std::memory_order_relaxed);
+    }
 
   private:
     // Data arranged for locality: hot per-slot vectors first, then counters and
@@ -149,12 +151,18 @@ template <class T> class PoolVec {
     // order to avoid -Wreorder warnings.
     std::size_t capacity_{0};
     std::vector<std::optional<T>> storage_;
-    std::vector<std::atomic<int>> states_; // 0 free, 1 used
-    std::vector<std::atomic<int>> initialized_; // 0 not-initialized, 1 initialized
+    // Use compact atomics per-slot to reduce memory/cache pressure.
+    // states_: 0 free, 1 used
+    std::vector<std::atomic<unsigned char>> states_;
+    // initialized_ flags: 0 not-initialized, 1 initialized
+    std::vector<std::atomic<unsigned char>> initialized_;
 
     // Hints / counters and policy (frequently accessed)
     std::atomic<std::size_t> first_free_;
-    std::atomic<int> borrowed_count_;
+    // borrowed_count_ uses relaxed ordering for increments/decrements
+    std::atomic<std::size_t> borrowed_count_;
+    // rotating probe index to avoid starting scans at 0 on contention
+    std::atomic<std::size_t> next_probe_{0};
     Policy policy_;
 
     constexpr static std::size_t npos = static_cast<std::size_t>(-1);
@@ -170,20 +178,33 @@ template <class T> class PoolVec {
         if (hint == npos || hint >= capacity_) {
             return npos;
         }
-        int expected = 0;
-        if (!states_[hint].compare_exchange_strong(expected, 1)) {
+        unsigned char expected = 0;
+        // weak CAS ok for brief spinning; use acquire-release semantics
+        if (!states_[hint].compare_exchange_weak(expected, 1,
+                                                 std::memory_order_acq_rel,
+                                                 std::memory_order_relaxed)) {
             return npos;
         }
         // reservamos o slot; a construção será feita separadamente
-        borrowed_count_.fetch_add(1);
+        borrowed_count_.fetch_add(1, std::memory_order_relaxed);
         return hint;
     }
 
     std::size_t try_claim_scan() noexcept {
-        for (std::size_t i = 0; i < capacity_; ++i) {
-            int expected = 0;
-            if (states_[i].compare_exchange_strong(expected, 1)) {
-                borrowed_count_.fetch_add(1);
+        // Start probing from a rotating index to reduce contention on low
+        // indices. Try up to capacity_ slots.
+        std::size_t start =
+            next_probe_.fetch_add(1, std::memory_order_relaxed) % capacity_;
+        for (std::size_t offset = 0; offset < capacity_; ++offset) {
+            std::size_t i = (start + offset);
+            if (i >= capacity_) {
+                i -= capacity_ * (i / capacity_);
+            }
+            unsigned char expected = 0;
+            if (states_[i].compare_exchange_weak(expected, 1,
+                                                 std::memory_order_acq_rel,
+                                                 std::memory_order_relaxed)) {
+                borrowed_count_.fetch_add(1, std::memory_order_relaxed);
                 return i;
             }
         }
@@ -205,14 +226,14 @@ template <class T> class PoolVec {
     void construct_if_needed(std::size_t idx, Args &&...args) noexcept {
         if (policy_ == Policy::Recreate) {
             storage_[idx].emplace(std::forward<Args>(args)...);
-            initialized_[idx].store(1);
+            initialized_[idx].store(1, std::memory_order_release);
             return;
         }
-
-        int inited = initialized_[idx].load();
+        unsigned char inited =
+            initialized_[idx].load(std::memory_order_acquire);
         if (!inited) {
             storage_[idx].emplace(std::forward<Args>(args)...);
-            initialized_[idx].store(1);
+            initialized_[idx].store(1, std::memory_order_release);
         }
     }
 };

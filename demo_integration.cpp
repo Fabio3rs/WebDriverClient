@@ -169,7 +169,7 @@ class IntegratedWebDriverDemo {
             return client;
         }
 
-        session->subscribe_event(
+        static auto sub = session->subscribe_event(
             std::string(ids::events::bc_contextCreated),
             [](const ParsedEvent &event) {
                 bidi::logging::log_info(std::string("🎯 Event received: ") +
@@ -178,7 +178,7 @@ class IntegratedWebDriverDemo {
                                         boost::json::serialize(event.params));
             });
 
-        session->subscribe_event(
+        static auto sub2 = session->subscribe_event(
             std::string(ids::events::log_entryAdded),
             [](const ParsedEvent &event) {
                 bidi::logging::log_info(
@@ -207,11 +207,10 @@ class IntegratedWebDriverDemo {
         using namespace logging;
         using namespace commands::browsing_context;
         log_info("\n=== Connecting BiDi Client (await) ===");
-        auto client_ptr =
-            co_await await_async(Client::connect(io_context_, websocket_url_)
-                                     .map(subscribe)
-                                     .map(on_connect_no_async)
-                                     .and_then(on_connect));
+        auto client_ptr = co_await Client::connect(io_context_, websocket_url_)
+                              .map(subscribe)
+                              .map(on_connect_no_async)
+                              .and_then(on_connect)();
         if (!client_ptr) {
             log_error("✗ BiDi connect returned null");
             co_return 1;
@@ -234,8 +233,8 @@ class IntegratedWebDriverDemo {
             bidi_client_->evaluate("document.title", context_id));
         log_info(std::string("✓ Title: ") + boost::json::serialize(title_obj));
 
-        co_await await_async(bidi_client_->evaluate(
-            "console.log('Olá mundo! Este é um log')", context_id));
+        bidi_client_->evaluate("console.log('Olá mundo! Este é um log')",
+                               context_id);
 
         log_info("4. Evaluating window.location.href...");
         auto loc_obj = co_await await_async(

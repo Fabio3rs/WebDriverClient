@@ -103,13 +103,19 @@
 
 ## Handler Reference Layout
 
+* Validate inputs early, return errors immediately. (no nested ifs)
+* Call domain/service layer, handle errors.
 ```cpp
 auto UsersHandler::get_by_id(const Request& req) -> Response {
   const auto id = parse_id(req.path_param("id"));
-  if (!id) return http::bad_request("invalid_id");
+  if (!id) {
+    return http::bad_request("invalid_id");
+  }
 
   auto res = svc_.fetch_user(*id); // std::expected
-  if (!res) return http::from_error(res.error());
+  if (!res) {
+    return http::from_error(res.error());
+  }
 
   return http::ok(dto::User::from_domain(*res));
 }
@@ -119,8 +125,9 @@ auto UsersHandler::get_by_id(const Request& req) -> Response {
 # Never omit {…} even for single statements.
 
 ```cpp
-if (cond) { return x; } // GOOD
-```
+if (cond) {
+  return x;
+}
 
 ---
 
@@ -135,6 +142,6 @@ if (cond) { return x; } // GOOD
 
 ## TL;DR
 
-* **Prioritize** RAII, spans/views, `[[nodiscard]]`, short functions, strict validation, emit {} even for single statements, timeouts, structured logs.
+* **Prioritize** RAII, spans/views, `[[nodiscard]]`, short functions, strict validation, emit {} even for single statements, early returns, timeouts, structured logs.
 * **Avoid** allocations in hot paths, complex macros, pointer arithmetic, global state, exceptions for normal flow.
 * **Always** keep warnings = 0, `clang-tidy` clean, and tests present, run cmake and tests with parallel $(nproc).

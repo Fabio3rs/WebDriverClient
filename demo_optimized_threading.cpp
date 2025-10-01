@@ -1,6 +1,6 @@
 // demo_optimized_threading.cpp — Demonstrates high-performance threading
 // optimizations
-#include "bidi/buffer_pool.hpp"
+#include "bidi/buffer_pool_vec.hpp"
 #include "bidi/logging.hpp"
 #include "bidi/memory_pool.hpp"
 #include "bidi/message_queue.hpp"

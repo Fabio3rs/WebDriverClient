@@ -27,6 +27,35 @@ static auto make_response_body_from(const std::string &body,
                                     const std::string &path) -> std::string
     /* NOLINT(bugprone-easily-swappable-parameters) */;
 
+// Helper: parse headers from a stream and return Content-Length if present.
+static auto
+extract_content_length_from_stream(std::istringstream &stream) -> size_t {
+    size_t content_length = 0;
+    std::string line;
+    while (std::getline(stream, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        if (line.empty()) {
+            break;
+        }
+        std::string key;
+        std::istringstream ls(line);
+        if (std::getline(ls, key, ':')) {
+            if (key == "Content-Length") {
+                std::string value;
+                std::getline(ls, value);
+                try {
+                    content_length = std::stoul(value);
+                } catch (...) {
+                    content_length = 0;
+                }
+            }
+        }
+    }
+    return content_length;
+}
+
 class SimpleHttpServer {
   public:
     SimpleHttpServer() : running_(false) {}
@@ -118,7 +147,8 @@ class SimpleHttpServer {
         out.resize(bytes);
         size_t off = 0;
         while (off < bytes) {
-            ssize_t read_bytes = ::read(file_descriptor, &out[off], bytes - off);
+            ssize_t read_bytes =
+                ::read(file_descriptor, &out[off], bytes - off);
             if (read_bytes <= 0) {
                 break;
             }
@@ -133,7 +163,7 @@ class SimpleHttpServer {
         std::string req;
         constexpr size_t kBufSize = 1024;
         std::array<char, kBufSize> buf{};
-    ssize_t bytes_read = 0;
+        ssize_t bytes_read = 0;
         // read until \r\n\r\n
         while (true) {
             bytes_read = ::read(client_fd, buf.data(), buf.size());
@@ -153,9 +183,9 @@ class SimpleHttpServer {
         }
 
         // parse request line
-        std::istringstream s(req);
+        std::istringstream headers_stream(req);
         std::string request_line;
-        std::getline(s, request_line);
+        std::getline(headers_stream, request_line);
         if (!request_line.empty() && request_line.back() == '\r') {
             request_line.pop_back();
         }
@@ -169,29 +199,8 @@ class SimpleHttpServer {
         }
 
         // find Content-Length
-        size_t content_length = 0;
-        std::string line;
-        while (std::getline(s, line)) {
-            if (!line.empty() && line.back() == '\r') {
-                line.pop_back();
-            }
-            if (line.empty()) {
-                break;
-            }
-            std::string key;
-            std::istringstream ls(line);
-            if (std::getline(ls, key, ':')) {
-                if (key == "Content-Length") {
-                    std::string value;
-                    std::getline(ls, value);
-                    try {
-                        content_length = std::stoul(value);
-                    } catch (...) {
-                        content_length = 0;
-                    }
-                }
-            }
-        }
+        size_t content_length =
+            extract_content_length_from_stream(headers_stream);
 
         std::string body;
         // there might be leftover bytes in req after header
@@ -208,24 +217,25 @@ class SimpleHttpServer {
             body += read_all(client_fd, need);
         }
 
-    // Prepare response
-    auto body_str = make_response_body_from(body, path);
+        // Prepare response
+        auto body_str = make_response_body_from(body, path);
 
-    // resp_body already serialized by helper
-    std::ostringstream reply;
+        // resp_body already serialized by helper
+        std::ostringstream reply;
         reply << "HTTP/1.1 200 OK\r\n";
         reply << "Content-Type: application/json\r\n";
-    reply << "Content-Length: " << body_str.size() << "\r\n";
+        reply << "Content-Length: " << body_str.size() << "\r\n";
         reply << "Connection: close\r\n";
         reply << "\r\n";
-    reply << body_str;
+        reply << body_str;
 
         auto out = reply.str();
         size_t sent = 0;
         std::string_view out_view(out);
         while (sent < out_view.size()) {
             auto remaining = out_view.substr(sent);
-            ssize_t written = ::write(client_fd, remaining.data(), remaining.size());
+            ssize_t written =
+                ::write(client_fd, remaining.data(), remaining.size());
             if (written <= 0) {
                 break;
             }
