@@ -5,6 +5,7 @@
 #include "bidi/commands.hpp"
 #include "bidi/core.hpp"
 #include "bidi/ids.hpp"
+#include "bidi/script_eval.hpp"
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/async_result.hpp>
 #include <memory>
@@ -59,6 +60,12 @@ class Client : public std::enable_shared_from_this<Client> {
                                        std::string_view context,
                                        bool await_promise = true);
 
+    // Evaluate JavaScript expression with script evaluation policy
+    Task<script::ScriptEvalOutcome> evaluate(std::string_view expression,
+                                             std::string_view context,
+                                             script::script_eval_policy policy,
+                                             bool await_promise = true);
+
     // Call JavaScript function
     Task<boost::json::object> call_function(
         std::string_view function_declaration, std::string_view context,
@@ -95,8 +102,9 @@ class Client : public std::enable_shared_from_this<Client> {
                                  const std::vector<std::string> &contexts = {});
 
     // Set event handler for specific method
-    void set_event_handler(const std::string &method,
-                           std::function<void(boost::json::object)> handler);
+    boost::asio::awaitable<void>
+    set_event_handler(std::string method,
+                      std::function<void(boost::json::object)> handler);
 
     // ======================== Utility ========================
 
@@ -120,22 +128,22 @@ auto Client::async_send(std::string_view method, boost::json::object params,
     using handler_sig = void(boost::system::error_code, boost::json::object);
     return boost::asio::async_initiate<CompletionToken, handler_sig>(
         [self = shared_from_this(), method,
-         params = std::move(params)](auto handler) mutable {
-            // Reusa infraestrutura existente de BiDiSession
+         params = std::move(params)](auto completion_handler) mutable {
+            // Wrap completion_handler in shared_ptr to ensure copyable functor
+            auto handler_wrapper =
+                std::make_shared<decltype(completion_handler)>(
+                    std::move(completion_handler));
             self->session_->send_command(
                 std::string(method), params,
-                [handler = std::move(handler)](
+                [handler_wrapper](
                     const core::ParsedResponse &response) mutable {
+                    auto &completion_ref = *handler_wrapper;
                     if (!response.is_success) {
-                        // Mapear para error_code genérico (extensível
-                        // futuramente)
                         boost::system::error_code ec = make_error_code(
-                            boost::system::errc::
-                                operation_canceled); // placeholder
-                                                     // domain
-                        handler(ec, {});
+                            boost::system::errc::operation_canceled);
+                        completion_ref(ec, boost::json::object{});
                     } else {
-                        handler({}, response.result);
+                        completion_ref({}, response.result);
                     }
                 });
         },

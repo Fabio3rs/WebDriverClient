@@ -16,6 +16,8 @@
 #include <thread>
 #include <unordered_map>
 
+#include "asyncx.hpp"
+
 namespace bidi::core {
 
 // Spec: BiDi message ID type (safe integer range 2^53-1)
@@ -51,6 +53,7 @@ struct ParsedResponse {
     boost::json::object result{};
     std::string error_code{};
     std::string error_message{};
+    std::string stacktrace{}; // W3C BiDi: opcional, pilha de execução em erros
     // Campos adicionais para rastreabilidade/telemetria
     std::string method{};   // método original do comando
     std::string trace_id{}; // trace id gerado localmente para correlação
@@ -164,12 +167,9 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
         // Detach: prevents refcount decrement on destruction
         void release() noexcept { active_ = false; }
         [[nodiscard]] bool is_active() const noexcept { return active_; }
-        // Blocking wait for confirmation from the remote server. Returns
-        // std::nullopt if no confirmation future is available or the wait
-        // timed out; otherwise returns the boolean result of the subscribe
-        // (true == subscribed successfully).
-        [[nodiscard]] std::optional<bool>
-        wait_confirmed(std::chrono::milliseconds timeout) const noexcept;
+        [[nodiscard]] const std::string &subscription_id() const noexcept {
+            return subscription_id_;
+        }
 
       private:
         friend class BiDiSession;
@@ -179,54 +179,8 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
         std::optional<std::vector<std::string>> contexts_;
         // identify specific handler to remove
         std::shared_ptr<EventHandler> handler_ptr_;
+        std::string subscription_id_;
         bool active_{false};
-        // Future que é satisfeito quando o servidor confirma o subscribe
-        std::shared_future<bool> confirmed_;
-        [[nodiscard]] std::shared_future<bool> confirmed() const noexcept {
-            return confirmed_;
-        }
-        // Coroutine support: co_await subscription to wait for confirmation
-        struct Awaiter {
-            std::shared_future<bool> fut;
-            std::weak_ptr<BiDiSession> session;
-            std::atomic<bool> result{false};
-
-            bool await_ready() const noexcept {
-                if (!fut.valid())
-                    return true; // no confirmation available
-                return fut.wait_for(std::chrono::seconds{0}) ==
-                       std::future_status::ready;
-            }
-
-            void await_suspend(std::coroutine_handle<> h) {
-                // Wait on a background thread and resume on the session
-                // executor
-                std::thread([fut = this->fut, session = this->session, h,
-                             self = this]() mutable {
-                    try {
-                        fut.wait();
-                        self->result.store(fut.get(),
-                                           std::memory_order_relaxed);
-                    } catch (...) {
-                        self->result.store(false, std::memory_order_relaxed);
-                    }
-                    if (auto s = session.lock()) {
-                        net::post(s->get_executor(),
-                                  [h]() mutable { h.resume(); });
-                    } else {
-                        h.resume();
-                    }
-                }).detach();
-            }
-
-            bool await_resume() const noexcept {
-                return result.load(std::memory_order_relaxed);
-            }
-        };
-
-        [[nodiscard]] Awaiter operator co_await() const noexcept {
-            return Awaiter{confirmed_, session_};
-        }
     };
 
     explicit BiDiSession(std::shared_ptr<WebSocketClient> websocket);
@@ -239,6 +193,12 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
                  ResponseHandler handler,
                  std::chrono::milliseconds timeout = std::chrono::milliseconds{
                      kDefaultTimeout});
+
+    // Awaitable version for coroutines
+    [[nodiscard]] boost::asio::awaitable<ParsedResponse> send_command_awaitable(
+        std::string_view method, boost::json::object params,
+        std::chrono::milliseconds timeout = std::chrono::milliseconds{
+            kDefaultTimeout});
 
     // default timeout used across BiDi core for request operations
     static inline constexpr std::chrono::milliseconds kDefaultTimeout{5000};
@@ -256,8 +216,12 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
     }
 
     // Subscribe to events (global scope). Returns RAII handle.
-    [[nodiscard]] Subscription subscribe_event(const std::string &event_method,
-                                               EventHandler handler);
+    [[nodiscard]] asyncx::Async<std::shared_ptr<Subscription>>
+    subscribe_event(std::string_view event_method, EventHandler handler);
+    [[nodiscard]] boost::asio::awaitable<Subscription>
+    subscribe_event_awaitable(std::string event_method, EventHandler handler);
+    [[nodiscard]] asyncx::Async<std::shared_ptr<Subscription>>
+    subscribe_event_async(std::string event_method, EventHandler handler);
     void unsubscribe_event(const std::string &event_method);
 
     // Subscribe to events scoped by contexts (deduped by refcount per context)
@@ -271,12 +235,28 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
     // Get executor for async operations
     net::any_io_executor get_executor() const;
 
+    // Remove handler from event list (MUST be called from strand context for
+    // thread-safety) WARNING: This is a low-level method - only call from
+    // within strand execution context
+    void remove_handler_from_event_list_unsafe(
+        const std::string &method,
+        const std::shared_ptr<EventHandler> &handler_ptr);
+
     // Start session (connect WebSocket and begin message processing)
     template <class CompletionToken>
     auto async_start(std::string_view websocket_url, CompletionToken &&token);
 
     // Graceful disconnect/close of the underlying WebSocket (non-blocking)
     void disconnect();
+
+    // Pending requests: id -> response handler
+    struct PendingEntry {
+        ResponseHandler handler;
+        std::string method;
+        std::string trace_id; // propagated for logging correlation
+        net::steady_timer timer;
+        std::chrono::steady_clock::time_point start;
+    };
 
   private:
     void on_message(const std::string &payload);
@@ -305,14 +285,6 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
     std::shared_ptr<WebSocketClient> ws_;
     std::atomic<id_type> next_id_{1ULL};
 
-    // Pending requests: id -> response handler
-    struct PendingEntry {
-        ResponseHandler handler;
-        std::string method;
-        std::string trace_id; // propagated for logging correlation
-        net::steady_timer timer;
-        std::chrono::steady_clock::time_point start;
-    };
     std::unordered_map<id_type, PendingEntry> pending_responses_;
 
     // Event subscriptions: method -> handlers (multiple subscribers supported)
@@ -331,6 +303,12 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
     // Exposed shared futures map cache (optional)
     std::unordered_map<std::string, std::shared_future<bool>>
         subscribe_futures_;
+    // Callback-based subscribers for confirmation (non-blocking resume)
+    std::unordered_map<std::string, std::vector<std::function<void(bool)>>>
+        subscribe_callbacks_;
+
+    // Active subscription IDs per event method (for unsubscribe operations)
+    std::unordered_map<std::string, std::string> active_subscriptions_;
 
     // Optional transport sender used by core to send async commands via
     // the underlying transport implementation (e.g., ThreadedBiDiSession).

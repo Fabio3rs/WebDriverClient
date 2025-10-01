@@ -66,7 +66,7 @@ class BufferPoolVec {
             // Custom return_fn: when last shared_ptr goes away, owner is freed
             // and slot_handle destructor will return slot via PoolHandle's
             // reset().
-            auto return_fn = [this](std::shared_ptr<PooledBuffer> /*buf*/) {
+            auto return_fn = [](std::shared_ptr<PooledBuffer> /*buf*/) {
                 // nothing to do: owner destructor will release slot
             };
 

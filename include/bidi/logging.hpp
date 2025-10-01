@@ -117,4 +117,26 @@ inline void log_info(const std::string &msg, const std::string &trace_id = {}) {
     }
 }
 
+inline void log_warning(const std::string &msg,
+                        const std::string &trace_id = {}) {
+    auto payload = build_log("warning", msg, {}, nullptr, trace_id);
+    auto &sink = get_default_sink_ref();
+    if (sink) {
+        sink(payload);
+    } else {
+        std::cout << payload << '\n';
+    }
+}
+
+inline void log_debug(const std::string &msg,
+                      const std::string &trace_id = {}) {
+    auto payload = build_log("debug", msg, {}, nullptr, trace_id);
+    auto &sink = get_default_sink_ref();
+    if (sink) {
+        sink(payload);
+    } else {
+        std::cout << payload << '\n';
+    }
+}
+
 } // namespace bidi::logging

@@ -133,9 +133,70 @@ TEST(PoolVecTest, KeepConstructsAtMostCapacity) {
 
     std::vector<std::thread> ths;
     ths.reserve(num_threads);
-    for (int i = 0; i < num_threads; ++i) { ths.emplace_back(worker, i); }
-    for (auto &th : ths) { th.join(); }
+    for (int i = 0; i < num_threads; ++i) {
+        ths.emplace_back(worker, i);
+    }
+    for (auto &th : ths) {
+        th.join();
+    }
 
     // Constructed count must be <= capacity
     EXPECT_LE(CountingPayload::constructed.load(), cap);
+}
+
+struct ThrowingPayload {
+    static std::atomic<int> attempts;
+    static std::atomic<int> constructed;
+    int v{0};
+    ThrowingPayload(int val) : v(val) {
+        int attempt_index = attempts.fetch_add(1) + 1;
+        // Força exceção nas duas primeiras tentativas para simular falha
+        if (attempt_index <= 2) {
+            throw std::runtime_error("forced construction failure");
+        }
+        constructed.fetch_add(1);
+    }
+};
+
+std::atomic<int> ThrowingPayload::attempts{0};
+std::atomic<int> ThrowingPayload::constructed{0};
+
+TEST(PoolVecTest, ConstructionFailureRollsBackSlot) {
+    using namespace std::chrono_literals;
+    ThrowingPayload::attempts.store(0);
+    ThrowingPayload::constructed.store(0);
+
+    PoolVec<ThrowingPayload> pool(1,
+                                  PoolVec<ThrowingPayload>::Policy::Recreate);
+
+    // Primeira tentativa: falha silenciosa e não consome slot
+    {
+        constexpr int kFirstFailValue = 10;
+        auto start_attempts = ThrowingPayload::attempts.load();
+        auto hfail = pool.borrow(0ms, kFirstFailValue);
+        EXPECT_FALSE(static_cast<bool>(hfail));
+        EXPECT_EQ(pool.borrowed_count(), 0U);
+        EXPECT_EQ(ThrowingPayload::constructed.load(), 0);
+        EXPECT_EQ(ThrowingPayload::attempts.load(), start_attempts + 1);
+    }
+    // Segunda tentativa: também lança
+    {
+        constexpr int kSecondFailValue = 20;
+        auto hfail2 = pool.borrow(0ms, kSecondFailValue);
+        EXPECT_FALSE(static_cast<bool>(hfail2));
+        EXPECT_EQ(pool.borrowed_count(), 0U);
+        EXPECT_EQ(ThrowingPayload::constructed.load(), 0);
+    }
+    // Terceira deve finalmente construir
+    {
+        constexpr int kConstructValue = 30;
+        auto handle_ok = pool.borrow(0ms, kConstructValue);
+        ASSERT_TRUE(static_cast<bool>(handle_ok));
+        EXPECT_EQ(handle_ok->v, kConstructValue);
+        handle_ok.reset();
+        EXPECT_EQ(pool.borrowed_count(), 0U);
+    }
+    // Verifica métrica de failures (se exposta)
+    // Apenas valida que houve 2 falhas iniciais -> failures() == 2
+    EXPECT_EQ(pool.failures(), 2U);
 }

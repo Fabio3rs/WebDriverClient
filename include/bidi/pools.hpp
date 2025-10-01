@@ -6,7 +6,6 @@
 
 #include "bidi/buffer_pool_vec.hpp"
 #include "bidi/pending_entry_pool_vec.hpp"
-#include "bidi/promise_pool.hpp"
 
 #include <memory>
 
@@ -16,14 +15,11 @@ namespace bidi::core {
 // Not intended to force global state in production; used as a convenience
 // for instrumentation and examples.
 struct ResourcePools {
-    static constexpr std::size_t kDefaultPromisePool = 64;
     static constexpr std::size_t kDefaultPendingPool = 128;
     static constexpr std::size_t kDefaultBufferPool = 16;
 
     ResourcePools()
-        : promise_pool(std::make_unique<PromisePool<boost::json::object>>(
-              kDefaultPromisePool)),
-          pending_pool(
+        : pending_pool(
               std::make_unique<PendingEntryPoolVec>(kDefaultPendingPool)),
           buffer_pool(std::make_unique<BufferPoolVec>(kDefaultBufferPool)) {}
 
@@ -37,31 +33,23 @@ struct ResourcePools {
     ResourcePools(ResourcePools &&) = default;
     ResourcePools &operator=(ResourcePools &&) = default;
 
-    PromisePool<boost::json::object> &get_promise_pool() {
-        return *promise_pool;
-    }
     PendingEntryPoolVec &get_pending_pool() { return *pending_pool; }
     BufferPoolVec &get_buffer_pool() { return *buffer_pool; }
 
     // Stats snapshot combining pool stats into a simple struct
     struct Stats {
-        PromisePool<boost::json::object>::Stats promise_stats{};
-        // PendingEntryPoolVec has a simpler Stats; keep a placeholder struct
         PendingEntryPoolVec::Stats pending_stats{};
-        BufferPool::Stats
-            buffer_stats{}; // keep BufferPool::Stats name for compatibility
+        BufferPool::Stats buffer_stats{}; // manter nome para compatibilidade
     };
 
     Stats snapshot() const {
         Stats snapshot{};
-        snapshot.promise_stats = promise_pool->get_stats();
         snapshot.pending_stats = pending_pool->get_stats();
         snapshot.buffer_stats = buffer_pool->get_stats();
         return snapshot;
     }
 
   private:
-    std::unique_ptr<PromisePool<boost::json::object>> promise_pool;
     std::unique_ptr<PendingEntryPoolVec> pending_pool;
     std::unique_ptr<BufferPoolVec> buffer_pool;
 };

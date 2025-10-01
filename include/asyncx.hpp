@@ -1,12 +1,12 @@
 #pragma once
 #include "ThreadPool.hpp"
-#include "bidi/logging.hpp"
 #include <atomic>
 #include <boost/asio.hpp>
 #include <boost/asio/system_executor.hpp> // system_executor
 #include <chrono>
 #include <coroutine>
 #include <exception>
+#include <expected>
 #include <functional>
 #include <mutex>
 #include <optional>
@@ -15,6 +15,9 @@
 #include <utility>
 #include <variant>
 #include <vector>
+#if __has_include(<boost/outcome.hpp>)
+#include <boost/outcome.hpp>
+#endif
 
 namespace asyncx {
 namespace net = boost::asio;
@@ -46,13 +49,13 @@ template <> struct State<void> {
 // member templates como await_suspend). Possui especialização para void.
 template <class T> struct async_awaiter {
     std::shared_ptr<State<T>> st;
-    bool await_ready() const noexcept { return st->done; }
+    [[nodiscard]] auto await_ready() const noexcept -> bool { return st->done; }
     template <class Promise>
     void await_suspend(std::coroutine_handle<Promise> h) {
         std::scoped_lock lk(st->mx);
         st->conts.push_back([h]() mutable { h.resume(); });
     }
-    T await_resume() {
+    auto await_resume() -> T {
         if (auto p = std::get_if<T>(&st->result)) {
             return std::move(*p);
         }
@@ -65,7 +68,7 @@ template <class T> struct async_awaiter {
 
 template <> struct async_awaiter<void> {
     std::shared_ptr<State<void>> st;
-    bool await_ready() const noexcept { return st->done; }
+    [[nodiscard]] auto await_ready() const noexcept -> bool { return st->done; }
     template <class Promise>
     void await_suspend(std::coroutine_handle<Promise> h) {
         std::scoped_lock lk(st->mx);
@@ -82,6 +85,56 @@ template <> struct async_awaiter<void> {
     }
 };
 
+// ---------- Helper functions for CompletionToken handling ----------
+namespace {
+
+// Dispatches handler for void result type
+template <class Handler>
+void dispatch_void_completion(std::shared_ptr<Handler> sp,
+                              std::optional<boost::system::error_code> ec) {
+    (*sp)(ec.value_or(boost::system::error_code{}));
+}
+
+// Dispatches handler for non-void result type with success
+template <class T, class Handler>
+void dispatch_value_completion(std::shared_ptr<Handler> sp, std::optional<T> v,
+                               std::optional<boost::system::error_code> ec) {
+
+    // Early return: Success case
+    if (v && !ec) {
+        (*sp)(boost::system::error_code{}, std::move(*v));
+        return;
+    }
+
+    // Early return: Error case
+    if (ec) {
+        (*sp)(*ec, T{});
+        return;
+    }
+
+    // Default: Cancelled
+    (*sp)(boost::asio::error::operation_aborted, T{});
+}
+
+// Creates completion callback for void result
+template <class Handler>
+auto make_void_completion_callback(
+    std::shared_ptr<Handler> sp, std::optional<boost::system::error_code> ec) {
+    return [sp, ec]() mutable { dispatch_void_completion(sp, ec); };
+}
+
+// Creates completion callback for non-void result
+template <class T, class Handler>
+auto make_value_completion_callback(
+    std::shared_ptr<Handler> sp, std::optional<T> v,
+    std::optional<boost::system::error_code> ec) {
+    return [sp, v = std::move(v), ec]() mutable {
+        dispatch_value_completion<T>(sp, std::move(v), ec);
+    };
+}
+
+} // anonymous namespace
+
 // ---------- Async<T> ----------
 template <class T = void> class Async {
     std::shared_ptr<State<T>> st_;
@@ -92,13 +145,17 @@ template <class T = void> class Async {
 
     Async() = default;
 
-    static Async<T> make(net::any_io_executor ex) {
+    static auto make(net::any_io_executor ex) -> Async<T> {
         return Async<T>(std::make_shared<State<T>>(ex));
     }
 
-    net::any_io_executor get_executor() const { return st_->ex; }
+    [[nodiscard]] auto get_executor() const -> net::any_io_executor {
+        return st_->ex;
+    }
 
-    std::stop_token get_stop_token() const { return st_->stop_src.get_token(); }
+    [[nodiscard]] auto get_stop_token() const -> std::stop_token {
+        return st_->stop_src.get_token();
+    }
 
     void request_stop() { st_->stop_src.request_stop(); }
 
@@ -122,76 +179,50 @@ template <class T = void> class Async {
     void cancel() { st_->stop_src.request_stop(); }
 
     // ============================
-    // 1) Versão geral: aceita qualquer CompletionToken
+    // CompletionToken support (refactored for reduced complexity)
     // ============================
     template <class CompletionToken> auto operator()(CompletionToken &&token) {
-        // Assinatura da operação conforme T:
-        //   - Se T != void: void(error_code, T)
-        //   - Se T == void: void(error_code)
+        // Signature depends on T: void(error_code) or void(error_code, T)
         using signature_t =
             std::conditional_t<std::is_void_v<T>,
                                void(boost::system::error_code),
                                void(boost::system::error_code, T)>;
 
-        auto initiation = [this]<class Handler>(Handler &&handler) mutable {
-            using H = std::decay_t<Handler>;
+        auto initiation = [self = *this]<class Handler>(Handler &&handler) {
+            using handler_t = std::decay_t<Handler>;
 
-            // Preserva executor/allocator/cancel-slot associados ao handler
-            auto ex = boost::asio::get_associated_executor(
+            // Extract associated objects from handler
+            auto executor = boost::asio::get_associated_executor(
                 handler, boost::asio::system_executor());
-            auto alloc = boost::asio::get_associated_allocator(handler);
-            auto slot = boost::asio::get_associated_cancellation_slot(handler);
+            auto allocator = boost::asio::get_associated_allocator(handler);
+            auto cancel_slot =
+                boost::asio::get_associated_cancellation_slot(handler);
 
-            // Move-only handler? Torna-o copiável para capturar em
-            // lambdas/callbacks
-            auto sp = std::make_shared<H>(std::forward<Handler>(handler));
+            // Wrap handler in shared_ptr for lambda capture
+            auto handler_ptr =
+                std::make_shared<handler_t>(std::forward<Handler>(handler));
 
-            if (slot.is_connected()) {
-                // Propaga cancelamento do chamador para tua Async
-                slot.assign(
-                    [this](boost::asio::cancellation_type) { this->cancel(); });
+            // Setup cancellation propagation
+            self.setup_cancellation_propagation(cancel_slot);
+
+            // Attach appropriate completion handler based on T
+            if constexpr (std::is_void_v<T>) {
+                self.attach_void_completion_handler(handler_ptr, executor,
+                                                    allocator);
+            } else {
+                self.attach_value_completion_handler(handler_ptr, executor,
+                                                     allocator);
             }
-
-            // Quando tua Async concluir, dispare o handler no executor
-            // associado
-            auto finallyCb = [sp, ex, alloc](
-                                 std::optional<T> v,
-                                 std::optional<boost::system::error_code> ec,
-                                 const std::exception_ptr &) mutable {
-                // Chama via dispatch e com allocator associado
-                auto completionCallback = [sp, v = std::move(v), ec]() mutable {
-                    if constexpr (std::is_void_v<T>) {
-                        // T == void: apenas error_code
-                        (*sp)(ec.value_or(boost::system::error_code{}));
-                    } else {
-                        if (v && !ec) {
-                            (*sp)(boost::system::error_code{}, std::move(*v));
-                        } else if (ec) {
-                            (*sp)(*ec,
-                                  T{}); // ajuste se tiver "valor nulo" melhor
-                        } else {
-                            // Sem valor e sem ec => considere como
-                            // cancelado
-                            (*sp)(boost::asio::error::operation_aborted, T{});
-                        }
-                    }
-                };
-                boost::asio::dispatch(
-                    ex, boost::asio::bind_allocator(alloc, completionCallback));
-            };
-            this->finally(finallyCb);
         };
 
-        // Converte token -> handler e retorna o tipo certo (awaitable, future,
-        // void…)
         return boost::asio::async_initiate<CompletionToken, signature_t>(
             initiation, std::forward<CompletionToken>(token));
     }
 
     // ============================
-    // 2) Versão "default": sem args, retorna awaitable<T>
+    // Default: returns awaitable<T>
     // ============================
-    boost::asio::awaitable<T> operator()() {
+    auto operator()() -> boost::asio::awaitable<T> {
         if constexpr (std::is_void_v<T>) {
             // para T == void, forneço um exemplo que retorna void
             co_await (*this)(boost::asio::use_awaitable);
@@ -201,7 +232,7 @@ template <class T = void> class Async {
         }
     }
 
-    template <class Fn> Async<T> on_error(Fn fn) {
+    template <class Fn> auto on_error(Fn fn) -> Async<T> {
         auto &a = *this;
         auto ex = a.get_executor(); // assuma que você já expõe isso
         auto out = Async<T>::make(ex);
@@ -299,7 +330,14 @@ template <class T = void> class Async {
                 next.fail(std::get<std::exception_ptr>(st->result));
             }
         };
-        attach_or_run(std::move(cont));
+        try {
+            attach_or_run(std::move(cont));
+        } catch (...) {
+            // EXCEPTION SAFETY FIX: If attach_or_run throws (e.g., bad_alloc),
+            // fail next to prevent hang and notify caller of allocation
+            // failure.
+            next.fail(std::current_exception());
+        }
         return next;
     }
 
@@ -346,11 +384,18 @@ template <class T = void> class Async {
                 next.fail(std::get<std::exception_ptr>(st->result));
             }
         };
-        attach_or_run(std::move(cont));
+        try {
+            attach_or_run(std::move(cont));
+        } catch (...) {
+            // EXCEPTION SAFETY FIX: If attach_or_run throws (e.g., bad_alloc),
+            // fail next to prevent hang and notify caller of allocation
+            // failure.
+            next.fail(std::current_exception());
+        }
         return next;
     }
 
-    template <class F> Async<T> recover(F f) {
+    template <class F> auto recover(F f) -> Async<T> {
         auto next = Async<T>::make(st_->ex);
         auto cont = [st = st_, next, f = std::move(f)]() mutable {
             if (auto p = std::get_if<T>(&st->result)) {
@@ -367,7 +412,14 @@ template <class T = void> class Async {
                 next.fail(std::current_exception());
             }
         };
-        attach_or_run(std::move(cont));
+        try {
+            attach_or_run(std::move(cont));
+        } catch (...) {
+            // EXCEPTION SAFETY FIX: If attach_or_run throws (e.g., bad_alloc),
+            // fail next to prevent hang and notify caller of allocation
+            // failure.
+            next.fail(std::current_exception());
+        }
         return next;
     }
 
@@ -392,34 +444,160 @@ template <class T = void> class Async {
 
     // awaiter opcional (usa async_awaiter definido no namespace)
     auto operator co_await() const { return async_awaiter<T>{st_}; }
-    auto operator co_await() { return async_awaiter<T>{st_}; }
+    // Lightweight non-owning handle to the shared state. Use this in
+    // callbacks (e.g. stop callbacks) to avoid creating ownership cycles.
+    struct Weak {
+        std::weak_ptr<State<T>> wst;
+        explicit Weak(std::weak_ptr<State<T>> w) : wst(std::move(w)) {}
+        void try_request_stop() const noexcept {
+            if (auto s = wst.lock()) {
+                s->stop_src.request_stop();
+            }
+        }
+        void try_fail(const EC &ec) const noexcept {
+            if (auto s = wst.lock()) {
+                std::vector<std::function<void()>> cs;
+                {
+                    std::scoped_lock lk(s->mx);
+                    if (s->done) {
+                        return;
+                    }
+                    s->done = true;
+                    s->result = ec;
+                    cs.swap(s->conts);
+                }
+                for (auto &c : cs) {
+                    net::post(s->ex, std::move(c));
+                }
+            }
+        }
+
+        // try_fulfill for non-void T
+        template <typename U = T>
+        std::enable_if_t<!std::is_void_v<U>, void>
+        try_fulfill(const T &v) const noexcept {
+            if (auto s = wst.lock()) {
+                std::vector<std::function<void()>> cs;
+                {
+                    std::scoped_lock lk(s->mx);
+                    if (s->done) {
+                        return;
+                    }
+                    s->done = true;
+                    s->result = v;
+                    cs.swap(s->conts);
+                }
+                for (auto &c : cs) {
+                    net::post(s->ex, std::move(c));
+                }
+            }
+        }
+
+        // try_fulfill for void
+        template <typename U = T>
+        std::enable_if_t<std::is_void_v<U>, void> try_fulfill() const noexcept {
+            if (auto s = wst.lock()) {
+                std::vector<std::function<void()>> cs;
+                {
+                    std::scoped_lock lk(s->mx);
+                    if (s->done) {
+                        return;
+                    }
+                    s->done = true;
+                    s->result = std::monostate{};
+                    cs.swap(s->conts);
+                }
+                for (auto &c : cs) {
+                    net::post(s->ex, std::move(c));
+                }
+            }
+        }
+    };
+
+    auto weak() const noexcept -> Weak {
+        return Weak{std::weak_ptr<State<T>>(st_)};
+    }
 
   private:
+    // ========== Private helpers for operator()(CompletionToken) ==========
+
+    // Setup cancellation propagation from handler's slot to this Async
+    template <class CancellationSlot>
+    void setup_cancellation_propagation(CancellationSlot &slot) const {
+        if (!slot.is_connected()) {
+            return;
+        }
+
+        slot.assign([weak = this->weak()](boost::asio::cancellation_type) {
+            weak.try_request_stop();
+        });
+    }
+
+    // Create and attach the finally callback for void result type
+    template <class Handler>
+    void attach_void_completion_handler(
+        std::shared_ptr<Handler> handler_ptr, net::any_io_executor executor,
+        boost::asio::associated_allocator_t<Handler> allocator) const {
+
+        auto finally_cb = [sp = handler_ptr, ex = executor, alloc = allocator](
+                              std::optional<boost::system::error_code> ec,
+                              const std::exception_ptr &) mutable {
+            auto completion = make_void_completion_callback(sp, ec);
+            boost::asio::dispatch(
+                ex, boost::asio::bind_allocator(alloc, std::move(completion)));
+        };
+
+        this->finally(std::move(finally_cb));
+    }
+
+    // Create and attach the finally callback for non-void result type
+    template <class Handler>
+    void attach_value_completion_handler(
+        std::shared_ptr<Handler> handler_ptr, net::any_io_executor executor,
+        boost::asio::associated_allocator_t<Handler> allocator) const {
+
+        auto finally_cb =
+            [sp = handler_ptr, ex = executor, alloc = allocator](
+                std::optional<T> value,
+                std::optional<boost::system::error_code> error_code,
+                const std::exception_ptr &) mutable {
+                auto completion = make_value_completion_callback<T>(
+                    sp, std::move(value), error_code);
+                boost::asio::dispatch(ex, boost::asio::bind_allocator(
+                                              alloc, std::move(completion)));
+            };
+
+        this->finally(std::move(finally_cb));
+    }
+
     void attach_or_run(std::function<void()> c) const {
-        bool run_now = false;
+        std::optional<std::function<void()>> run_inline;
         {
             std::scoped_lock lk(st_->mx);
             if (!st_->done) {
                 st_->conts.push_back(std::move(c));
-                run_now = false;
             } else {
-                run_now = true;
+                // CRITICAL FIX: Move continuation INSIDE the lock to prevent
+                // race where fulfill() could capture it from vector while we
+                // try to invoke it, causing double-execution.
+                run_inline = std::move(c);
             }
         }
-        if (run_now) {
+        if (run_inline) {
             // If the state is already done, run the continuation inline to
             // ensure composed combinators observe completion immediately
             // and can cancel other operations deterministically.
-            std::invoke(std::move(c));
+            std::invoke(std::move(*run_inline));
         }
     }
 
   public:
     // ---------- fábricas ----------
     template <class U>
-    static Async<U>
+    static auto
     from_future(net::any_io_executor ex, std::future<U> fut,
-                std::shared_ptr<boost::asio::thread_pool> pool = nullptr) {
+                const std::shared_ptr<boost::asio::thread_pool> &pool = nullptr)
+        -> Async<U> {
         auto a = Async<U>::make(ex);
         auto &target_pool = pool ? *pool : webdriver::global_thread_pool();
         boost::asio::post(target_pool, [a, f = std::move(fut)]() mutable {
@@ -436,7 +614,8 @@ template <class T = void> class Async {
     }
 
     template <class Initiator>
-    static Async<T> from_callback(net::any_io_executor ex, Initiator init) {
+    static auto from_callback(net::any_io_executor ex,
+                              Initiator init) -> Async<T> {
         auto a = Async<T>::make(ex);
         init(
             [a](EC ec, T v) {
@@ -459,13 +638,17 @@ template <> class Async<void> {
   public:
     using value_type = void;
 
-    static Async<void> make(net::any_io_executor ex) {
+    static auto make(const net::any_io_executor &ex) -> Async<void> {
         return Async<void>(std::make_shared<State<void>>(ex));
     }
 
-    net::any_io_executor get_executor() const { return st_->ex; }
+    [[nodiscard]] auto get_executor() const -> net::any_io_executor {
+        return st_->ex;
+    }
 
-    std::stop_token get_stop_token() const { return st_->stop_src.get_token(); }
+    [[nodiscard]] auto get_stop_token() const -> std::stop_token {
+        return st_->stop_src.get_token();
+    }
 
     void request_stop() { st_->stop_src.request_stop(); }
 
@@ -501,7 +684,7 @@ template <> class Async<void> {
         }
     }
 
-    void fail(std::exception_ptr ep) const {
+    void fail(const std::exception_ptr &ep) const {
         std::vector<std::function<void()>> cs;
         {
             std::scoped_lock lk(st_->mx);
@@ -517,25 +700,90 @@ template <> class Async<void> {
         }
     }
 
+    // Lightweight non-owning handle to the shared state for void
+    // specialization.
+    struct Weak {
+        std::weak_ptr<State<void>> wst;
+        explicit Weak(std::weak_ptr<State<void>> w) : wst(std::move(w)) {}
+        void try_request_stop() const noexcept {
+            if (auto s = wst.lock()) {
+                s->stop_src.request_stop();
+            }
+        }
+        void try_fail(const EC &ec) const noexcept {
+            try {
+                if (auto s = wst.lock()) {
+                    std::vector<std::function<void()>> cs;
+                    {
+                        std::scoped_lock lk(s->mx);
+                        if (s->done) {
+                            return;
+                        }
+                        s->done = true;
+                        s->result = ec;
+                        cs.swap(s->conts);
+                    }
+                    for (auto &c : cs) {
+                        net::post(s->ex, std::move(c));
+                    }
+                }
+            } catch (...) { // NOLINT
+                // EXCEPTION SAFETY FIX: Silently ignore exceptions in noexcept
+                // context. This is a "best-effort" operation (Weak handle), so
+                // if allocation or posting fails, there's no owner to notify
+                // anyway.
+            }
+        }
+        void try_fulfill() const noexcept {
+            try {
+                if (auto s = wst.lock()) {
+                    std::vector<std::function<void()>> cs;
+                    {
+                        std::scoped_lock lk(s->mx);
+                        if (s->done) {
+                            return;
+                        }
+                        s->done = true;
+                        s->result = std::monostate{};
+                        cs.swap(s->conts);
+                    }
+                    for (auto &c : cs) {
+                        net::post(s->ex, std::move(c));
+                    }
+                }
+            } catch (...) { // NOLINT
+                // EXCEPTION SAFETY FIX: Silently ignore exceptions in noexcept
+                // context. This is a "best-effort" operation (Weak handle), so
+                // if allocation or posting fails, there's no owner to notify
+                // anyway.
+            }
+        }
+    };
+
+    [[nodiscard]] auto weak() const noexcept -> Weak {
+        return Weak{std::weak_ptr<State<void>>(st_)};
+    }
+
     // Adapt Async<void> into a boost::asio::awaitable<void>
     auto operator()() -> boost::asio::awaitable<void> {
+        auto asyncHandler = [this](auto &&handler) mutable {
+            using handler_t = std::decay_t<decltype(handler)>;
+            auto sp = std::make_shared<handler_t>(
+                std::forward<decltype(handler)>(handler));
+            this->finally([sp](std::optional<asyncx::EC> erc,
+                               const std::exception_ptr & /*ep*/) mutable {
+                if (!erc) {
+                    (*sp)(boost::system::error_code{});
+                } else {
+                    (*sp)(*erc);
+                }
+            });
+        };
+
         co_await boost::asio::async_initiate<
             decltype(boost::asio::use_awaitable),
-            void(boost::system::error_code)>(
-            [this](auto &&handler) mutable {
-                using handler_t = std::decay_t<decltype(handler)>;
-                auto sp = std::make_shared<handler_t>(
-                    std::forward<decltype(handler)>(handler));
-                this->finally([sp](std::optional<asyncx::EC> ec,
-                                   const std::exception_ptr & /*ep*/) mutable {
-                    if (!ec) {
-                        (*sp)(boost::system::error_code{});
-                    } else {
-                        (*sp)(*ec);
-                    }
-                });
-            },
-            boost::asio::use_awaitable);
+            void(boost::system::error_code)>(asyncHandler,
+                                             boost::asio::use_awaitable);
         co_return;
     }
 
@@ -549,13 +797,20 @@ template <> class Async<void> {
                 } catch (...) {
                     next.fail(std::current_exception());
                 }
-            } else if (auto ec = std::get_if<EC>(&st->result)) {
+            } else if (auto *ec = std::get_if<EC>(&st->result)) {
                 next.fail(*ec);
             } else {
                 next.fail(std::get<std::exception_ptr>(st->result));
             }
         };
-        attach_or_run(std::move(cont));
+        try {
+            attach_or_run(std::move(cont));
+        } catch (...) {
+            // EXCEPTION SAFETY FIX: If attach_or_run throws (e.g., bad_alloc),
+            // fail next to prevent hang and notify caller of allocation
+            // failure.
+            next.fail(std::current_exception());
+        }
         return next;
     }
 
@@ -595,17 +850,24 @@ template <> class Async<void> {
                 } catch (...) {
                     next.fail(std::current_exception());
                 }
-            } else if (auto ec = std::get_if<EC>(&st->result)) {
+            } else if (auto *ec = std::get_if<EC>(&st->result)) {
                 next.fail(*ec);
             } else {
                 next.fail(std::get<std::exception_ptr>(st->result));
             }
         };
-        attach_or_run(std::move(cont));
+        try {
+            attach_or_run(std::move(cont));
+        } catch (...) {
+            // EXCEPTION SAFETY FIX: If attach_or_run throws (e.g., bad_alloc),
+            // fail next to prevent hang and notify caller of allocation
+            // failure.
+            next.fail(std::current_exception());
+        }
         return next;
     }
 
-    template <class F> Async<void> recover(F f) {
+    template <class F> auto recover(F f) -> Async<void> {
         auto next = Async<void>::make(st_->ex);
         auto cont = [st = st_, next, f = std::move(f)]() mutable {
             if (std::holds_alternative<std::monostate>(st->result)) {
@@ -619,7 +881,14 @@ template <> class Async<void> {
                 next.fail(std::current_exception());
             }
         };
-        attach_or_run(std::move(cont));
+        try {
+            attach_or_run(std::move(cont));
+        } catch (...) {
+            // EXCEPTION SAFETY FIX: If attach_or_run throws (e.g., bad_alloc),
+            // fail next to prevent hang and notify caller of allocation
+            // failure.
+            next.fail(std::current_exception());
+        }
         return next;
     }
 
@@ -628,7 +897,7 @@ template <> class Async<void> {
             std::optional<EC> ec;
             std::exception_ptr ep;
 
-            if (auto pe = std::get_if<EC>(&st->result)) {
+            if (auto *pe = std::get_if<EC>(&st->result)) {
                 ec = *pe;
             } else if (!std::holds_alternative<std::monostate>(st->result)) {
                 ep = std::get<std::exception_ptr>(st->result);
@@ -642,24 +911,30 @@ template <> class Async<void> {
 
   private:
     void attach_or_run(std::function<void()> c) const {
-        bool run_now = false;
+        std::optional<std::function<void()>> run_inline;
         {
             std::scoped_lock lk(st_->mx);
             if (!st_->done) {
                 st_->conts.push_back(std::move(c));
-                run_now = false;
             } else {
-                run_now = true;
+                // CRITICAL FIX: Move continuation INSIDE the lock to prevent
+                // race where fulfill() could capture it from vector while we
+                // try to invoke it, causing double-execution.
+                run_inline = std::move(c);
             }
         }
-        if (run_now) {
-            net::post(st_->ex, std::move(c));
+        if (run_inline) {
+            // If the state is already done, run the continuation inline to
+            // ensure composed combinators observe completion immediately
+            // and can cancel other operations deterministically.
+            std::invoke(std::move(*run_inline));
         }
     }
 
   public:
     template <class Initiator>
-    static Async<void> from_callback(net::any_io_executor ex, Initiator init) {
+    static auto from_callback(const net::any_io_executor &ex,
+                              Initiator init) -> Async<void> {
         auto a = Async<void>::make(ex);
         init(
             [a](EC ec) {
@@ -676,11 +951,13 @@ template <> class Async<void> {
 
 // ---------- combinadores livres: all / race / timeout ----------
 template <class T>
-Async<std::vector<T>> all(net::any_io_executor ex, std::vector<Async<T>> vs) {
+auto all(net::any_io_executor ex,
+         std::vector<Async<T>> vs) -> Async<std::vector<T>> {
     auto out = Async<std::vector<T>>::make(ex);
     auto ops = std::make_shared<std::vector<Async<T>>>(std::move(vs));
     auto res = std::make_shared<std::vector<std::optional<T>>>(ops->size());
-    auto left = std::make_shared<std::atomic<int>>(static_cast<int>(ops->size()));
+    auto left =
+        std::make_shared<std::atomic<int>>(static_cast<int>(ops->size()));
 
     if (ops->empty()) {
         out.fulfill({});
@@ -696,56 +973,65 @@ Async<std::vector<T>> all(net::any_io_executor ex, std::vector<Async<T>> vs) {
             // allocate registration on heap so we can keep it alive across
             // asynchronous callbacks; the registration will be destroyed when
             // `out` completes.
-            auto reg = std::make_shared<std::stop_callback<std::function<void()>>>(
-                token, [ops]() {
-                    for (auto &o : *ops) {
-                        try {
-                            o.request_stop();
-                        } catch (...) {
+            auto reg =
+                std::make_shared<std::stop_callback<std::function<void()>>>(
+                    token, [ops]() {
+                        for (auto &o : *ops) {
+                            try {
+                                o.request_stop();
+                            } catch (...) { // NOLINT
+                                // Best-effort cancellation: if request_stop()
+                                // fails, continue trying to cancel other
+                                // operations. Failure here is non-critical
+                                // (operation may already be done).
+                            }
                         }
-                    }
-                });
+                    });
             // hold reg until out completes
-            out.finally([reg](std::optional<std::vector<T>> /*v*/, std::optional<EC> /*ec*/, std::exception_ptr /*ep*/) {
+            out.finally([reg](std::optional<std::vector<T>> /*v*/,
+                              std::optional<EC> /*ec*/,
+                              const std::exception_ptr & /*ep*/) {
                 // reg goes out of scope and is destroyed here
             });
         }
     }
 
     for (std::size_t i = 0; i < ops->size(); ++i) {
-        (*ops)[i].finally([out, res, left, ops, i](std::optional<T> v,
-                                                  std::optional<EC> ec,
-                                                  std::exception_ptr ep) {
-            if (ec || ep) {
-                // cancel remaining operations to avoid zombi work
-                for (auto &o : *ops) {
-                    try {
-                        o.request_stop();
-                    } catch (...) {
+        (*ops)[i].finally(
+            [out, res, left, ops, i](std::optional<T> v, std::optional<EC> ec,
+                                     const std::exception_ptr &ep) {
+                if (ec || ep) {
+                    // cancel remaining operations to avoid zombi work
+                    for (auto &o : *ops) {
+                        try {
+                            o.request_stop();
+                        } catch (...) { // NOLINT
+                            // Best-effort cancellation: if request_stop()
+                            // fails, continue trying to cancel other
+                            // operations. Failure here is non-critical
+                            // (operation may already be done).
+                        }
                     }
-                }
-                    std::fprintf(stderr, "DEBUG: all: child %zu failed, calling out.fail\n", i);
                     out.fail(ec ? *ec : EC{});
-                return;
-            }
-            (*res)[i] = std::move(*v);
-            if (--(*left) == 0) {
-                std::vector<T> vals;
-                vals.reserve(res->size());
-                for (auto &o : *res) {
-                    vals.push_back(std::move(*o));
+                    return;
                 }
-                    std::fprintf(stderr, "DEBUG: all: all children completed, fulfilling with %zu values\n", vals.size());
-                out.fulfill(std::move(vals));
-            }
-        });
+                (*res)[i] = std::move(*v);
+                if (--(*left) == 0) {
+                    std::vector<T> vals;
+                    vals.reserve(res->size());
+                    for (auto &o : *res) {
+                        vals.push_back(std::move(*o));
+                    }
+                    out.fulfill(std::move(vals));
+                }
+            });
     }
 
     return out;
 }
 
 template <class T>
-Async<T> race(net::any_io_executor ex, std::vector<Async<T>> vs) {
+auto race(net::any_io_executor ex, std::vector<Async<T>> vs) -> Async<T> {
     auto out = Async<T>::make(ex);
     auto done = std::make_shared<std::atomic_bool>(false);
     auto ops = std::make_shared<std::vector<Async<T>>>(std::move(vs));
@@ -754,16 +1040,22 @@ Async<T> race(net::any_io_executor ex, std::vector<Async<T>> vs) {
     if (ops->size() > 0) {
         auto token = out.get_stop_token();
         if (token.stop_possible()) {
-            auto reg = std::make_shared<std::stop_callback<std::function<void()>>>(
-                token, [ops]() {
-                    for (auto &o : *ops) {
-                        try {
-                            o.request_stop();
-                        } catch (...) {
+            auto reg =
+                std::make_shared<std::stop_callback<std::function<void()>>>(
+                    token, [ops]() {
+                        for (auto &o : *ops) {
+                            try {
+                                o.request_stop();
+                            } catch (...) { // NOLINT
+                                // Best-effort cancellation: if request_stop()
+                                // fails, continue trying to cancel other
+                                // operations. Failure here is non-critical
+                                // (operation may already be done).
+                            }
                         }
-                    }
-                });
-            out.finally([reg](std::optional<T> /*v*/, std::optional<EC> /*ec*/, std::exception_ptr /*ep*/) {
+                    });
+            out.finally([reg](std::optional<T> /*v*/, std::optional<EC> /*ec*/,
+                              const std::exception_ptr & /*ep*/) {
                 // release registration
             });
         }
@@ -771,7 +1063,7 @@ Async<T> race(net::any_io_executor ex, std::vector<Async<T>> vs) {
 
     for (auto &a : *ops) {
         a.finally([out, done, ops](std::optional<T> v, std::optional<EC> ec,
-                                  std::exception_ptr ep) {
+                                   std::exception_ptr ep) {
             if (done->exchange(true)) {
                 return;
             }
@@ -779,7 +1071,10 @@ Async<T> race(net::any_io_executor ex, std::vector<Async<T>> vs) {
             for (auto &o : *ops) {
                 try {
                     o.request_stop();
-                } catch (...) {
+                } catch (...) { // NOLINT
+                    // Best-effort cancellation: if request_stop() fails,
+                    // continue trying to cancel other operations. Failure
+                    // here is non-critical (operation may already be done).
                 }
             }
             if (v) {
@@ -796,8 +1091,8 @@ Async<T> race(net::any_io_executor ex, std::vector<Async<T>> vs) {
 }
 
 template <class T, class Rep, class Per>
-Async<T> timeout(Async<T> a, net::any_io_executor ex,
-                 std::chrono::duration<Rep, Per> d) {
+auto timeout(Async<T> a, net::any_io_executor ex,
+             std::chrono::duration<Rep, Per> d) -> Async<T> {
     auto out = Async<T>::make(ex);
     auto done = std::make_shared<std::atomic_bool>(false);
     auto timer = std::make_shared<net::steady_timer>(ex);
@@ -810,18 +1105,27 @@ Async<T> timeout(Async<T> a, net::any_io_executor ex,
     {
         auto token = out.get_stop_token();
         if (token.stop_possible()) {
-            auto reg = std::make_shared<std::stop_callback<std::function<void()>>>(
-                token, [a, timer]() mutable {
-                    try {
-                        a.request_stop();
-                    } catch (...) {
-                    }
-                    try {
-                        timer->cancel();
-                    } catch (...) {
-                    }
-                });
-            out.finally([reg](std::optional<T> /*v*/, std::optional<EC> /*ec*/, std::exception_ptr /*ep*/) {
+            auto reg =
+                std::make_shared<std::stop_callback<std::function<void()>>>(
+                    token, [a, timer]() mutable {
+                        try {
+                            a.request_stop();
+                        } catch (...) { // NOLINT
+                            // Best-effort cancellation: if request_stop()
+                            // fails, continue trying to cancel timer. Failure
+                            // here is non-critical (operation may already be
+                            // done).
+                        }
+                        try {
+                            timer->cancel();
+                        } catch (...) { // NOLINT
+                            // Best-effort cancellation: if timer cancel fails,
+                            // swallow exception. Failure here is non-critical
+                            // (timer may have already fired or been cancelled).
+                        }
+                    });
+            out.finally([reg](std::optional<T> /*v*/, std::optional<EC> /*ec*/,
+                              const std::exception_ptr & /*ep*/) {
                 // release registration when out completes
             });
         }
@@ -835,7 +1139,10 @@ Async<T> timeout(Async<T> a, net::any_io_executor ex,
             // Ask the operation to stop to avoid any residual work
             try {
                 a.request_stop();
-            } catch (...) {
+            } catch (...) { // NOLINT
+                // Best-effort cancellation: if request_stop() fails,
+                // continue with timeout error. Failure here is non-critical
+                // (operation may already be completing).
             }
             out.fail(make_error_code(boost::system::errc::timed_out));
         } else {
@@ -867,13 +1174,13 @@ Async<T> timeout(Async<T> a, net::any_io_executor ex,
     return out;
 }
 
-inline Async<void> value_on(boost::asio::any_io_executor ex) {
+inline auto value_on(const boost::asio::any_io_executor &ex) -> Async<void> {
     auto a = Async<void>::make(ex);
     a.fulfill();
     return a;
 }
 
-inline Async<void> value() {
+inline auto value() -> Async<void> {
     // executa no system_executor; é imediato e não bloqueia o seu io_context
     auto a = Async<void>::make(boost::asio::system_executor{});
     a.fulfill();
@@ -882,15 +1189,67 @@ inline Async<void> value() {
 
 } // namespace asyncx
 
-// NOTE: Avoid injecting into Boost.Asio internal namespaces (e.g.
-// boost::asio::detail). That is undefined behaviour and fragile across
-// Boost versions. Provide a public adapter instead so callers can write
-// `co_await asyncx::as_awaitable(a)` when explicit conversion is needed.
+namespace asyncx {
+template <class T> inline auto as_awaitable(Async<T> val) -> net::awaitable<T> {
+    // Capture by value to extend the shared state lifetime while awaited.
+    if constexpr (std::is_void_v<T>) {
+        return std::move(val)();
+    } else {
+        return std::move(val)(boost::asio::use_awaitable);
+    }
+}
+} // namespace asyncx
 
 namespace asyncx {
+// as_expected: adapt Async<T> -> awaitable<std::expected<T, EC>>
 template <class T>
-inline net::awaitable<T> as_awaitable(Async<T> val) {
-    // Capture by value to extend the shared state lifetime while awaited.
-    return std::move(val)(boost::asio::use_awaitable);
+inline auto as_expected(Async<T> op) -> net::awaitable<std::expected<T, EC>> {
+    if constexpr (std::is_void_v<T>) {
+        auto tup =
+            co_await op(boost::asio::as_tuple(boost::asio::use_awaitable));
+        EC ec = std::get<0>(tup);
+        if (ec) {
+            co_return std::unexpected(ec);
+        }
+        co_return std::expected<void, EC>{};
+    } else {
+        auto tup =
+            co_await op(boost::asio::as_tuple(boost::asio::use_awaitable));
+        EC ec = std::get<0>(tup);
+        auto val = std::get<1>(tup);
+        if (ec) {
+            co_return std::unexpected(ec);
+        }
+        co_return std::expected<T, EC>{std::in_place, std::move(val)};
+    }
 }
+
+#if __has_include(<boost/outcome.hpp>)
+#if defined(BOOST_OUTCOME_V2_NAMESPACE)
+namespace outcome = BOOST_OUTCOME_V2_NAMESPACE;
+// as_result: adapt Async<T> -> awaitable<outcome::result<T, EC>>
+template <class T>
+inline auto as_result(Async<T> op) -> net::awaitable<outcome::result<T, EC>> {
+    if constexpr (std::is_void_v<T>) {
+        auto tup =
+            co_await op(boost::asio::as_tuple(boost::asio::use_awaitable));
+        EC ec = std::get<0>(tup);
+        if (ec) {
+            co_return outcome::failure(ec);
+        }
+        co_return outcome::success();
+    } else {
+        auto tup =
+            co_await op(boost::asio::as_tuple(boost::asio::use_awaitable));
+        EC ec = std::get<0>(tup);
+        auto val = std::get<1>(tup);
+        if (ec) {
+            co_return outcome::failure<T>(ec);
+        }
+        co_return outcome::success<T>(std::move(val));
+    }
+}
+#endif
+#endif
+
 } // namespace asyncx

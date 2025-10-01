@@ -13,6 +13,7 @@
 #include "WebDriverClient.hpp"
 #include "bidi/client.hpp"
 #include "bidi/commands.hpp"
+#include "bidi/core.hpp"
 #include "bidi/logging.hpp"
 #include <boost/asio.hpp>
 #include <boost/asio/awaitable.hpp>
@@ -21,58 +22,20 @@
 #include <boost/asio/use_future.hpp>
 // #include <iostream> removed (unused)
 #include <string>
-#include <thread>
 
-// Adaptador: converte asyncx::Async<T> em boost::asio::awaitable<T>
-template <class T>
-auto await_async(asyncx::Async<T> a) -> boost::asio::awaitable<T> {
-    co_return co_await boost::asio::async_initiate<
-        decltype(boost::asio::use_awaitable),
-        void(boost::system::error_code, T)>(
-        [a = std::move(a)](auto &&handler) mutable {
-            // handler may be move-only; wrap in shared_ptr so the lambda passed
-            // to finally is copyable
-            using handler_t = std::decay_t<decltype(handler)>;
-            auto sp = std::make_shared<handler_t>(
-                std::forward<decltype(handler)>(handler));
-            a.finally([sp](std::optional<T> v, std::optional<asyncx::EC> ec,
-                           const std::exception_ptr & /*ep*/) mutable {
-                if (v) {
-                    bidi::logging::log_info("[await_async] handler -> success");
-                    (*sp)(boost::system::error_code{}, std::move(*v));
-                } else if (ec) {
-                    bidi::logging::log_error(
-                        std::string("[await_async] handler -> error ec=") +
-                        std::to_string((*ec).value()));
-                    (*sp)(*ec, T{});
-                } else {
-                    bidi::logging::log_info("[await_async] handler -> aborted");
-                    (*sp)(boost::asio::error::operation_aborted, T{});
-                }
-            });
-        },
-        boost::asio::use_awaitable);
-}
+/**
+ * @brief Real demo combining WebDriver legacy session with new BiDi WebSocket
+ * architecture
+ *
+ * This demo demonstrates:
+ * 1. Creating a WebDriver HTTP session with webSocketUrl capability
+ * 2. Extracting the WebSocket URL from session capabilities
+ * 3. Connecting the new BiDi Client to the WebSocket endpoint
+ * 4. Performing browser automation via BiDi WebSocket protocol
+ * 5. Proper session lifecycle management
+ */
 
-inline auto await_async(asyncx::Async<void> a) -> boost::asio::awaitable<void> {
-    co_await boost::asio::async_initiate<decltype(boost::asio::use_awaitable),
-                                         void(boost::system::error_code)>(
-        [a = std::move(a)](auto &&handler) mutable {
-            using handler_t = std::decay_t<decltype(handler)>;
-            auto sp = std::make_shared<handler_t>(
-                std::forward<decltype(handler)>(handler));
-            a.finally([sp](std::optional<asyncx::EC> ec,
-                           const std::exception_ptr & /*ep*/) mutable {
-                if (!ec) {
-                    (*sp)(boost::system::error_code{});
-                } else {
-                    (*sp)(*ec);
-                }
-            });
-        },
-        boost::asio::use_awaitable);
-    co_return;
-}
+// #include <iostream> removed (unused)
 
 namespace asio = boost::asio;
 
@@ -83,6 +46,9 @@ class IntegratedWebDriverDemo {
     std::shared_ptr<bidi::Client> bidi_client_;
     std::string session_id_;
     std::string websocket_url_;
+    std::atomic<bool> finished{false};
+    std::shared_ptr<boost::asio::steady_timer> watchdog_timer_;
+    std::optional<bidi::Client::Subscription> subscription_;
 
   public:
     IntegratedWebDriverDemo() {
@@ -95,7 +61,15 @@ class IntegratedWebDriverDemo {
         cleanup();
     }
 
-    static void initialize() {
+    // Rule of Five: Explicitly delete copy/move operations
+    // This class manages non-copyable resources (WebDriver session, WebSocket)
+    IntegratedWebDriverDemo(const IntegratedWebDriverDemo &) = delete;
+    IntegratedWebDriverDemo &
+    operator=(const IntegratedWebDriverDemo &) = delete;
+    IntegratedWebDriverDemo(IntegratedWebDriverDemo &&) = delete;
+    IntegratedWebDriverDemo &operator=(IntegratedWebDriverDemo &&) = delete;
+
+    static auto initialize() -> void {
         using namespace bidi;
         logging::log_info("=== Initializing WebDriver Legacy Session ===");
     }
@@ -122,9 +96,9 @@ class IntegratedWebDriverDemo {
             }
             log_error("✗ webSocketUrl not found in session capabilities");
             return false;
-        } catch (const std::exception &e) {
+        } catch (const std::exception &exception) {
             log_error(std::string("✗ Session initialization failed: ") +
-                      e.what());
+                      exception.what());
             return false;
         }
     }
@@ -157,19 +131,30 @@ class IntegratedWebDriverDemo {
     }
 
     static auto subscribe(const std::shared_ptr<bidi::Client> &client)
-        -> std::shared_ptr<bidi::Client> {
+        -> asyncx::Async<std::shared_ptr<bidi::Client>> {
         using namespace bidi;
         using namespace logging;
         using bidi::core::ParsedEvent;
+
+        // Type aliases para evitar repetição de tipos complexos
+        using ClientPtr = std::shared_ptr<bidi::Client>;
+        using ClientAsync = asyncx::Async<ClientPtr>;
+        using SubscriptionPtr =
+            std::shared_ptr<bidi::core::BiDiSession::Subscription>;
+        using OptionalSubscription = std::optional<SubscriptionPtr>;
+        using OptionalError = std::optional<asyncx::EC>;
+        using ExceptionPtr = std::exception_ptr;
 
         auto session = client->session();
 
         if (!session) {
             log_error("✗ Cannot subscribe, session is null");
-            return client;
+            auto result = ClientAsync::make(client->get_executor());
+            result.fail(boost::system::error_code{});
+            return result;
         }
 
-        static auto sub = session->subscribe_event(
+        auto sub_async = session->subscribe_event(
             std::string(ids::events::bc_contextCreated),
             [](const ParsedEvent &event) {
                 bidi::logging::log_info(std::string("🎯 Event received: ") +
@@ -178,7 +163,7 @@ class IntegratedWebDriverDemo {
                                         boost::json::serialize(event.params));
             });
 
-        static auto sub2 = session->subscribe_event(
+        auto sub2_async = session->subscribe_event(
             std::string(ids::events::log_entryAdded),
             [](const ParsedEvent &event) {
                 bidi::logging::log_info(
@@ -197,9 +182,32 @@ class IntegratedWebDriverDemo {
                         boost::json::serialize(event.params));
                 }
             });
-        log_info("✓ Subscribed to bc.contextCreated event");
 
-        return client;
+        // Wait for both subscriptions
+        auto result = ClientAsync::make(client->get_executor());
+        auto count = std::make_shared<std::atomic<int>>(0);
+        auto on_complete = [result, client, count]() {
+            if (++(*count) == 2) {
+                log_info("✓ Subscribed to events");
+                result.fulfill(client);
+            }
+        };
+
+        auto finally_handler = [on_complete,
+                                result](const OptionalSubscription &,
+                                        const OptionalError &error_code,
+                                        const ExceptionPtr &) {
+            if (!error_code) {
+                on_complete();
+            } else {
+                result.fail(*error_code);
+            }
+        };
+
+        sub_async.finally(finally_handler);
+        sub2_async.finally(finally_handler);
+
+        return result;
     }
 
     auto run_flow() -> boost::asio::awaitable<int> {
@@ -208,7 +216,7 @@ class IntegratedWebDriverDemo {
         using namespace commands::browsing_context;
         log_info("\n=== Connecting BiDi Client (await) ===");
         auto client_ptr = co_await Client::connect(io_context_, websocket_url_)
-                              .map(subscribe)
+                              .and_then(subscribe)
                               .map(on_connect_no_async)
                               .and_then(on_connect)();
         if (!client_ptr) {
@@ -219,26 +227,26 @@ class IntegratedWebDriverDemo {
         log_info("✓ BiDi client connected");
 
         log_info("1. Creating browsing context...");
-        auto context_id = co_await await_async(
-            bidi_client_->create_context(CreateType::window));
+        auto context_id =
+            co_await bidi_client_->create_context(CreateType::window)();
         log_info(std::string("✓ Context: ") + context_id);
 
         log_info("2. Navigating...");
-        auto nav_url = co_await await_async(
-            bidi_client_->navigate(context_id, "https://example.com"));
+        auto nav_url = co_await bidi_client_->navigate(context_id,
+                                                       "https://example.com")();
         log_info(std::string("✓ Navigation OK: ") + nav_url);
 
         log_info("3. Evaluating document.title...");
-        auto title_obj = co_await await_async(
-            bidi_client_->evaluate("document.title", context_id));
+        auto title_obj =
+            co_await bidi_client_->evaluate("document.title", context_id)();
         log_info(std::string("✓ Title: ") + boost::json::serialize(title_obj));
 
-        bidi_client_->evaluate("console.log('Olá mundo! Este é um log')",
-                               context_id);
+        co_await bidi_client_->evaluate(
+            "console.log('Olá mundo! Este é um log')", context_id)();
 
         log_info("4. Evaluating window.location.href...");
-        auto loc_obj = co_await await_async(
-            bidi_client_->evaluate("window.location.href", context_id));
+        auto loc_obj = co_await bidi_client_->evaluate("window.location.href",
+                                                       context_id)();
         log_info(std::string("✓ Location: ") + boost::json::serialize(loc_obj));
 
         log_info("\n🎉 Flow completed successfully (await-based)");
@@ -250,6 +258,14 @@ class IntegratedWebDriverDemo {
         } catch (const std::exception &e) {
             log_error(std::string("Disconnect error: ") + e.what());
         }
+        // signal completion and cancel watchdog to allow io_context to exit
+        boost::asio::post(io_context_.get_executor(), [this]() {
+            finished.store(true, std::memory_order_release);
+            boost::system::error_code ec;
+            if (watchdog_timer_) {
+                watchdog_timer_->cancel(ec);
+            }
+        });
         co_return 0;
     }
 
@@ -272,41 +288,55 @@ class IntegratedWebDriverDemo {
         // timeout watchdog (seconds) - ajuste conforme necessário
         constexpr int WATCHDOG_SECONDS = 30;
 
-        std::atomic<bool> finished{false};
+        finished.store(false, std::memory_order_release);
         auto fut = boost::asio::co_spawn(io_context_, run_bidi_flow(),
                                          boost::asio::use_future);
 
-        std::thread watchdog([&]() {
-            for (int i = 0; i < WATCHDOG_SECONDS; ++i) {
-                if (finished.load(std::memory_order_acquire)) {
-                    return;
-                }
-                std::this_thread::sleep_for(std::chrono::seconds(1));
+        // Substitui o watchdog que usava std::thread por um steady_timer
+        watchdog_timer_ = std::make_shared<boost::asio::steady_timer>(
+            io_context_.get_executor());
+        watchdog_timer_->expires_after(std::chrono::seconds(WATCHDOG_SECONDS));
+        watchdog_timer_->async_wait([&](const boost::system::error_code
+                                            &error_code) {
+            if (error_code == boost::asio::error::operation_aborted) {
+                return; // foi cancelado porque finished ficou true
             }
             if (!finished.load(std::memory_order_acquire)) {
                 bidi::logging::log_error(
                     "✗ Watchdog: timeout reached, stopping io_context_");
                 try {
-                    io_context_.stop();
-                    bidi::logging::log_info(
-                        "✗ Watchdog: io_context_.stop() called");
+                    // post stop to executor to be thread-safe
+                    boost::asio::post(io_context_.get_executor(), [this]() {
+                        try {
+                            io_context_.stop();
+                            bidi::logging::log_info(
+                                "✗ Watchdog: io_context_.stop() called");
+                        } catch (const std::exception &e) {
+                            bidi::logging::log_error(
+                                std::string(
+                                    "✗ Watchdog: exception when stopping "
+                                    "io_context_: ") +
+                                e.what());
+                        } catch (...) {
+                            bidi::logging::log_error(
+                                "✗ Watchdog: unknown exception when stopping "
+                                "io_context_");
+                        }
+                    });
                 } catch (const std::exception &e) {
                     bidi::logging::log_error(
-                        std::string("✗ Watchdog: exception when stopping "
-                                    "io_context_: ") +
+                        std::string(
+                            "✗ Watchdog: exception when posting stop: ") +
                         e.what());
-                } catch (...) {
-                    bidi::logging::log_error("✗ Watchdog: unknown exception "
-                                             "when stopping io_context_");
                 }
             }
         });
 
         io_context_.run();
         finished.store(true, std::memory_order_release);
-        if (watchdog.joinable()) {
-            watchdog.join();
-        }
+        // cancel watchdog timer if still pending
+        boost::system::error_code ec;
+        watchdog_timer_->cancel(ec);
 
         try {
             return fut.get();

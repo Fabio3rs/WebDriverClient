@@ -1,7 +1,7 @@
 #include "asyncx.hpp"
 #include <atomic>
 #include <gtest/gtest.h>
-#include <print>
+#include <iostream>
 #include <thread>
 #include <utility>
 
@@ -43,9 +43,12 @@ TEST(AsyncxCancel, RaceCancelsLosers) {
     auto composed = race<int>(ex, std::vector<Async<int>>{a1, a2});
 
     // wait for composed to complete
-    auto fut = boost::asio::co_spawn(ex, [composed]() -> boost::asio::awaitable<int> {
-        co_return co_await asyncx::as_awaitable(composed);
-    }, boost::asio::use_future);
+    auto fut = boost::asio::co_spawn(
+        ex,
+        [composed]() -> boost::asio::awaitable<int> {
+            co_return co_await asyncx::as_awaitable(composed);
+        },
+        boost::asio::use_future);
 
     auto res = fut.get();
     EXPECT_EQ(res, 42);
@@ -63,9 +66,12 @@ TEST(AsyncxCancel, TimeoutCancelsOperation) {
 
     auto timed = timeout<int>(long_op, ex, std::chrono::milliseconds(20));
 
-    auto fut = boost::asio::co_spawn(ex, [timed]() -> boost::asio::awaitable<int> {
-        co_return co_await asyncx::as_awaitable(timed);
-    }, boost::asio::use_future);
+    auto fut = boost::asio::co_spawn(
+        ex,
+        [timed]() -> boost::asio::awaitable<int> {
+            co_return co_await asyncx::as_awaitable(timed);
+        },
+        boost::asio::use_future);
 
     // The operation should time out; we expect an exception or error handling
     try {
@@ -88,22 +94,27 @@ TEST(AsyncxCancel, AllCancelsRemainingOnFailure) {
 
     // a1 will fail early by throwing via callback
     auto a1 = Async<int>::from_callback(ex, [](const auto &cb, const auto &) {
-        cb(boost::system::errc::make_error_code(boost::system::errc::invalid_argument), 0);
+        cb(boost::system::errc::make_error_code(
+               boost::system::errc::invalid_argument),
+           0);
     });
 
     auto a2 = make_cooperative_async(ex, 100, flag2);
 
     auto composed = all<int>(ex, std::vector<Async<int>>{a1, a2});
 
-    auto fut = boost::asio::co_spawn(ex, [composed]() -> boost::asio::awaitable<std::vector<int>> {
-        co_return co_await asyncx::as_awaitable(composed);
-    }, boost::asio::use_future);
+    auto fut = boost::asio::co_spawn(
+        ex,
+        [composed]() -> boost::asio::awaitable<std::vector<int>> {
+            co_return co_await asyncx::as_awaitable(composed);
+        },
+        boost::asio::use_future);
 
     try {
-    auto r = fut.get();
-    std::println(stderr, "DEBUG: all returned size={}", r.size());
-    (void)r;
-    FAIL() << "Expected all to fail due to child error";
+        auto r = fut.get();
+        // debug: std::cerr << "DEBUG: all returned size=" << r.size() << '\n';
+        (void)r;
+        FAIL() << "Expected all to fail due to child error";
     } catch (...) {
         // expected
     }
@@ -123,9 +134,12 @@ TEST(AsyncxCancel, RaceExternalCancelPropagates) {
     auto composed = race<int>(ex, std::vector<Async<int>>{a1, a2});
 
     // Spawn and then request stop on the composed operation
-    auto fut = boost::asio::co_spawn(ex, [composed]() -> boost::asio::awaitable<int> {
-        co_return co_await asyncx::as_awaitable(composed);
-    }, boost::asio::use_future);
+    auto fut = boost::asio::co_spawn(
+        ex,
+        [composed]() -> boost::asio::awaitable<int> {
+            co_return co_await asyncx::as_awaitable(composed);
+        },
+        boost::asio::use_future);
 
     // give them some time to start
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -156,9 +170,12 @@ TEST(AsyncxCancel, AllCompletesSuccessfully) {
 
     auto composed = all<int>(ex, std::vector<Async<int>>{a1, a2});
 
-    auto fut = boost::asio::co_spawn(ex, [composed]() -> boost::asio::awaitable<std::vector<int>> {
-        co_return co_await asyncx::as_awaitable(composed);
-    }, boost::asio::use_future);
+    auto fut = boost::asio::co_spawn(
+        ex,
+        [composed]() -> boost::asio::awaitable<std::vector<int>> {
+            co_return co_await asyncx::as_awaitable(composed);
+        },
+        boost::asio::use_future);
 
     auto r = fut.get();
     EXPECT_EQ(r.size(), 2U);

@@ -92,6 +92,7 @@ class TimerWheel {
         std::size_t total_scheduled{0};
         std::size_t total_expired{0};
         std::size_t total_cancelled{0};
+        std::size_t posted_handlers{0}; // novos handlers postados (não inline)
     };
 
     [[nodiscard]] Stats get_stats() const;
@@ -128,11 +129,11 @@ class TimerWheel {
  */
 class TimeoutGuard {
   public:
-    TimeoutGuard(TimerWheel &wheel, TimeoutId id)
-        : wheel_{&wheel}, timeout_id_{id} {}
+    TimeoutGuard(TimerWheel &wheel_ref, TimeoutId timeout_identifier)
+        : wheel_{&wheel_ref}, timeout_id_{timeout_identifier} {}
 
     ~TimeoutGuard() {
-        if (wheel_ && timeout_id_ != 0) {
+        if (wheel_ != nullptr && timeout_id_ != 0) {
             wheel_->cancel_timeout(timeout_id_);
         }
     }
@@ -149,7 +150,7 @@ class TimeoutGuard {
 
     TimeoutGuard &operator=(TimeoutGuard &&other) noexcept {
         if (this != &other) {
-            if (wheel_ && timeout_id_ != 0) {
+            if (wheel_ != nullptr && timeout_id_ != 0) {
                 wheel_->cancel_timeout(timeout_id_);
             }
             wheel_ = other.wheel_;
@@ -162,7 +163,7 @@ class TimeoutGuard {
 
     // Manual cancellation (optional - destructor will cancel anyway)
     void cancel() {
-        if (wheel_ && timeout_id_ != 0) {
+        if (wheel_ != nullptr && timeout_id_ != 0) {
             wheel_->cancel_timeout(timeout_id_);
             timeout_id_ = 0;
         }

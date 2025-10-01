@@ -9,6 +9,21 @@
 
 namespace bidi::metrics {
 
+// Unificação de métricas de pools (P0-3):
+// Estrutura padronizada para todos os pools de recursos.
+// Campos cumulativos onde aplicável; in_use é instantâneo.
+struct PoolMetrics {
+    std::size_t capacity{0}; // slots configurados ou capacidade lógica
+    std::size_t in_use{0};   // slots atualmente emprestados/ocupados
+    std::size_t acquired{0}; // total de aquisições (inclui reused + created)
+    std::size_t reused{
+        0}; // aquisições servidas a partir de objeto já inicializado
+    std::size_t created{0};  // construções efetivas de objeto
+    std::size_t fallback{0}; // vezes que recorreu a heap/out-of-pool
+    std::size_t failures{
+        0}; // falhas de construção ou outros erros transitórios
+};
+
 // Simple thread-safe counter
 class Counter {
   public:
@@ -54,12 +69,13 @@ class Histogram {
   private:
     static std::size_t bucket_index(std::uint64_t usec) noexcept {
         // buckets: [0-1), [1-2), [2-4), [4-8), ...
-        std::size_t idx = 0;
-        std::uint64_t v = (usec > 0) ? usec : 0;
-        while (v >>= 1) {
-            ++idx;
+        std::size_t index = 0;
+        std::uint64_t value_for_shift = usec;
+        while (value_for_shift > 1) {
+            value_for_shift >>= 1;
+            ++index;
         }
-        return idx;
+        return index;
     }
 
     mutable std::mutex m_;

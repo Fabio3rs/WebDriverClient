@@ -74,7 +74,7 @@ template <class T> class PoolVec {
     explicit PoolVec(std::size_t capacity, Policy policy = Policy::Recreate)
         : capacity_(capacity), storage_(capacity), states_(capacity),
           initialized_(capacity), first_free_(npos), borrowed_count_(0),
-          policy_(policy) {
+          failures_(0), policy_(policy) {
         for (std::size_t i = 0; i < capacity_; ++i) {
             states_[i].store(0);
             storage_[i].reset();
@@ -109,9 +109,11 @@ template <class T> class PoolVec {
             }
             idx = get_valid_index(std::forward<Args>(args)...);
         }
-
-        // garantimos que o objeto está construído conforme política
-        construct_if_needed(idx, std::forward<Args>(args)...);
+        // garantimos que o objeto está construído conforme política; se falhar
+        // retorna handle vazio
+        if (!construct_if_needed(idx, std::forward<Args>(args)...)) {
+            return PoolHandle<T>();
+        }
 
         PoolHandle<T> handle;
         handle.pool_ = this;
@@ -140,6 +142,10 @@ template <class T> class PoolVec {
 
     std::size_t capacity() const noexcept { return capacity_; }
 
+    std::size_t failures() const noexcept {
+        return failures_.load(std::memory_order_relaxed);
+    }
+
     // Number of currently borrowed slots (useful for pool monitoring)
     std::size_t borrowed_count() const noexcept {
         return borrowed_count_.load(std::memory_order_relaxed);
@@ -161,6 +167,8 @@ template <class T> class PoolVec {
     std::atomic<std::size_t> first_free_;
     // borrowed_count_ uses relaxed ordering for increments/decrements
     std::atomic<std::size_t> borrowed_count_;
+    // contador de falhas de construção (exception safety)
+    std::atomic<std::size_t> failures_{0};
     // rotating probe index to avoid starting scans at 0 on contention
     std::atomic<std::size_t> next_probe_{0};
     Policy policy_;
@@ -223,17 +231,36 @@ template <class T> class PoolVec {
     }
 
     template <class... Args>
-    void construct_if_needed(std::size_t idx, Args &&...args) noexcept {
+    bool construct_if_needed(std::size_t idx, Args &&...args) noexcept {
+        // Política Recreate: sempre cria objeto novo.
+        // Política Keep: cria apenas se ainda não inicializado.
+        bool need_construct = false;
         if (policy_ == Policy::Recreate) {
-            storage_[idx].emplace(std::forward<Args>(args)...);
-            initialized_[idx].store(1, std::memory_order_release);
-            return;
+            need_construct = true;
+        } else {
+            unsigned char inited =
+                initialized_[idx].load(std::memory_order_acquire);
+            need_construct = (inited == 0);
         }
-        unsigned char inited =
-            initialized_[idx].load(std::memory_order_acquire);
-        if (!inited) {
+        if (!need_construct) {
+            return true;
+        }
+        // Exception safety: se emplace lançar, liberamos o slot e
+        // contabilizamos falha.
+        try {
             storage_[idx].emplace(std::forward<Args>(args)...);
             initialized_[idx].store(1, std::memory_order_release);
+            return true;
+        } catch (...) {
+            // rollback: destruir estado de slot e liberar
+            storage_[idx].reset();
+            initialized_[idx].store(0, std::memory_order_release);
+            states_[idx].store(0, std::memory_order_release);
+            first_free_.store(idx, std::memory_order_relaxed);
+            borrowed_count_.fetch_sub(1, std::memory_order_relaxed);
+            failures_.fetch_add(1, std::memory_order_relaxed);
+            wait_cv_.notify_one();
+            return false; // swallow
         }
     }
 };

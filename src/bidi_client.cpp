@@ -4,7 +4,10 @@
 #include "bidi/client.hpp"
 #include "bidi/ids.hpp"
 #include "bidi/logging.hpp"
+#include "bidi/script_eval.hpp"
 #include "bidi_methods.hpp"
+
+// script_eval.hpp já fornece declarações necessárias
 
 namespace bidi {
 
@@ -20,10 +23,12 @@ auto Client::connect(boost::asio::io_context &ioc,
     auto ws_client = std::make_shared<core::WebSocketClient>(ioc);
     auto session = std::make_shared<core::BiDiSession>(ws_client);
     session->async_start(
-        websocket_url, [result, session](boost::system::error_code ec) mutable {
-            if (ec) {
-                result.fail(std::make_exception_ptr(std::runtime_error(
-                    "Failed to connect to BiDi WebSocket: " + ec.message())));
+        websocket_url,
+        [result, session](boost::system::error_code error_code) mutable {
+            if (error_code) {
+                result.fail(std::make_exception_ptr(
+                    std::runtime_error("Failed to connect to BiDi WebSocket: " +
+                                       error_code.message())));
                 return;
             }
             auto client = std::make_shared<Client>(session);
@@ -150,6 +155,35 @@ auto Client::evaluate(std::string_view expression, std::string_view context,
     return result;
 }
 
+auto Client::evaluate(std::string_view expression, std::string_view context,
+                      script::script_eval_policy policy,
+                      bool await_promise) -> Task<script::ScriptEvalOutcome> {
+    auto ex = get_executor();
+    auto task = Task<script::ScriptEvalOutcome>::make(ex);
+    commands::script::Target target{.context = context};
+    auto params = commands::script::evaluate(expression, target, await_promise);
+    session_->send_command(
+        std::string(bidi::ids::methods::script_evaluate), params,
+        [task, policy](const core::ParsedResponse &response) mutable {
+            if (!response.is_success) {
+                task.fail(std::make_exception_ptr(std::runtime_error(
+                    std::string("script.evaluate failed: ") +
+                    response.error_code + " - " + response.error_message)));
+                return;
+            }
+            auto decision = script::apply_policy(response, policy);
+            if (decision.action ==
+                script::PolicyApplicationResult::Action::throw_exception) {
+                task.fail(
+                    std::make_exception_ptr(script::ScriptEvaluateException(
+                        std::move(decision.exception))));
+                return;
+            }
+            task.fulfill(std::move(decision.outcome));
+        });
+    return task;
+}
+
 auto Client::call_function(std::string_view function_declaration,
                            std::string_view context,
                            const boost::json::array &arguments,
@@ -201,13 +235,16 @@ auto Client::subscribe(const std::vector<std::string> &events,
     return result;
 }
 
-void Client::set_event_handler(
-    const std::string &method,
-    std::function<void(boost::json::object)> handler) {
-    auto sub = session_->subscribe_event(
+auto Client::set_event_handler(std::string method,
+                               std::function<void(boost::json::object)> handler)
+    -> boost::asio::awaitable<void> {
+    auto sub_async = session_->subscribe_event(
         method, [handler = std::move(handler)](const core::ParsedEvent &event) {
             handler(event.params);
         });
+    // Convert asyncx::Async to awaitable and co_await
+    co_await asyncx::as_awaitable(std::move(sub_async));
+    co_return;
 }
 
 void Client::unsubscribe_events(const std::vector<std::string> &events) {

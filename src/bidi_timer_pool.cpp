@@ -102,22 +102,34 @@ void TimerWheel::process_expired_timeouts(
         }
     }
 
-    // Execute expired timeouts
+    // Post expired timeouts (não executa inline para evitar bloqueio do loop de
+    // ticks)
+    std::size_t posted_count = 0;
     for (auto &entry : expired_entries) {
         if (entry.handler) {
-            try {
-                entry.handler(entry.id);
-            } catch (...) {
-                // Ignore handler exceptions to prevent timer wheel corruption
-            }
+            auto handler_copy = std::move(entry.handler);
+            auto id_copy = entry.id;
+            boost::asio::post(
+                io_context_,
+                [handler_copy = std::move(handler_copy), id_copy]() mutable {
+                    try {
+                        handler_copy(id_copy);
+                    } catch (...) {
+                        // Log básico para depuração sem propagar
+                        bidi::logging::log_error(
+                            "TimerWheel handler threw exception");
+                    }
+                });
+            ++posted_count;
         }
     }
 
-    // Update stats
-    if (!expired_entries.empty()) {
+    // Update stats (inclui posted_handlers)
+    if (posted_count > 0) {
         std::lock_guard<std::mutex> lock(stats_mutex_);
-        stats_.active_timeouts -= expired_entries.size();
-        stats_.total_expired += expired_entries.size();
+        stats_.active_timeouts -= posted_count;
+        stats_.total_expired += posted_count;
+        stats_.posted_handlers += posted_count;
     }
 }
 

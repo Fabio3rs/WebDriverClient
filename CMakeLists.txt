@@ -12,6 +12,7 @@ option(WEBDRIVER_USE_BOOST "Enable Boost support for BiDi protocol" ON)
 option(WEBDRIVER_USE_POCO "Use Poco libraries (alternative to system packages)" ON)
 option(WEBDRIVER_BUILD_SHARED "Build shared library instead of static" OFF)
 option(WEBDRIVER_HEADER_ONLY "Build as header-only library" OFF)
+option(WEBDRIVER_USE_NLOHMANN_JSON "Enable optional nlohmann_json integration (alternative JSON backend)" OFF)
 
 # =============================================================================
 # Development Options (only when building standalone, not as subproject)
@@ -126,6 +127,19 @@ if(NOT WEBDRIVER_USE_CONAN)
         else()
             message(STATUS "Poco not found - using alternative JSON implementation")
             set(WEBDRIVER_USE_POCO OFF)
+        endif()
+    endif()
+
+    # Optional: nlohmann_json (header-only) as alternative/auxiliary JSON backend
+    if(WEBDRIVER_USE_NLOHMANN_JSON)
+        find_package(nlohmann_json QUIET)
+        if(nlohmann_json_FOUND)
+            list(APPEND WEBDRIVER_OPTIONAL_LIBS nlohmann_json::nlohmann_json)
+            set(WEBDRIVER_NLOHMANN_AVAILABLE ON)
+            message(STATUS "nlohmann_json found - alternative JSON backend enabled")
+        else()
+            message(STATUS "nlohmann_json not found - disabling optional JSON backend")
+            set(WEBDRIVER_USE_NLOHMANN_JSON OFF)
         endif()
     endif()
 endif()
@@ -250,6 +264,10 @@ function(configure_feature_macros target_name)
     if(WEBDRIVER_CONAN_AVAILABLE)
         target_compile_definitions(${target_name} PUBLIC WEBDRIVER_HAS_CONAN=1)
     endif()
+
+    if(WEBDRIVER_NLOHMANN_AVAILABLE)
+        target_compile_definitions(${target_name} PUBLIC WEBDRIVER_HAS_NLOHMANN_JSON=1)
+    endif()
 endfunction()
 
 # =============================================================================
@@ -338,28 +356,37 @@ if(WEBDRIVER_BUILD_EXAMPLES)
 
     # BiDi integration demo (requires Boost)
     if(WEBDRIVER_USE_BOOST)
-        add_executable(demo_integration "demo_integration.cpp")
-        target_link_libraries(demo_integration
-            PRIVATE webdriverclientcpp
-        )
-        configure_compiler_flags(demo_integration)
-        configure_sanitizers(demo_integration)
+        # New unified examples (renamed from legacy demo_* files)
+        add_executable(example_bidi_flow_end_to_end "examples/flow/example_bidi_flow_end_to_end.cpp")
+        target_link_libraries(example_bidi_flow_end_to_end PRIVATE webdriverclientcpp)
+        configure_compiler_flags(example_bidi_flow_end_to_end)
+        configure_sanitizers(example_bidi_flow_end_to_end)
 
-        # New threaded BiDi demo showcasing zero busy-wait architecture
-        add_executable(demo_threaded_bidi "demo_threaded_bidi.cpp")
-        target_link_libraries(demo_threaded_bidi
-            PRIVATE webdriverclientcpp
-        )
-        configure_compiler_flags(demo_threaded_bidi)
-        configure_sanitizers(demo_threaded_bidi)
+        add_executable(example_bidi_flow_minimal "examples/flow/example_bidi_flow_minimal.cpp")
+        target_link_libraries(example_bidi_flow_minimal PRIVATE webdriverclientcpp)
+        configure_compiler_flags(example_bidi_flow_minimal)
+        configure_sanitizers(example_bidi_flow_minimal)
 
-        # Optimized threading demo showcasing all performance improvements
-        add_executable(demo_optimized_threading "demo_optimized_threading.cpp")
-        target_link_libraries(demo_optimized_threading
-            PRIVATE webdriverclientcpp
-        )
-        configure_compiler_flags(demo_optimized_threading)
-        configure_sanitizers(demo_optimized_threading)
+        add_executable(example_bidi_threading_baseline "examples/threading/example_bidi_threading_baseline.cpp")
+        target_link_libraries(example_bidi_threading_baseline PRIVATE webdriverclientcpp)
+        configure_compiler_flags(example_bidi_threading_baseline)
+        configure_sanitizers(example_bidi_threading_baseline)
+
+        add_executable(example_bidi_threading_optimized "examples/threading/example_bidi_threading_optimized.cpp")
+        target_link_libraries(example_bidi_threading_optimized PRIVATE webdriverclientcpp)
+        configure_compiler_flags(example_bidi_threading_optimized)
+        configure_sanitizers(example_bidi_threading_optimized)
+
+    add_executable(example_bidi_flow_production "examples/flow/example_bidi_flow_production.cpp")
+    target_link_libraries(example_bidi_flow_production PRIVATE webdriverclientcpp)
+    configure_compiler_flags(example_bidi_flow_production)
+    configure_sanitizers(example_bidi_flow_production)
+
+    # Example demonstrating handling of a JavaScript exception thrown by script.evaluate
+    add_executable(example_bidi_flow_script_exception "examples/flow/example_bidi_flow_script_exception.cpp")
+    target_link_libraries(example_bidi_flow_script_exception PRIVATE webdriverclientcpp)
+    configure_compiler_flags(example_bidi_flow_script_exception)
+    configure_sanitizers(example_bidi_flow_script_exception)
     endif()
 endif()
 
