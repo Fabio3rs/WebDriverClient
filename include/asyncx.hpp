@@ -472,6 +472,33 @@ template <class T = void> class Async {
             }
         }
 
+        // remove todas as continuations sem completar (usado por timeout)
+        void try_abandon() const noexcept {
+            if (auto s = wst.lock()) {
+                std::scoped_lock lk(s->mx);
+                s->conts.clear();
+            }
+        }
+
+        // try_fail overload for exception_ptr (non-void T)
+        void try_fail(std::exception_ptr ep) const noexcept {
+            if (auto s = wst.lock()) {
+                std::vector<std::function<void()>> cs;
+                {
+                    std::scoped_lock lk(s->mx);
+                    if (s->done) {
+                        return;
+                    }
+                    s->done = true;
+                    s->result = ep;
+                    cs.swap(s->conts);
+                }
+                for (auto &c : cs) {
+                    net::post(s->ex, std::move(c));
+                }
+            }
+        }
+
         // try_fulfill for non-void T
         template <typename U = T>
         std::enable_if_t<!std::is_void_v<U>, void>
@@ -485,6 +512,27 @@ template <class T = void> class Async {
                     }
                     s->done = true;
                     s->result = v;
+                    cs.swap(s->conts);
+                }
+                for (auto &c : cs) {
+                    net::post(s->ex, std::move(c));
+                }
+            }
+        }
+
+        // rvalue overload to avoid copy when possible
+        template <typename U = T>
+        std::enable_if_t<!std::is_void_v<U>, void>
+        try_fulfill(T &&v) const noexcept {
+            if (auto s = wst.lock()) {
+                std::vector<std::function<void()>> cs;
+                {
+                    std::scoped_lock lk(s->mx);
+                    if (s->done) {
+                        return;
+                    }
+                    s->done = true;
+                    s->result = std::move(v);
                     cs.swap(s->conts);
                 }
                 for (auto &c : cs) {
@@ -517,6 +565,8 @@ template <class T = void> class Async {
     auto weak() const noexcept -> Weak {
         return Weak{std::weak_ptr<State<T>>(st_)};
     }
+
+    void release() noexcept { st_ = {}; }
 
   private:
     // ========== Private helpers for operator()(CompletionToken) ==========
@@ -732,6 +782,38 @@ template <> class Async<void> {
                 // context. This is a "best-effort" operation (Weak handle), so
                 // if allocation or posting fails, there's no owner to notify
                 // anyway.
+            }
+        }
+        // remove todas as continuations sem completar (usado por timeout)
+        void try_abandon() const noexcept {
+            try {
+                if (auto s = wst.lock()) {
+                    std::scoped_lock lk(s->mx);
+                    s->conts.clear();
+                }
+            } catch (...) { // NOLINT
+            }
+        }
+        // try_fail overload for exception_ptr (void specialization)
+        void try_fail(std::exception_ptr ep) const noexcept {
+            try {
+                if (auto s = wst.lock()) {
+                    std::vector<std::function<void()>> cs;
+                    {
+                        std::scoped_lock lk(s->mx);
+                        if (s->done) {
+                            return;
+                        }
+                        s->done = true;
+                        s->result = ep;
+                        cs.swap(s->conts);
+                    }
+                    for (auto &c : cs) {
+                        net::post(s->ex, std::move(c));
+                    }
+                }
+            } catch (...) { // NOLINT
+                // Best-effort ignore
             }
         }
         void try_fulfill() const noexcept {
@@ -1091,83 +1173,75 @@ auto race(net::any_io_executor ex, std::vector<Async<T>> vs) -> Async<T> {
 }
 
 template <class T, class Rep, class Per>
-auto timeout(Async<T> a, net::any_io_executor ex,
+auto timeout(Async<T> inA, net::any_io_executor ex,
              std::chrono::duration<Rep, Per> d) -> Async<T> {
     auto out = Async<T>::make(ex);
     auto done = std::make_shared<std::atomic_bool>(false);
     auto timer = std::make_shared<net::steady_timer>(ex);
-
     timer->expires_after(d);
+    // Weak handles to avoid prolonging lifetime unnecessarily
+    auto weak_in = inA.weak();
+    auto weak_out = out.weak();
 
     // Quando o timer dispara primeiro -> falha por timeout
     // Capture 'a' by value so we can request_stop() on it.
     // propagate cancellation from composed Async to the child and timer
-    {
-        auto token = out.get_stop_token();
-        if (token.stop_possible()) {
-            auto reg =
-                std::make_shared<std::stop_callback<std::function<void()>>>(
-                    token, [a, timer]() mutable {
-                        try {
-                            a.request_stop();
-                        } catch (...) { // NOLINT
-                            // Best-effort cancellation: if request_stop()
-                            // fails, continue trying to cancel timer. Failure
-                            // here is non-critical (operation may already be
-                            // done).
-                        }
-                        try {
-                            timer->cancel();
-                        } catch (...) { // NOLINT
-                            // Best-effort cancellation: if timer cancel fails,
-                            // swallow exception. Failure here is non-critical
-                            // (timer may have already fired or been cancelled).
-                        }
-                    });
-            out.finally([reg](std::optional<T> /*v*/, std::optional<EC> /*ec*/,
-                              const std::exception_ptr & /*ep*/) {
-                // release registration when out completes
+    if (auto token = out.get_stop_token(); token.stop_possible()) {
+        auto reg = std::make_shared<std::stop_callback<std::function<void()>>>(
+            token, [weak_in, timer]() mutable {
+                try {
+                    weak_in.try_request_stop();
+                } catch (...) {
+                }
+                try {
+                    timer->cancel();
+                } catch (...) {
+                }
             });
-        }
+        out.finally([reg, timer](std::optional<T> /*v*/,
+                                 std::optional<EC> /*ec*/,
+                                 const std::exception_ptr & /*ep*/) {
+            // allow timer to be released
+            (void)reg;
+        });
     }
 
-    timer->async_wait([out, done, a](EC ec) mutable {
+    timer->async_wait([weak_out, weak_in, done, timer](EC ec) mutable {
         if (done->exchange(true)) {
             return;
         }
         if (!ec) {
-            // Ask the operation to stop to avoid any residual work
-            try {
-                a.request_stop();
-            } catch (...) { // NOLINT
-                // Best-effort cancellation: if request_stop() fails,
-                // continue with timeout error. Failure here is non-critical
-                // (operation may already be completing).
-            }
-            out.fail(make_error_code(boost::system::errc::timed_out));
+            // Signal stop to underlying op first
+            weak_in.try_request_stop();
+            // Abandon any remaining continuations of the underlying op to break
+            // potential retain cycles
+            weak_in.try_abandon();
+            // Fail composed op if still alive
+            weak_out.try_fail(make_error_code(boost::system::errc::timed_out));
         } else {
             // se foi cancelado por quem ganhou a corrida, ignoramos,
             // mas se for outro erro do timer, propaga
             if (ec != boost::system::errc::make_error_code(
                           boost::system::errc::operation_canceled)) {
-                out.fail(ec);
+                weak_out.try_fail(ec);
             }
         }
     });
 
     // Quando 'a' completa primeiro -> cancela o timer e propaga o resultado
-    a.finally([out, done, timer](std::optional<T> v, std::optional<EC> ec,
-                                 std::exception_ptr ep) {
+    inA.finally([weak_out, done, timer](std::optional<T> v,
+                                        std::optional<EC> ec,
+                                        std::exception_ptr ep) {
         if (done->exchange(true)) {
             return;
         }
         timer->cancel();
         if (v) {
-            out.fulfill(std::move(*v));
+            weak_out.try_fulfill(*v);
         } else if (ec) {
-            out.fail(*ec);
+            weak_out.try_fail(*ec);
         } else {
-            out.fail(ep);
+            weak_out.try_fail(ep);
         }
     });
 
@@ -1256,25 +1330,31 @@ auto timeout_p(std::chrono::duration<Rep, Per> duration) {
     }};
 }
 
+// Tap functor at namespace scope to allow member template operator()
+template <class F> struct TapFunctorNS {
+    F fn;
+    template <class AsyncLike>
+        requires is_async_v<AsyncLike>
+    auto operator()(AsyncLike async_value) const {
+        using T = typename std::decay_t<AsyncLike>::value_type;
+        if constexpr (std::is_void_v<T>) {
+            static_assert(
+                std::is_invocable_v<F>,
+                "tap for Async<void> requires callable with no arguments");
+            return async_value.map([fn = fn] { fn(); });
+        } else {
+            static_assert(std::is_invocable_v<F, const T &>,
+                          "tap requires callable accepting const T&");
+            return async_value.map([fn = fn](const T &value_ref) {
+                fn(value_ref);
+                return value_ref;
+            });
+        }
+    }
+};
+
 template <class F> auto tap(F side_effect_fn) {
-    return Pipeable{
-        [captured_fn = std::move(side_effect_fn)](auto async_value) {
-            using T = typename std::decay_t<decltype(async_value)>::value_type;
-            if constexpr (std::is_void_v<T>) {
-                if constexpr (std::is_invocable_v<decltype(captured_fn)>) {
-                    return async_value.map([captured_fn] { captured_fn(); });
-                } else {
-                    // If captured_fn is not invocable without args, provide a
-                    // no-op side-effect to keep call-site valid.
-                    return async_value.map([] {});
-                }
-            } else {
-                return async_value.map([captured_fn](const T &value_ref) {
-                    captured_fn(value_ref);
-                    return value_ref;
-                });
-            }
-        }};
+    return Pipeable{TapFunctorNS<F>{std::move(side_effect_fn)}};
 }
 
 template <class F> auto filter(F predicate) {
@@ -1311,32 +1391,66 @@ auto zip(Async<T> first_async,
     auto ex = first_async.get_executor();
     auto out = Async<std::tuple<T, U>>::make(ex);
     auto state = std::make_shared<ZipState>();
-    first_async.finally(
-        [out, state](auto value_opt, auto error_code_opt, auto exception_ptr) {
-            std::scoped_lock lock(state->mx);
-            if (error_code_opt || exception_ptr) {
-                out.fail(error_code_opt ? *error_code_opt : EC{});
-                return;
+    // Propagate cancellation from composed Async to children (keep reg alive
+    // until out completes)
+    {
+        auto token = out.get_stop_token();
+        if (token.stop_possible()) {
+            auto reg =
+                std::make_shared<std::stop_callback<std::function<void()>>>(
+                    token, [first_async, second_async]() mutable {
+                        // Best-effort cancellation: ignore errors
+                        try {
+                            first_async.request_stop();
+                        } catch (...) { // NOLINT
+                            // intentionally ignored
+                        }
+                        try {
+                            second_async.request_stop();
+                        } catch (...) { // NOLINT
+                            // intentionally ignored
+                        }
+                    });
+            out.finally([reg](auto..., auto..., auto...) { /* keep alive */ });
+        }
+    }
+    first_async.finally([out, state, second_async](auto value_opt,
+                                                   auto error_code_opt,
+                                                   auto exception_ptr) mutable {
+        std::scoped_lock lock(state->mx);
+        if (error_code_opt || exception_ptr) {
+            // cancel the other operation to avoid wasted work
+            try {
+                second_async.request_stop();
+            } catch (...) { // NOLINT
             }
-            state->v1 = std::move(*value_opt);
-            if (state->v2 && !state->done) {
-                state->done = true;
-                out.fulfill(std::make_tuple(*state->v1, *state->v2));
+            out.fail(error_code_opt ? *error_code_opt : EC{});
+            return;
+        }
+        state->v1 = std::move(*value_opt);
+        if (state->v2 && !state->done) {
+            state->done = true;
+            out.fulfill(std::make_tuple(*state->v1, *state->v2));
+        }
+    });
+    second_async.finally([out, state, first_async](auto value_opt,
+                                                   auto error_code_opt,
+                                                   auto exception_ptr) mutable {
+        std::scoped_lock lock(state->mx);
+        if (error_code_opt || exception_ptr) {
+            try {
+                first_async.request_stop();
+            } catch (...) { // NOLINT
             }
-        });
-    second_async.finally(
-        [out, state](auto value_opt, auto error_code_opt, auto exception_ptr) {
-            std::scoped_lock lock(state->mx);
-            if (error_code_opt || exception_ptr) {
-                out.fail(error_code_opt ? *error_code_opt : EC{});
-                return;
-            }
-            state->v2 = std::move(*value_opt);
-            if (state->v1 && !state->done) {
-                state->done = true;
-                out.fulfill(std::make_tuple(*state->v1, *state->v2));
-            }
-        });
+            out.fail(error_code_opt ? *error_code_opt : EC{});
+            return;
+        }
+        state->v2 = std::move(*value_opt);
+        if (state->v1 && !state->done) {
+            state->done = true;
+            out.fulfill(std::make_tuple(*state->v1, *state->v2));
+        }
+    });
     return out;
 }
 

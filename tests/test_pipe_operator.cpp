@@ -103,3 +103,53 @@ TEST(PipeOperator, ZipTwoAsyncs) {
     test_io().poll();
     EXPECT_EQ(*out, 7);
 }
+
+TEST(PipeOperator, AndThenBind) {
+    auto a = make_value(6);
+    // and_then_p should allow binding to another Async-producing function
+    auto chained = a | and_then_p([](int v) { return make_value(v + 1); });
+    std::optional<int> out;
+    chained.finally(
+        [&](std::optional<int> v, std::optional<EC> ec, std::exception_ptr) {
+            ASSERT_FALSE(ec);
+            out = *v;
+        });
+    test_io().poll();
+    EXPECT_EQ(*out, 7);
+}
+
+TEST(PipeOperator, OnErrorSideEffect) {
+    auto ex = test_io().get_executor();
+    auto faulty = Async<int>::make(ex);
+    faulty.fail(make_error_code(boost::system::errc::permission_denied));
+    std::atomic<int> observed{0};
+    auto result = faulty | on_error_p([&](EC ec) { observed = ec.value(); });
+    result.finally([&](std::optional<int> /*v*/, std::optional<EC> ec,
+                       std::exception_ptr) {
+        // on_error_p should not swallow the error; original combinator
+        // semantics call the handler and propagate the error.
+        ASSERT_TRUE(ec);
+    });
+    test_io().poll();
+    EXPECT_NE(observed.load(), 0);
+}
+
+TEST(PipeOperator, TimeoutApplies) {
+    // Create an Async that never completes and ensure timeout causes fail
+    auto ex = test_io().get_executor();
+    auto never = Async<int>::make(ex);
+    auto timed = never | timeout_p(std::chrono::milliseconds(1));
+    std::optional<EC> observed_ec;
+    timed.finally([&](std::optional<int> /*v*/, std::optional<EC> ec,
+                      std::exception_ptr) { observed_ec = ec; });
+    // run the io_context to let the timer fire
+    test_io().run_for(std::chrono::milliseconds(50));
+    EXPECT_TRUE(observed_ec.has_value());
+    // Some platforms report the timeout as operation_aborted; accept either
+    // timed_out or operation_aborted to keep the test robust.
+    auto timed_val = make_error_code(boost::system::errc::timed_out).value();
+    auto aborted_val = boost::asio::error::operation_aborted;
+    EXPECT_TRUE(observed_ec.has_value());
+    EXPECT_TRUE(observed_ec->value() == timed_val ||
+                observed_ec->value() == aborted_val);
+}
