@@ -1189,6 +1189,158 @@ inline auto value() -> Async<void> {
 
 } // namespace asyncx
 
+// =============================
+// Pipe Operator Extension (asyncx)
+// =============================
+namespace asyncx {
+template <class T> struct is_async : std::false_type {};
+template <class T> struct is_async<Async<T>> : std::true_type {};
+template <class T>
+inline constexpr bool is_async_v = is_async<std::decay_t<T>>::value;
+
+template <class F> struct Pipeable {
+    F callable_fn;
+    template <class AsyncLike>
+        requires is_async_v<AsyncLike>
+    auto operator()(AsyncLike async_value) const
+        -> std::invoke_result_t<F, AsyncLike> {
+        return std::invoke(callable_fn, std::move(async_value));
+    }
+};
+
+template <class AsyncLike, class F>
+    requires is_async_v<AsyncLike>
+auto operator|(AsyncLike async_value, const Pipeable<F> &pipe_obj)
+    -> decltype(pipe_obj(std::move(async_value))) {
+    return pipe_obj(std::move(async_value));
+}
+
+template <class AsyncLike, class F>
+    requires is_async_v<AsyncLike> && std::invocable<F, AsyncLike>
+auto operator|(AsyncLike async_value, F &&fn_callable)
+    -> decltype(std::invoke(std::forward<F>(fn_callable),
+                            std::move(async_value))) {
+    return std::invoke(std::forward<F>(fn_callable), std::move(async_value));
+}
+
+template <class F> auto map_p(F pipe_fn) {
+    return Pipeable{[captured_fn = std::move(pipe_fn)](auto async_value) {
+        return async_value.map(captured_fn);
+    }};
+}
+
+template <class F> auto and_then_p(F pipe_fn) {
+    return Pipeable{[captured_fn = std::move(pipe_fn)](auto async_value) {
+        return async_value.and_then(captured_fn);
+    }};
+}
+
+template <class F> auto recover_p(F pipe_fn) {
+    return Pipeable{[captured_fn = std::move(pipe_fn)](auto async_value) {
+        return async_value.recover(captured_fn);
+    }};
+}
+
+template <class F> auto on_error_p(F pipe_fn) {
+    return Pipeable{[captured_fn = std::move(pipe_fn)](auto async_value) {
+        return async_value.on_error(captured_fn);
+    }};
+}
+
+template <class Rep, class Per>
+auto timeout_p(std::chrono::duration<Rep, Per> duration) {
+    return Pipeable{[dur = duration](auto async_value) {
+        using T = typename std::decay_t<decltype(async_value)>::value_type;
+        return timeout<T>(std::move(async_value), async_value.get_executor(),
+                          dur);
+    }};
+}
+
+template <class F> auto tap(F side_effect_fn) {
+    return Pipeable{
+        [captured_fn = std::move(side_effect_fn)](auto async_value) {
+            using T = typename std::decay_t<decltype(async_value)>::value_type;
+            if constexpr (std::is_void_v<T>) {
+                if constexpr (std::is_invocable_v<decltype(captured_fn)>) {
+                    return async_value.map([captured_fn] { captured_fn(); });
+                } else {
+                    // If captured_fn is not invocable without args, provide a
+                    // no-op side-effect to keep call-site valid.
+                    return async_value.map([] {});
+                }
+            } else {
+                return async_value.map([captured_fn](const T &value_ref) {
+                    captured_fn(value_ref);
+                    return value_ref;
+                });
+            }
+        }};
+}
+
+template <class F> auto filter(F predicate) {
+    return Pipeable{[pred = std::move(predicate)](auto async_value) {
+        using T = typename std::decay_t<decltype(async_value)>::value_type;
+        static_assert(!std::is_void_v<T>,
+                      "filter not supported for Async<void>");
+        return async_value.map([pred](const T &value_ref) -> std::optional<T> {
+            return pred(value_ref) ? std::optional<T>(value_ref) : std::nullopt;
+        });
+    }};
+}
+
+template <class F> auto filter_map(F transform_fn) {
+    return Pipeable{[captured_fn = std::move(transform_fn)](auto async_value) {
+        using T = typename std::decay_t<decltype(async_value)>::value_type;
+        static_assert(!std::is_void_v<T>,
+                      "filter_map not supported for Async<void>");
+        return async_value.map([captured_fn](const T &value_ref) {
+            return captured_fn(value_ref);
+        });
+    }};
+}
+
+template <class T, class U>
+auto zip(Async<T> first_async,
+         Async<U> second_async) -> Async<std::tuple<T, U>> {
+    struct ZipState {
+        std::mutex mx;
+        std::optional<T> v1;
+        std::optional<U> v2;
+        bool done = false;
+    };
+    auto ex = first_async.get_executor();
+    auto out = Async<std::tuple<T, U>>::make(ex);
+    auto state = std::make_shared<ZipState>();
+    first_async.finally(
+        [out, state](auto value_opt, auto error_code_opt, auto exception_ptr) {
+            std::scoped_lock lock(state->mx);
+            if (error_code_opt || exception_ptr) {
+                out.fail(error_code_opt ? *error_code_opt : EC{});
+                return;
+            }
+            state->v1 = std::move(*value_opt);
+            if (state->v2 && !state->done) {
+                state->done = true;
+                out.fulfill(std::make_tuple(*state->v1, *state->v2));
+            }
+        });
+    second_async.finally(
+        [out, state](auto value_opt, auto error_code_opt, auto exception_ptr) {
+            std::scoped_lock lock(state->mx);
+            if (error_code_opt || exception_ptr) {
+                out.fail(error_code_opt ? *error_code_opt : EC{});
+                return;
+            }
+            state->v2 = std::move(*value_opt);
+            if (state->v1 && !state->done) {
+                state->done = true;
+                out.fulfill(std::make_tuple(*state->v1, *state->v2));
+            }
+        });
+    return out;
+}
+
+} // namespace asyncx
 namespace asyncx {
 template <class T> inline auto as_awaitable(Async<T> val) -> net::awaitable<T> {
     // Capture by value to extend the shared state lifetime while awaited.
