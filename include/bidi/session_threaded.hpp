@@ -218,7 +218,9 @@ class ThreadedBiDiSession
 
     // I/O buffers
     boost::beast::flat_buffer read_buffer_{};
-    std::deque<std::string> write_queue_{};
+    using WriteCompletionHandler =
+        std::function<void(const boost::system::error_code &)>;
+    std::deque<std::pair<std::string, WriteCompletionHandler>> write_queue_{};
     std::atomic<bool> is_writing_{false};
 
     // Pending requests (accessed only on strand - thread safe)

@@ -369,11 +369,26 @@ void WebSocketClient::do_write() {
 
     is_writing_ = true;
 
-    ws_.async_write(
-        net::buffer(write_queue_.front()),
-        [self = shared_from_this()](const boost::system::error_code &error_code,
-                                    std::size_t) {
+    // The front of the queue stores the payload and an optional
+    // completion handler to be invoked once the underlying async write
+    // completes. Move the payload out for the write operation and keep
+    // the handler to call afterward.
+    auto [payload, completion_handler] = std::move(write_queue_.front());
+
+    auto writeCompletionHandler =
+        [self = shared_from_this(),
+         on_write_complete = std::move(completion_handler)](
+            const boost::system::error_code &error_code, std::size_t) mutable {
             self->is_writing_ = false;
+
+            // Invoke stored completion handler with real result
+            if (on_write_complete) {
+                // Call handler on the strand to keep ordering semantics
+                net::post(
+                    self->strand_,
+                    [write_completion_cb = std::move(on_write_complete),
+                     ec = error_code]() mutable { write_completion_cb(ec); });
+            }
 
             if (error_code) {
                 if (self->on_error_) {
@@ -382,13 +397,15 @@ void WebSocketClient::do_write() {
                 return;
             }
 
+            // Pop the entry we consumed
             self->write_queue_.pop_front();
 
             // Continue writing if queue not empty
             if (!self->write_queue_.empty()) {
                 self->do_write();
             }
-        });
+        };
+    ws_.async_write(net::buffer(payload), writeCompletionHandler);
 }
 
 void WebSocketClient::on_resolve(
@@ -473,7 +490,7 @@ void WebSocketClient::on_handshake(
 void WebSocketClient::close() {
     try {
         // post to strand to ensure thread-safety
-        net::post(strand_, [self = shared_from_this()]() {
+        auto cleanupPendingOps = [self = shared_from_this()]() {
             // best-effort: cancel pending operations and clear queues/handlers
             // to break cycles
             try {
@@ -487,7 +504,9 @@ void WebSocketClient::close() {
                 }
 
                 // clear write queue
-                std::deque<std::string> empty;
+                std::deque<std::pair<std::string,
+                                     WebSocketClient::WriteCompletionHandler>>
+                    empty;
                 self->write_queue_.swap(empty);
 
                 // clear callbacks
@@ -499,7 +518,8 @@ void WebSocketClient::close() {
                     "WebSocketClient::close inner exception", std::error_code{},
                     std::current_exception(), "");
             }
-        });
+        };
+        net::post(strand_, cleanupPendingOps);
     } catch (const std::exception &e) {
         bidi::logging::log_error("WebSocketClient::close exception",
                                  std::error_code{}, std::current_exception(),
@@ -566,32 +586,32 @@ void BiDiSession::send_command(std::string_view method,
     pending_responses_.emplace(id, std::move(entry));
 
     auto message = build_command(id, method, params);
-    ws_->async_send(
-        std::move(message), [self = shared_from_this(),
-                             id](const boost::system::error_code &error_code) {
-            if (!error_code) {
-                return;
-            }
+    auto logTransportErr = [self = shared_from_this(),
+                            id](const boost::system::error_code &error_code) {
+        if (!error_code) {
+            return;
+        }
 
-            auto it = self->pending_responses_.find(id);
-            if (it == self->pending_responses_.end()) {
-                return;
-            }
+        auto it = self->pending_responses_.find(id);
+        if (it == self->pending_responses_.end()) {
+            return;
+        }
 
-            ParsedResponse resp;
-            resp.id = id;
-            resp.is_success = false;
-            resp.error_code = "transport";
-            resp.error_message = error_code.message();
-            resp.method = it->second.method;
-            resp.trace_id = it->second.trace_id;
-            resp.latency = std::chrono::steady_clock::now() - it->second.start;
-            // Log transport send failure with trace_id
-            bidi::logging::log_error("BiDi send transport error", error_code,
-                                     nullptr, resp.trace_id);
-            it->second.handler(std::move(resp));
-            self->pending_responses_.erase(it);
-        });
+        ParsedResponse resp;
+        resp.id = id;
+        resp.is_success = false;
+        resp.error_code = "transport";
+        resp.error_message = error_code.message();
+        resp.method = it->second.method;
+        resp.trace_id = it->second.trace_id;
+        resp.latency = std::chrono::steady_clock::now() - it->second.start;
+        // Log transport send failure with trace_id
+        bidi::logging::log_error("BiDi send transport error", error_code,
+                                 nullptr, resp.trace_id);
+        it->second.handler(std::move(resp));
+        self->pending_responses_.erase(it);
+    };
+    ws_->async_send(std::move(message), logTransportErr);
 }
 
 /// @brief Send BiDi command with C++20 coroutine-based async completion

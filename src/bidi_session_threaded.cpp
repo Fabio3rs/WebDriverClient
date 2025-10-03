@@ -194,7 +194,8 @@ auto ThreadedBiDiSession::send_command_await(
                                         {"params", entry->params}};
 
             std::string message = boost::json::serialize(command);
-            write_queue_.push_back(std::move(message));
+            write_queue_.push_back(
+                std::make_pair(std::move(message), WriteCompletionHandler{}));
 
             // Start write if not already writing
             if (!is_writing_.exchange(true)) {
@@ -248,14 +249,31 @@ void ThreadedBiDiSession::start_write_loop() {
             return;
         }
 
-        auto &message = write_queue_.front();
+        auto [message, completion_handler] = std::move(write_queue_.front());
 
         // Async write suspends thread on kernel I/O
-        ws_stream_->async_write(
-            boost::asio::buffer(message),
-            [this, self](boost::system::error_code err,
-                         std::size_t /* bytes_transferred */) {
-                threading_->post_ws([this, self, err]() {
+        auto onWriteCompleted =
+            [this, self, on_write_complete = std::move(completion_handler)](
+                boost::system::error_code err,
+                std::size_t /* bytes_transferred */) mutable {
+                threading_->post_ws([this, self, err,
+                                     write_completion_cb = std::move(
+                                         on_write_complete)]() mutable {
+                    // Invoke per-message completion handler on strand
+                    if (write_completion_cb) {
+                        try {
+                            write_completion_cb(err);
+                        } catch (const std::exception &e) {
+                            bidi::logging::log_error(
+                                std::string(
+                                    "Write completion handler threw: ") +
+                                e.what());
+                        } catch (...) {
+                            bidi::logging::log_error(
+                                "Write completion handler unknown exception");
+                        }
+                    }
+
                     if (!err && !write_queue_.empty()) {
                         write_queue_.pop_front();
                     }
@@ -266,7 +284,8 @@ void ThreadedBiDiSession::start_write_loop() {
                         is_writing_ = false;
                     }
                 });
-            });
+            };
+        ws_stream_->async_write(boost::asio::buffer(message), onWriteCompleted);
     });
 }
 
@@ -773,7 +792,8 @@ void ThreadedBiDiSession::send_command_async(
                                         {"method", entry->method},
                                         {"params", entry->params}};
             std::string message = boost::json::serialize(command);
-            write_queue_.push_back(std::move(message));
+            write_queue_.push_back(
+                std::make_pair(std::move(message), WriteCompletionHandler{}));
 
             if (!is_writing_.exchange(true)) {
                 start_write_loop();

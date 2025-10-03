@@ -37,37 +37,37 @@ class Client : public std::enable_shared_from_this<Client> {
     // ======================== BrowsingContext API ========================
 
     // Create new browsing context (tab/window)
-    Task<std::string>
+    [[nodiscard]] Task<std::string>
     create_context(commands::browsing_context::CreateType type =
                        commands::browsing_context::CreateType::window);
 
     // Navigate to URL
-    Task<std::string>
+    [[nodiscard]] Task<std::string>
     navigate(std::string_view context, std::string_view url,
              commands::browsing_context::ReadinessState wait =
                  commands::browsing_context::ReadinessState::complete);
 
     // Close browsing context
-    Task<bool> close_context(std::string_view context);
+    [[nodiscard]] Task<bool> close_context(std::string_view context);
 
     // Get browsing context tree
-    Task<boost::json::object> get_context_tree(std::string_view root = {});
+    [[nodiscard]] Task<boost::json::object>
+    get_context_tree(std::string_view root = {});
 
     // ======================== Script API ========================
 
     // Evaluate JavaScript expression
-    Task<boost::json::object> evaluate(std::string_view expression,
-                                       std::string_view context,
-                                       bool await_promise = true);
+    [[nodiscard]] Task<boost::json::object>
+    evaluate(std::string_view expression, std::string_view context,
+             bool await_promise = true);
 
     // Evaluate JavaScript expression with script evaluation policy
-    Task<script::ScriptEvalOutcome> evaluate(std::string_view expression,
-                                             std::string_view context,
-                                             script::script_eval_policy policy,
-                                             bool await_promise = true);
+    [[nodiscard]] Task<script::ScriptEvalOutcome>
+    evaluate(std::string_view expression, std::string_view context,
+             script::script_eval_policy policy, bool await_promise = true);
 
     // Call JavaScript function
-    Task<boost::json::object> call_function(
+    [[nodiscard]] Task<boost::json::object> call_function(
         std::string_view function_declaration, std::string_view context,
         const boost::json::array &arguments = {}, bool await_promise = true);
 
@@ -86,7 +86,7 @@ class Client : public std::enable_shared_from_this<Client> {
         Subscription &operator=(const Subscription &) = delete;
 
         // Check if subscription is active
-        bool is_active() const { return !events_.empty(); }
+        [[nodiscard]] bool is_active() const { return !events_.empty(); }
 
       private:
         friend class Client;
@@ -98,8 +98,9 @@ class Client : public std::enable_shared_from_this<Client> {
     };
 
     // Subscribe to events with RAII cleanup
-    Task<Subscription> subscribe(const std::vector<std::string> &events,
-                                 const std::vector<std::string> &contexts = {});
+    [[nodiscard]] Task<Subscription>
+    subscribe(const std::vector<std::string> &events,
+              const std::vector<std::string> &contexts = {});
 
     // Set event handler for specific method
     boost::asio::awaitable<void>
@@ -114,7 +115,7 @@ class Client : public std::enable_shared_from_this<Client> {
     // Get executor for async operations
     boost::asio::any_io_executor get_executor() const;
 
-    // Graceful disconnect (libera pending responses e fecha websocket)
+    // Graceful disconnect (releases pending responses and closes websocket)
     void disconnect() {
         if (session_) {
             session_->disconnect();

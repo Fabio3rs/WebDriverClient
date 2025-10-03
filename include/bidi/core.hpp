@@ -53,13 +53,13 @@ struct ParsedResponse {
     boost::json::object result{};
     std::string error_code{};
     std::string error_message{};
-    std::string stacktrace{}; // W3C BiDi: opcional, pilha de execução em erros
-    // Campos adicionais para rastreabilidade/telemetria
-    std::string method{};   // método original do comando
-    std::string trace_id{}; // trace id gerado localmente para correlação
-    std::string raw_json{}; // payload bruto recebido
+    std::string stacktrace{}; // W3C BiDi: optional, execution stack on errors
+    // Additional fields for traceability/telemetry
+    std::string method{};   // original command method
+    std::string trace_id{}; // locally generated trace id for correlation
+    std::string raw_json{}; // raw received payload
     std::chrono::steady_clock::duration
-        latency{};               // duração entre envio e resposta
+        latency{};               // duration between send and response
     bool timeout_expired{false}; // true se construído localmente por timeout
 };
 
@@ -80,7 +80,18 @@ namespace net = boost::asio;
 namespace beast = boost::beast;
 namespace ws = beast::websocket;
 
-// WebSocket client for BiDi protocol (Beast/Asio based)
+/**
+ * @brief WebSocket client with strand-serialized state for BiDi protocol
+ *
+ * @section Thread Safety
+ * ALL public methods except get_executor() must be called from strand context.
+ * The strand is available via get_executor().
+ *
+ * Member access rules:
+ * - write_queue_, is_writing_, handlers: STRAND-ONLY
+ * - Connection state (host_, port_, target_): Set once during connect
+ * - pending_responses_, event_handlers_, event_refcount_: STRAND-ONLY
+ */
 class WebSocketClient : public std::enable_shared_from_this<WebSocketClient> {
   public:
     using MessageHandler = std::function<void(std::string)>;
@@ -112,6 +123,10 @@ class WebSocketClient : public std::enable_shared_from_this<WebSocketClient> {
     void close();
 
     // Get executor for posting callbacks
+    /**
+     * @brief Get executor for async operations
+     * @return Executor by value (safe for capture in lambdas)
+     */
     net::any_io_executor get_executor() const {
         return strand_.get_inner_executor();
     }
@@ -137,7 +152,13 @@ class WebSocketClient : public std::enable_shared_from_this<WebSocketClient> {
     ConnectHandler connect_handler_;
 
     // Write queue (Beast best practice: serialize writes)
-    std::deque<std::string> write_queue_;
+    // Each queued entry stores the message payload and an optional
+    // completion handler which will be invoked when the underlying
+    // async write completes. This ensures callers are notified of the
+    // real transport result instead of a fire-and-forget acknowledge.
+    using WriteCompletionHandler =
+        std::function<void(const boost::system::error_code &)>;
+    std::deque<std::pair<std::string, WriteCompletionHandler>> write_queue_;
     bool is_writing_{false};
 
     // Event handlers
@@ -316,14 +337,34 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
 
 #ifdef BIDI_TESTING
   public:
-    // Hooks expostos somente em builds de teste para injeção controlada.
+    /**
+     * @brief TEST ONLY: Inject message bypassing WebSocket
+     *
+     * @warning Must be called from strand context for thread safety.
+     *          Only for unit tests - do not use in production code.
+     *
+     * @param payload JSON message to inject
+     */
     void test_inject_message(std::string payload) {
         on_message(std::move(payload));
     }
+
+    /**
+     * @brief TEST ONLY: Inject error bypassing WebSocket
+     * @warning Must be called from strand context.
+     * @param error_code Error to inject
+     */
     void test_inject_error(const boost::system::error_code &error_code) {
         on_error(error_code);
     }
-    std::size_t test_pending_size() const { return pending_responses_.size(); }
+
+    /**
+     * @brief TEST ONLY: Get pending responses count
+     * @return Number of pending requests
+     */
+    [[nodiscard]] std::size_t test_pending_size() const {
+        return pending_responses_.size();
+    }
 #endif
 };
 
@@ -371,15 +412,20 @@ auto WebSocketClient::async_send(std::string message, CompletionToken &&token) {
                     message = std::move(message)](auto &&handler) mutable {
         net::post(strand_, [this, message = std::move(message),
                             handler = std::move(handler)]() mutable {
-            write_queue_.emplace_back(std::move(message));
+            // Store the message and its completion handler together so the
+            // handler can be invoked with the real transport result once
+            // the async write completes.
+            write_queue_.emplace_back(std::make_pair(
+                std::move(message),
+                WriteCompletionHandler{
+                    [h = std::move(handler)](
+                        const boost::system::error_code &ec) mutable {
+                        h(ec);
+                    }}));
+
             if (!is_writing_) {
                 do_write();
             }
-            // For simplicity, call handler immediately (fire-and-forget)
-            // In production, you'd track completion per message
-            net::post(strand_, [handler = std::move(handler)]() mutable {
-                handler(boost::system::error_code{});
-            });
         });
     };
 
