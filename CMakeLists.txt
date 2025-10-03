@@ -27,6 +27,7 @@ option(WEBDRIVER_BUILD_EXAMPLES "Build example executables" ${WEBDRIVER_STANDALO
 option(WEBDRIVER_BUILD_TESTS "Build and run tests" ${WEBDRIVER_STANDALONE_BUILD})
 option(WEBDRIVER_ENABLE_SANITIZERS "Enable sanitizers in debug builds" ${WEBDRIVER_STANDALONE_BUILD})
 option(WEBDRIVER_ENABLE_WARNINGS_AS_ERRORS "Treat warnings as errors" ${WEBDRIVER_STANDALONE_BUILD})
+option(WEBDRIVER_STRIP_LOG_LOCATION "Strip source location from logs" OFF)
 
 # Require native thread primitives and kernel wait primitives (timers, io
 # context, thread pool). When ON a preprocessor macro is defined so
@@ -260,6 +261,10 @@ function(configure_feature_macros target_name)
     target_compile_definitions(${target_name} PRIVATE
         CURRENT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
     )
+
+    if(WEBDRIVER_STRIP_LOG_LOCATION)
+        target_compile_definitions(${target_name} PUBLIC WEBDRIVER_STRIP_LOG_LOCATION=1)
+    endif()
 
     if(WEBDRIVER_BOOST_AVAILABLE)
         target_compile_definitions(${target_name} PUBLIC WEBDRIVER_HAS_BOOST=1)

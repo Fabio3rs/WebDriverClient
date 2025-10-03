@@ -720,7 +720,8 @@ template <class T = void> class Async {
         std::shared_ptr<Handler> handler_ptr, net::any_io_executor executor,
         boost::asio::associated_allocator_t<Handler> allocator) const {
 
-        auto finally_cb = [sp = handler_ptr, ex = executor, alloc = allocator](
+        auto finally_cb = [sp = handler_ptr, ex = std::move(executor),
+                           alloc = allocator](
                               std::optional<boost::system::error_code> ec,
                               const std::exception_ptr &) mutable {
             auto completion = make_void_completion_callback(sp, ec);
@@ -738,7 +739,7 @@ template <class T = void> class Async {
         boost::asio::associated_allocator_t<Handler> allocator) const {
 
         auto finally_cb =
-            [sp = handler_ptr, ex = executor, alloc = allocator](
+            [sp = handler_ptr, ex = std::move(executor), alloc = allocator](
                 std::optional<T> value,
                 std::optional<boost::system::error_code> error_code,
                 const std::exception_ptr &) mutable {
@@ -926,7 +927,7 @@ template <> class Async<void> {
             }
         }
         // try_fail overload for exception_ptr (void specialization)
-        void try_fail(std::exception_ptr ep) const noexcept {
+        void try_fail(const std::exception_ptr &ep) const noexcept {
             try {
                 if (auto s = wst.lock()) {
                     std::vector<std::function<void()>> cs;
