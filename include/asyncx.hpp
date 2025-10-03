@@ -1,3 +1,42 @@
+/**
+ * @file asyncx.hpp
+ * @brief Executor-agnostic async primitives for cross-executor composition
+ *
+ * @section Architecture
+ *
+ * This library provides generic asynchronous primitives that work across
+ * multiple executors and io_contexts. Unlike BiDi components that use
+ * strand-based serialization within a single io_context, asyncx supports
+ * cross-executor composition where operations can span different execution
+ * contexts.
+ *
+ * @section Synchronization
+ *
+ * **Why std::mutex instead of strand?**
+ *
+ * - asyncx::Async<T> is executor-agnostic and supports cross-executor
+ * composition
+ * - Operations may complete on different io_contexts (e.g., all(), race(),
+ * zip())
+ * - Strand serialization assumes single executor topology
+ * - Mutex provides correct synchronization across arbitrary executors
+ *
+ * **Contrast with BiDi architecture:**
+ *
+ * - BiDi components: Single io_context + strand → no mutex needed
+ * - asyncx library: Multi-executor composition → mutex required
+ *
+ * Both patterns are correct for their respective use cases.
+ *
+ * @section Performance
+ *
+ * Mutexes in asyncx have negligible overhead because:
+ * - Critical sections are minimal (flag check + vector swap)
+ * - Contention is rare (completion happens once)
+ * - Lock-free fast path when already completed
+ *
+ * @see bidi::core::ThreadingContext for BiDi's strand-based architecture
+ */
 #pragma once
 #include "ThreadPool.hpp"
 #include <atomic>
@@ -23,25 +62,70 @@ namespace asyncx {
 namespace net = boost::asio;
 using EC = boost::system::error_code;
 
-// ---------- estado compartilhado ----------
+/**
+ * @brief Shared state for async operations with cross-executor safety
+ *
+ * @tparam T Result value type (or void for no-value operations)
+ *
+ * This structure holds the shared state for Async<T> futures and provides
+ * thread-safe access to completion state across multiple executors.
+ *
+ * @section Thread Safety
+ *
+ * All member access is protected by `mx` mutex because:
+ * - Completion may occur on executor A (e.g., io_context thread 1)
+ * - Continuation attachment may occur on executor B (e.g., io_context thread 2)
+ * - No single strand can serialize access across different executors
+ *
+ * @section Design Rationale
+ *
+ * The mutex protects:
+ * - `done` flag: Completion state checked from multiple threads
+ * - `result` variant: May be written by completer, read by awaiter
+ * - `conts` vector: Continuations attached from arbitrary contexts
+ *
+ * Lock-free alternative would require complex ABA handling and is not
+ * worth the complexity for operations that complete once.
+ *
+ * @note This differs from BiDi's strand-based model where all state access
+ *       occurs on a single strand within one io_context.
+ */
 template <class T> struct State {
-    net::any_io_executor ex;
-    std::mutex mx;
-    bool done{false};
-    std::variant<T, EC, std::exception_ptr> result;
-    std::vector<std::function<void()>> conts;
-    std::stop_source stop_src;
+    net::any_io_executor ex; ///< Executor for posting continuations
+    std::mutex mx;           ///< Protects done, result, conts (cross-executor)
+    bool done{false};        ///< Completion flag
+    std::variant<T, EC, std::exception_ptr> result; ///< Result value or error
+    std::vector<std::function<void()>> conts;       ///< Pending continuations
+    std::stop_source stop_src; ///< Cooperative cancellation source
+
+    /**
+     * @brief Construct shared state with executor
+     * @param e Executor for posting continuations when operation completes
+     */
     explicit State(net::any_io_executor e) : ex(std::move(e)) {}
 };
 
+/**
+ * @brief Shared state specialization for void operations
+ *
+ * Identical to State<T> except result variant uses std::monostate
+ * for successful completion (no value to return).
+ *
+ * @see State<T> for detailed thread-safety documentation
+ */
 template <> struct State<void> {
-    net::any_io_executor ex;
-    std::mutex mx;
-    bool done{false};
+    net::any_io_executor ex; ///< Executor for posting continuations
+    std::mutex mx;           ///< Protects done, result, conts (cross-executor)
+    bool done{false};        ///< Completion flag
     std::variant<EC, std::exception_ptr, std::monostate>
-        result; // ok = monostate
-    std::vector<std::function<void()>> conts;
-    std::stop_source stop_src;
+        result;                               ///< Error or monostate (success)
+    std::vector<std::function<void()>> conts; ///< Pending continuations
+    std::stop_source stop_src; ///< Cooperative cancellation source
+
+    /**
+     * @brief Construct shared state with executor
+     * @param e Executor for posting continuations when operation completes
+     */
     explicit State(net::any_io_executor e) : ex(std::move(e)) {}
 };
 
@@ -135,7 +219,48 @@ auto make_value_completion_callback(
 
 } // anonymous namespace
 
-// ---------- Async<T> ----------
+/**
+ * @brief Executor-agnostic async operation with lazy evaluation
+ *
+ * @tparam T Result type (or void for side-effect operations)
+ *
+ * Async<T> represents a lazy asynchronous operation that can be composed
+ * across multiple executors and io_contexts. Operations are only materialized
+ * when a terminal operator is invoked (.finally, co_await, operator()).
+ *
+ * @section Cross-Executor Safety
+ *
+ * Unlike BiDi components that serialize state via strand within a single
+ * io_context, Async<T> uses std::mutex for shared state protection because:
+ *
+ * - Operations can span multiple io_contexts (e.g., all(), race(), zip())
+ * - Completion may occur on executor A while continuation attaches on executor
+ * B
+ * - No assumption about executor topology (may be different io_services
+ * entirely)
+ *
+ * @section Usage Examples
+ *
+ * @code
+ * // Single executor (similar to BiDi usage)
+ * auto result = co_await Async<int>::make(my_executor)
+ *     .map([](int x) { return x * 2; })
+ *     .and_then([](int x) { return fetch_data(x); });
+ *
+ * // Cross-executor composition (requires mutex synchronization)
+ * auto combined = asyncx::zip(
+ *     Async<int>::make(executor_A),  // May complete on io_context A
+ *     Async<std::string>::make(executor_B)  // May complete on io_context B
+ * );
+ * @endcode
+ *
+ * @note This class is move-only and uses shared_ptr for shared state
+ * management.
+ *
+ * @see State<T> for mutex synchronization details
+ * @see bidi::core::ThreadingContext for strand-based alternative (single
+ * executor)
+ */
 template <class T = void> class Async {
     std::shared_ptr<State<T>> st_;
     explicit Async(std::shared_ptr<State<T>> st) : st_(std::move(st)) {}
@@ -143,8 +268,14 @@ template <class T = void> class Async {
   public:
     using value_type = T;
 
+    /// @brief Default constructor creates invalid async (use make() instead)
     Async() = default;
 
+    /**
+     * @brief Factory method to create Async with associated executor
+     * @param ex Executor for posting continuations when operation completes
+     * @return New Async<T> with shared state allocated on heap
+     */
     static auto make(net::any_io_executor ex) -> Async<T> {
         return Async<T>(std::make_shared<State<T>>(ex));
     }
@@ -1341,13 +1472,19 @@ template <class F> struct TapFunctorNS {
             static_assert(
                 std::is_invocable_v<F>,
                 "tap for Async<void> requires callable with no arguments");
-            return async_value.map([fn = fn] { fn(); });
+            return async_value.map([fn = fn]() -> void {
+                static_assert(std::is_void_v<std::invoke_result_t<F>>,
+                              "tap functor for Async<void> must return void");
+                fn();
+                return; // explicit
+            });
         } else {
             static_assert(std::is_invocable_v<F, const T &>,
                           "tap requires callable accepting const T&");
-            return async_value.map([fn = fn](const T &value_ref) {
-                fn(value_ref);
-                return value_ref;
+            return async_value.map([fn = fn](const T &value_ref) -> T {
+                fn(value_ref);    // side effect
+                return value_ref; // explicit copy (or elided for trivially
+                                  // copyable)
             });
         }
     }
@@ -1379,14 +1516,53 @@ template <class F> auto filter_map(F transform_fn) {
     }};
 }
 
+/**
+ * @brief Combine two async operations into a tuple (cross-executor safe)
+ *
+ * @tparam T Type of first async operation
+ * @tparam U Type of second async operation
+ * @param first_async First operation (may complete on executor A)
+ * @param second_async Second operation (may complete on executor B)
+ * @return Async<std::tuple<T, U>> that completes when both operations finish
+ *
+ * @section Cross-Executor Synchronization
+ *
+ * **Why mutex in ZipState?**
+ *
+ * This combinator allows operations on different executors to coordinate:
+ *
+ * @code
+ * auto op1 = fetch_from_database(db_executor);  // Completes on DB thread pool
+ * auto op2 = fetch_from_network(io_executor);   // Completes on network
+ * io_context auto combined = zip(op1, op2);  // Coordinates across executors
+ * @endcode
+ *
+ * The mutex protects ZipState members because:
+ * - `v1` may be written by completion on executor A
+ * - `v2` may be written by completion on executor B
+ * - Both completions check `done` flag and may write result simultaneously
+ * - No single strand can serialize access across different executors
+ *
+ * @section Failure Semantics
+ *
+ * If either operation fails, the other is cancelled and the error propagates.
+ *
+ * @note For single-executor scenarios, BiDi components use strand instead.
+ * @see State<T> for additional synchronization rationale
+ */
 template <class T, class U>
 auto zip(Async<T> first_async,
          Async<U> second_async) -> Async<std::tuple<T, U>> {
+    /**
+     * @brief Shared state for zip coordination with cross-executor safety
+     *
+     * Mutex protects simultaneous writes from different executor contexts.
+     */
     struct ZipState {
-        std::mutex mx;
-        std::optional<T> v1;
-        std::optional<U> v2;
-        bool done = false;
+        std::mutex mx;       ///< Protects v1, v2, done (cross-executor)
+        std::optional<T> v1; ///< Result from first operation
+        std::optional<U> v2; ///< Result from second operation
+        bool done = false;   ///< Completion flag
     };
     auto ex = first_async.get_executor();
     auto out = Async<std::tuple<T, U>>::make(ex);
@@ -1427,10 +1603,11 @@ auto zip(Async<T> first_async,
             out.fail(error_code_opt ? *error_code_opt : EC{});
             return;
         }
-        state->v1 = std::move(*value_opt);
+        state->v1 = *value_opt; // keep local copy until both ready
         if (state->v2 && !state->done) {
             state->done = true;
-            out.fulfill(std::make_tuple(*state->v1, *state->v2));
+            out.fulfill(
+                std::make_tuple(std::move(*state->v1), std::move(*state->v2)));
         }
     });
     second_async.finally([out, state, first_async](auto value_opt,
@@ -1445,10 +1622,11 @@ auto zip(Async<T> first_async,
             out.fail(error_code_opt ? *error_code_opt : EC{});
             return;
         }
-        state->v2 = std::move(*value_opt);
+        state->v2 = *value_opt;
         if (state->v1 && !state->done) {
             state->done = true;
-            out.fulfill(std::make_tuple(*state->v1, *state->v2));
+            out.fulfill(
+                std::make_tuple(std::move(*state->v1), std::move(*state->v2)));
         }
     });
     return out;

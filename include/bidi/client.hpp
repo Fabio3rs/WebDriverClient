@@ -114,6 +114,13 @@ class Client : public std::enable_shared_from_this<Client> {
     // Get executor for async operations
     boost::asio::any_io_executor get_executor() const;
 
+    // Graceful disconnect (libera pending responses e fecha websocket)
+    void disconnect() {
+        if (session_) {
+            session_->disconnect();
+        }
+    }
+
   private:
     std::shared_ptr<core::BiDiSession> session_;
 

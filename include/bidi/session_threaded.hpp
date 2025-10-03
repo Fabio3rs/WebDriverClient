@@ -47,6 +47,22 @@ struct PendingEntry {
 class ThreadedBiDiSession
     : public std::enable_shared_from_this<ThreadedBiDiSession> {
   public:
+    // Implementation note:
+    // This session uses real OS threads and kernel wait primitives via
+    // `ThreadingContext` (io_context threads + boost::asio::thread_pool).
+    // Key rules for safe usage:
+    // - `send_command_await()` blocks the calling thread by waiting on a
+    //   `std::future`. Do NOT call it from code executing on the
+    //   `ws_strand_` or inside the io_context threads; use
+    //   `send_command_awaitable()` or `send_command_async()` instead.
+    // - State mutations are serialized on the strand: all accesses to
+    //   `pending_map_`, `event_handlers_`, and write queue must happen on
+    //   the strand (use `threading_->post_ws(...)`). Avoid external mutexes
+    //   to protect strand-only data.
+    // - Pending entries use `std::promise`/`std::future` to support native
+    //   thread suspension. That is intentional for blocking awaits. For
+    //   coroutine-based code prefer the awaitable API.
+
     explicit ThreadedBiDiSession(std::shared_ptr<ThreadingContext> threading);
     ~ThreadedBiDiSession() noexcept;
 

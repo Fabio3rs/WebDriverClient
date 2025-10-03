@@ -28,6 +28,14 @@ option(WEBDRIVER_BUILD_TESTS "Build and run tests" ${WEBDRIVER_STANDALONE_BUILD}
 option(WEBDRIVER_ENABLE_SANITIZERS "Enable sanitizers in debug builds" ${WEBDRIVER_STANDALONE_BUILD})
 option(WEBDRIVER_ENABLE_WARNINGS_AS_ERRORS "Treat warnings as errors" ${WEBDRIVER_STANDALONE_BUILD})
 
+# Require native thread primitives and kernel wait primitives (timers, io
+# context, thread pool). When ON a preprocessor macro is defined so
+# consumer code and headers can static-assert or document assumptions.
+option(WEBDRIVER_REQUIRE_THREAD_PRIMITIVES "Require native thread primitives (io_context, thread_pool, steady_timer)" ON)
+if(WEBDRIVER_REQUIRE_THREAD_PRIMITIVES)
+    add_compile_definitions(WEBDRIVER_REQUIRE_THREAD_PRIMITIVES=1)
+endif()
+
 # =============================================================================
 # C++ Standard and Compiler Settings
 # =============================================================================
@@ -376,6 +384,32 @@ if(WEBDRIVER_BUILD_EXAMPLES)
         target_link_libraries(example_bidi_threading_optimized PRIVATE webdriverclientcpp)
         configure_compiler_flags(example_bidi_threading_optimized)
         configure_sanitizers(example_bidi_threading_optimized)
+
+        # New multi-threading examples with strand safety
+        add_executable(example_multithreaded_basic "examples/threading/example_multithreaded_basic.cpp")
+        target_link_libraries(example_multithreaded_basic PRIVATE webdriverclientcpp)
+        configure_compiler_flags(example_multithreaded_basic)
+        configure_sanitizers(example_multithreaded_basic)
+
+        add_executable(example_multithreaded_cpu_pool "examples/threading/example_multithreaded_cpu_pool.cpp")
+        target_link_libraries(example_multithreaded_cpu_pool PRIVATE webdriverclientcpp)
+        configure_compiler_flags(example_multithreaded_cpu_pool)
+        configure_sanitizers(example_multithreaded_cpu_pool)
+
+        add_executable(example_strand_safety "examples/threading/example_strand_safety.cpp")
+        target_link_libraries(example_strand_safety PRIVATE webdriverclientcpp)
+        configure_compiler_flags(example_strand_safety)
+        configure_sanitizers(example_strand_safety)
+
+        add_executable(example_production_threading "examples/threading/example_production_threading.cpp")
+        target_link_libraries(example_production_threading PRIVATE webdriverclientcpp)
+        configure_compiler_flags(example_production_threading)
+        configure_sanitizers(example_production_threading)
+
+        add_executable(example_strand_explained "examples/threading/example_strand_explained.cpp")
+        target_link_libraries(example_strand_explained PRIVATE webdriverclientcpp)
+        configure_compiler_flags(example_strand_explained)
+        configure_sanitizers(example_strand_explained)
 
     add_executable(example_bidi_flow_production "examples/flow/example_bidi_flow_production.cpp")
     target_link_libraries(example_bidi_flow_production PRIVATE webdriverclientcpp)

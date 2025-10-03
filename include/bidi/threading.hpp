@@ -21,6 +21,22 @@ namespace bidi::core {
  */
 class ThreadingContext {
   public:
+    // NOTE FOR CONTRIBUTORS:
+    // This component relies on real OS thread primitives and kernel wait
+    // primitives (io_context, thread_pool, steady_timer and std::jthread).
+    // Design rules to follow when integrating with ThreadingContext:
+    // - Use `post_io`, `post_cpu` and `post_ws` to schedule work instead of
+    //   creating raw threads or performing blocking waits inside handlers.
+    // - Do not call blocking primitives (e.g. future.get(), promise wait,
+    //   blocking I/O) from code that runs on `ws_strand_` or inside the
+    //   io_context threads; prefer the awaitable/callback variants.
+    // - Timers created via `make_timer` are tied to the strand and use
+    //   kernel-native wait facilities (no busy-wait). Cancel timers to
+    //   interrupt waits.
+    // - This class is intended to provide native suspension primitives;
+    //   callers must preserve the strand/serialisation guarantees and avoid
+    //   blocking the event loop thread.
+
     explicit ThreadingContext(
         std::size_t io_threads = 1,
         std::size_t cpu_threads = std::thread::hardware_concurrency());

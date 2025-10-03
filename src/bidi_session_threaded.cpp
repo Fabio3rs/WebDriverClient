@@ -364,11 +364,13 @@ void ThreadedBiDiSession::setup_timeout(id_type request_id,
     timer->async_wait([this, self = shared_from_this(),
                        request_id](boost::system::error_code err) {
         if (!err) { // Timeout fired (not cancelled)
-            complete_pending_on_strand(request_id, false, {}, "timeout",
-                                       "Request timed out");
+            // Post to strand to access pending_map_ safely
+            threading_->post_ws([this, self, request_id]() {
+                complete_pending_on_strand(request_id, false, {}, "timeout",
+                                           "Request timed out");
+            });
         }
-        // If ec == operation_aborted, timer was cancelled (response
-        // arrived)
+        // If ec == operation_aborted, timer was cancelled (response arrived)
     });
 }
 
