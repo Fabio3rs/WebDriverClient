@@ -165,6 +165,26 @@ auto Client::evaluate(std::string_view expression, std::string_view context,
     session_->send_command(
         std::string(bidi::ids::methods::script_evaluate), params,
         [task, policy](const core::ParsedResponse &response) mutable {
+            // Diagnóstico temporário: logar estado bruto antes da aplicação da
+            // policy
+            try {
+                bidi::logging::log_info(
+                    std::string("[DIAG] script.evaluate raw is_success=") +
+                    (response.is_success ? "true" : "false") +
+                    ", result.type=" +
+                    (response.result.if_contains("type") &&
+                             response.result.at("type").is_string()
+                         ? std::string(
+                               response.result.at("type").as_string().c_str())
+                         : std::string("<none>")) +
+                    ", policy=" +
+                    (policy == script::script_eval_policy::
+                                   throw_on_script_exception
+                         ? "throw_on_script_exception"
+                         : "return_outcome"));
+            } catch (...) {
+                // logging best-effort
+            }
             if (!response.is_success) {
                 task.fail(std::make_exception_ptr(std::runtime_error(
                     std::string("script.evaluate failed: ") +

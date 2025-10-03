@@ -46,11 +46,11 @@ get_array_ptr(const boost::json::object &object,
     return nullptr;
 }
 
-inline std::optional<int> get_int_opt(const boost::json::object &object,
-                                      std::string_view key) noexcept {
+inline std::optional<int64_t> get_int_opt(const boost::json::object &object,
+                                          std::string_view key) noexcept {
     if (const auto *value_ptr = try_find_value(object, key);
         value_ptr != nullptr && value_ptr->is_int64()) {
-        return static_cast<int>(value_ptr->as_int64());
+        return value_ptr->as_int64();
     }
     return std::nullopt;
 }

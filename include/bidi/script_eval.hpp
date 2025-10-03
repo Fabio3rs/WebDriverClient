@@ -17,21 +17,21 @@ namespace bidi::script {
 
 // Representa um frame de stack de script (quando fornecido pelo driver BiDi)
 struct ScriptStackFrame {
-    std::string url;           // pode estar vazio
-    std::string function_name; // pode estar vazio
-    int line_number{-1};       // -1 quando ausente
-    int column_number{-1};     // -1 quando ausente
+    std::string url;                // pode estar vazio
+    std::string function_name;      // pode estar vazio
+    std::int64_t line_number{-1};   // -1 quando ausente
+    std::int64_t column_number{-1}; // -1 quando ausente
 };
 
 // Detalhes completos de uma exception de script, preservando subobjeto bruto
 struct ScriptExceptionDetails {
-    std::string exception_type;       // normalmente "exception"
-    std::string text;                 // exceptionDetails.text
-    std::string value;                // exceptionDetails.exception.value
-    std::string name;                 // exceptionDetails.exception.className
-    std::string error_type;           // exceptionDetails.exception.type
-    std::optional<int> line_number;   // topo
-    std::optional<int> column_number; // topo
+    std::string exception_type; // normalmente "exception"
+    std::string text;           // exceptionDetails.text
+    std::string value;          // exceptionDetails.exception.value
+    std::string name;           // exceptionDetails.exception.className
+    std::string error_type;     // exceptionDetails.exception.type
+    std::optional<std::int64_t> line_number;    // topo
+    std::optional<std::int64_t> column_number;  // topo
     std::vector<ScriptStackFrame> stack_frames; // ordem conforme recebido
     boost::json::object
         raw; // snapshot de exceptionDetails (ou vazio se inexistente)
@@ -63,15 +63,18 @@ class ScriptEvaluateException : public std::runtime_error {
         : std::runtime_error(details.text.empty() ? "script evaluate exception"
                                                   : details.text),
           details_(std::move(details)) {}
-    const ScriptExceptionDetails &details() const noexcept { return details_; }
+    [[nodiscard]] const ScriptExceptionDetails &details() const noexcept {
+        return details_;
+    }
 };
 
 // API interna: detecta se result representa uma exception de script
-bool is_script_exception_result(const boost::json::object &result) noexcept;
+[[nodiscard]] bool
+is_script_exception_result(const boost::json::object &result) noexcept;
 
 // API interna: extrai ScriptExceptionDetails de um result cujo type ==
 // "exception"
-ScriptExceptionDetails
+[[nodiscard]] ScriptExceptionDetails
 parse_script_exception(const boost::json::object &result) noexcept;
 
 // Estrutura auxiliar interna usada pelo overload evaluate para aplicar
@@ -83,7 +86,8 @@ struct PolicyApplicationResult {
     ScriptExceptionDetails exception; // válido quando action == throw_exception
 };
 
-PolicyApplicationResult apply_policy(const core::ParsedResponse &response,
-                                     script_eval_policy policy) noexcept;
+[[nodiscard]] PolicyApplicationResult
+apply_policy(const core::ParsedResponse &response,
+             script_eval_policy policy) noexcept;
 
 } // namespace bidi::script
