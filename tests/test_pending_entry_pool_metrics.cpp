@@ -16,7 +16,7 @@ TEST(PendingEntryPoolMetricsTest, AcquireWithinCapacityUpdatesMetrics) {
     EXPECT_EQ(metrics.in_use, 4u);
     EXPECT_EQ(metrics.fallback, 0u);
     EXPECT_EQ(metrics.acquired, 4u);
-    EXPECT_EQ(metrics.created, 4u); // Policy::Recreate => sempre created
+    EXPECT_EQ(metrics.created, 4u); // Policy::Recreate => always created
 }
 
 TEST(PendingEntryPoolMetricsTest, FallbackPathIncrementsFallbackCounter) {
