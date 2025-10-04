@@ -10,7 +10,7 @@ using bidi::core::TimerWheel;
 
 TEST(TimerWheelPostTest, HeavyHandlersDoNotBlockTicks) {
     boost::asio::io_context ioc;
-    TimerWheel wheel(ioc, 5ms); // tick rápido
+    TimerWheel wheel(ioc, 5ms); // fast tick
     wheel.start();
 
     std::atomic<int> executed{0};
