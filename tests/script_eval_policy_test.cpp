@@ -1,4 +1,4 @@
-// tests/script_eval_policy_test.cpp - Testes de aplicação de política
+// tests/script_eval_policy_test.cpp - Tests for policy application
 // script_eval (casos A-G)
 #include "bidi/core.hpp"
 #include "bidi/script_eval.hpp"
