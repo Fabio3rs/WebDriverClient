@@ -1,4 +1,4 @@
-// src/bidi_session_threaded.cpp — Implementation of zero busy-wait BiDi session
+// src/bidi_session_threaded.cpp - Implementation of zero busy-wait BiDi session
 #include "bidi/logging.hpp"
 #include "bidi/session_threaded.hpp"
 
