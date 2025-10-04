@@ -7,6 +7,7 @@
 #include "bidi/client.hpp"
 #include "bidi/guards.hpp"
 #include "bidi/logging.hpp"
+#include "bidi/script_eval.hpp"
 #include <boost/asio.hpp>
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
@@ -31,20 +32,78 @@ asio::awaitable<int> run_script_exception_flow(std::string websocket_url,
         auto ctx = co_await guard.client()->create_context()();
         (void)co_await guard.client()->navigate(ctx, "https://example.com")();
 
+        using namespace std::chrono_literals;
+        using bidi::script::script_eval_policy::throw_on_script_exception;
+
         // Intentionally evaluate an expression that throws: accessing undefined
         // variable triggers ReferenceError.
         const std::string failing_expression =
             "(() => { throw new Error('IntentionalScriptError: variable not "
             "defined'); })()";
         try {
-            auto res = co_await guard.client()->evaluate(failing_expression,
-                                                         ctx, true)();
+            std::cout << "\n\n\n";
+            auto resa = guard.client()->evaluate(
+                failing_expression, ctx, throw_on_script_exception, true);
+            bidi::logging::log_info(
+                "Waiting 100ms before awaiting the failing evaluation...");
+
+            // Don't block the io_context thread: use an awaitable timer so
+            // other async operations (including the websocket write) can
+            // progress while we wait.
+            asio::steady_timer timer(io_context_, 100ms);
+            co_await timer.async_wait(asio::use_awaitable);
+
+            bidi::logging::log_info("Awaiting the evaluation that should fail "
+                                    "with script error...");
+
+            auto res = co_await resa();
+
+            std::cout << "\n\n\n";
             // If we reach here the driver did not surface the error as
             // expected.
             bidi::logging::log_error(
                 "Expected script exception but evaluation succeeded: " +
-                boost::json::serialize(res));
+                boost::json::serialize(res.raw));
             co_return 1;
+        } catch (const bidi::script::ScriptEvaluateException &e) {
+            // This is the expected path: we caught the script exception
+            // wrapped in ScriptEvaluateException
+            bidi::logging::log_info(
+                std::string("Successfully captured script exception: ") +
+                e.what());
+
+            const auto &details = e.details();
+
+            bidi::logging::log_info("  exception_type: " +
+                                    details.exception_type);
+            bidi::logging::log_info("  text: " + details.text);
+            bidi::logging::log_info("  value: " + details.value);
+            bidi::logging::log_info("  name: " + details.name);
+            bidi::logging::log_info("  error_type: " + details.error_type);
+            if (details.line_number.has_value()) {
+                bidi::logging::log_info("  line_number: " +
+                                        std::to_string(*details.line_number));
+            }
+            if (details.column_number.has_value()) {
+                bidi::logging::log_info("  column_number: " +
+                                        std::to_string(*details.column_number));
+            }
+            bidi::logging::log_info("  raw: " +
+                                    boost::json::serialize(details.raw));
+            if (!details.stack_frames.empty()) {
+                bidi::logging::log_info("  stack_frames:");
+                for (const auto &frame : details.stack_frames) {
+                    bidi::logging::log_info("    function_name: " +
+                                            frame.function_name);
+                    bidi::logging::log_info("    url: " + frame.url);
+                    bidi::logging::log_info("    line_number: " +
+                                            std::to_string(frame.line_number));
+                    bidi::logging::log_info(
+                        "    column_number: " +
+                        std::to_string(frame.column_number));
+                }
+            }
+            co_return 0; // success path of the example: we demonstrated capture
         } catch (const std::exception &e) {
             // Current implementation wraps everything into std::runtime_error.
             bidi::logging::log_info(std::string("Captured script exception: ") +

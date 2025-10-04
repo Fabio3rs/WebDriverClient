@@ -354,12 +354,48 @@ template <class T = void> class Async {
     // Default: returns awaitable<T>
     // ============================
     auto operator()() -> boost::asio::awaitable<T> {
+        // Use the CompletionToken path (use_awaitable) to integrate with
+        // Boost.Asio's awaitable machinery. If Boost.Asio throws a
+        // boost::system::system_error (e.g. operation_aborted) we inspect
+        // the shared state under the mutex and rethrow any stored
+        // std::exception_ptr so awaiting callers receive the original
+        // exception (e.g. ScriptEvaluateException) instead of a generic
+        // system_error.
         if constexpr (std::is_void_v<T>) {
-            // para T == void, forneço um exemplo que retorna void
-            co_await (*this)(boost::asio::use_awaitable);
-            co_return;
+            try {
+                co_await (*this)(boost::asio::use_awaitable);
+                co_return;
+            } catch (const boost::system::system_error &se) {
+                std::exception_ptr eptr;
+                {
+                    std::scoped_lock lk(st_->mx);
+                    if (auto p =
+                            std::get_if<std::exception_ptr>(&st_->result)) {
+                        eptr = *p;
+                    }
+                }
+                if (eptr) {
+                    std::rethrow_exception(eptr);
+                }
+                throw;
+            }
         } else {
-            co_return co_await (*this)(boost::asio::use_awaitable);
+            try {
+                co_return co_await (*this)(boost::asio::use_awaitable);
+            } catch (const boost::system::system_error &se) {
+                std::exception_ptr eptr;
+                {
+                    std::scoped_lock lk(st_->mx);
+                    if (auto p =
+                            std::get_if<std::exception_ptr>(&st_->result)) {
+                        eptr = *p;
+                    }
+                }
+                if (eptr) {
+                    std::rethrow_exception(eptr);
+                }
+                throw;
+            }
         }
     }
 

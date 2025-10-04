@@ -162,45 +162,56 @@ auto Client::evaluate(std::string_view expression, std::string_view context,
     auto task = Task<script::ScriptEvalOutcome>::make(ex);
     commands::script::Target target{.context = context};
     auto params = commands::script::evaluate(expression, target, await_promise);
-    session_->send_command(
-        std::string(bidi::ids::methods::script_evaluate), params,
-        [task, policy](const core::ParsedResponse &response) mutable {
-            // Diagnóstico temporário: logar estado bruto antes da aplicação da
-            // policy
-            try {
-                bidi::logging::log_info(
-                    std::string("[DIAG] script.evaluate raw is_success=") +
-                    (response.is_success ? "true" : "false") +
-                    ", result.type=" +
-                    (response.result.if_contains("type") &&
-                             response.result.at("type").is_string()
-                         ? std::string(
-                               response.result.at("type").as_string().c_str())
-                         : std::string("<none>")) +
-                    ", policy=" +
-                    (policy == script::script_eval_policy::
-                                   throw_on_script_exception
-                         ? "throw_on_script_exception"
-                         : "return_outcome"));
-            } catch (...) {
-                // logging best-effort
+    auto responseHandler = [task, policy](
+                               const core::ParsedResponse &response) mutable {
+        // Diagnóstico temporário: logar estado bruto antes da aplicação da
+        // policy
+        try {
+            const bool is_success = response.is_success;
+            std::string result_type;
+            if (response.result.if_contains("type") &&
+                response.result.at("type").is_string()) {
+                result_type =
+                    std::string(response.result.at("type").as_string().c_str());
+            } else {
+                result_type = "<none>";
             }
-            if (!response.is_success) {
-                task.fail(std::make_exception_ptr(std::runtime_error(
-                    std::string("script.evaluate failed: ") +
-                    response.error_code + " - " + response.error_message)));
-                return;
-            }
-            auto decision = script::apply_policy(response, policy);
-            if (decision.action ==
-                script::PolicyApplicationResult::Action::throw_exception) {
-                task.fail(
-                    std::make_exception_ptr(script::ScriptEvaluateException(
-                        std::move(decision.exception))));
-                return;
-            }
-            task.fulfill(std::move(decision.outcome));
-        });
+            std::string_view policy_str =
+                (policy ==
+                 script::script_eval_policy::throw_on_script_exception)
+                    ? "throw_on_script_exception"
+                    : "return_outcome";
+            auto diag_message = std::format(
+                "[DIAG] script.evaluate raw is_success={}, result.type={}, "
+                "policy={}",
+                is_success ? "true" : "false", result_type, policy_str);
+            bidi::logging::log_info(diag_message);
+        } catch (...) { // NOLINT
+            // logging best-effort
+        }
+        if (!response.is_success) {
+            bidi::logging::log_info(
+                "script.evaluate failed: " + response.error_code + " - " +
+                response.error_message);
+            task.fail(std::make_exception_ptr(std::runtime_error(
+                std::string("script.evaluate failed: ") + response.error_code +
+                " - " + response.error_message)));
+            return;
+        }
+        auto decision = script::apply_policy(response, policy);
+        if (decision.action ==
+            script::PolicyApplicationResult::Action::throw_exception) {
+            bidi::logging::log_info(
+                "Script evaluation failed, applying policy: " +
+                std::to_string(static_cast<int>(policy)));
+            task.fail(std::make_exception_ptr(script::ScriptEvaluateException(
+                std::move(decision.exception))));
+            return;
+        }
+        task.fulfill(std::move(decision.outcome));
+    };
+    session_->send_command(std::string(bidi::ids::methods::script_evaluate),
+                           params, responseHandler);
     return task;
 }
 
