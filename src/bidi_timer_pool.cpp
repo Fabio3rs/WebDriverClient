@@ -102,8 +102,7 @@ void TimerWheel::process_expired_timeouts(
         }
     }
 
-    // Post expired timeouts (não executa inline para evitar bloqueio do loop de
-    // ticks)
+    // Post expired timeouts (do not execute inline to avoid blocking the tick loop)
     std::size_t posted_count = 0;
     for (auto &entry : expired_entries) {
         if (entry.handler) {
