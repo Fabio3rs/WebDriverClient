@@ -7,7 +7,7 @@
 
 using namespace asyncx;
 
-// Constantes reutilizadas entre testes para evitar magic numbers e duplicação.
+// Constants reused between tests to avoid magic numbers and duplication.
 namespace {
 constexpr int kFailTimesShort = 3;
 constexpr int kFailTimesLong = 1000;
