@@ -34,7 +34,7 @@ TEST(TimerWheelPostTest, HeavyHandlersDoNotBlockTicks) {
     th.join();
 
     auto stats = wheel.get_stats();
-    // Todos devem ter sido postados e expirados
+    // All should have been posted and expired
     EXPECT_EQ(executed.load(), kTimers);
     EXPECT_EQ(stats.posted_handlers, static_cast<size_t>(kTimers));
 }
