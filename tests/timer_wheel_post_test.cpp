@@ -26,7 +26,7 @@ TEST(TimerWheelPostTest, HeavyHandlersDoNotBlockTicks) {
             (void)acc;
             executed.fetch_add(1, std::memory_order_relaxed);
         });
-        (void)tid; // suprime warning nodiscard
+        (void)tid; // suppress warning nodiscard
     }
 
     // Rodar o io_context em thread separada
