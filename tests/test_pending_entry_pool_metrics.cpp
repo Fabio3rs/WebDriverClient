@@ -31,7 +31,7 @@ TEST(PendingEntryPoolMetricsTest, FallbackPathIncrementsFallbackCounter) {
     EXPECT_EQ(metrics.in_use, 1u);   // apenas um slot do pool em uso
     EXPECT_EQ(metrics.fallback, 1u); // segundo é fallback
     EXPECT_EQ(metrics.acquired, 2u);
-    EXPECT_EQ(metrics.created, 1u); // apenas primeiro slot construído;
+    EXPECT_EQ(metrics.created, 1u); // only first slot constructed
 }
 
 TEST(PendingEntryPoolMetricsTest, TimeoutCountsAsFailure) {
