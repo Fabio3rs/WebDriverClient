@@ -276,6 +276,28 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
         std::string method;
         std::string trace_id; // propagated for logging correlation
         net::steady_timer timer;
+
+        /// Generation counter for timer lifecycle (prevents stale timer
+        /// callbacks)
+        ///
+        /// @invariant Lifecycle states:
+        /// - 0: Timer never armed (initial state after construction)
+        /// - >=1: Valid timer generation (incremented on each timer arm)
+        ///
+        /// @pattern On timer arm: increment generation, capture value, register
+        /// async_wait
+        /// @pattern In timer callback: compare captured generation with current
+        /// value
+        ///
+        /// @rationale Prevents race condition where timer fires after entry is:
+        /// - Completed and reused for different request
+        /// - Cancelled and timer is rearmed
+        /// - Entry removed and ID recycled (though atomic counter prevents
+        /// this)
+        ///
+        /// @see ThreadedBiDiSession::PendingEntry for threaded session
+        /// equivalent
+        std::uint64_t timer_generation{0};
         std::chrono::steady_clock::time_point start;
     };
 

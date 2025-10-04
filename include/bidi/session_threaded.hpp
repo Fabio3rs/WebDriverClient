@@ -32,6 +32,28 @@ struct PendingEntry {
     std::function<void(bool, const boost::json::object &, const std::string &,
                        const std::string &)>
         on_complete{};
+
+    /// Generation counter for timer lifecycle (prevents stale timer callbacks)
+    ///
+    /// @invariant Lifecycle states:
+    /// - 0: Timer never armed (initial state after construction)
+    /// - >=1: Valid timer generation (incremented on each timer arm)
+    ///
+    /// @pattern On timer arm: increment generation, capture value, register
+    /// async_wait
+    /// @pattern In timer callback: compare captured generation with current
+    /// value
+    ///
+    /// @rationale Prevents race condition where timer fires after entry is:
+    /// - Completed and reused for different request
+    /// - Cancelled and timer is rearmed
+    /// - Entry removed and ID recycled (though atomic counter prevents this)
+    ///
+    /// @threading Timer callbacks are posted to strand via post_ws() ensuring
+    /// serialized access to timer_generation without mutex
+    ///
+    /// @see BiDiSession::PendingEntry for strand-based session equivalent
+    std::uint64_t timer_generation{0};
 };
 
 /**

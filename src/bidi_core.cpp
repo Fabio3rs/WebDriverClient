@@ -552,38 +552,77 @@ void BiDiSession::send_command(std::string_view method,
     auto start_tp = std::chrono::steady_clock::now();
     /// Generate trace_id for distributed tracing and log correlation
     auto trace_id = bidi::logging::make_trace_id();
-    PendingEntry entry{.handler = std::move(handler),
-                       .method = std::string(method),
-                       .trace_id = trace_id,
-                       .timer = net::steady_timer(ws_->get_executor()),
-                       .start = start_tp};
-    entry.timer.expires_after(timeout);
-    entry.timer.async_wait([self = shared_from_this(),
-                            id](const boost::system::error_code &error_code) {
-        if (error_code) {
-            return;
-        } // timer cancelado
-        auto it = self->pending_responses_.find(id);
-        if (it == self->pending_responses_.end()) {
-            return;
-        }
-        ParsedResponse timeout_resp;
-        timeout_resp.id = id;
-        timeout_resp.is_success = false;
-        timeout_resp.error_code = "timeout";
-        timeout_resp.error_message = "operation timed out";
-        timeout_resp.method = it->second.method;
-        timeout_resp.trace_id = it->second.trace_id;
-        timeout_resp.timeout_expired = true;
-        timeout_resp.latency =
-            std::chrono::steady_clock::now() - it->second.start;
-        // log timeout with correlation
-        bidi::logging::log_error("BiDi command timeout", std::error_code{},
-                                 nullptr, timeout_resp.trace_id);
-        it->second.handler(std::move(timeout_resp));
-        self->pending_responses_.erase(it);
-    });
-    pending_responses_.emplace(id, std::move(entry));
+    // Create the pending entry with generation 0 (uninitialized, consistent
+    // with header default)
+    PendingEntry entry{std::move(handler),
+                       std::string(method),
+                       trace_id,
+                       net::steady_timer(ws_->get_executor()),
+                       /*timer_generation=*/0,
+                       start_tp};
+
+    // CRITICAL: Emplace BEFORE arming timer to avoid race window where timer
+    // fires before entry exists in map
+    auto [it, inserted] = pending_responses_.emplace(id, std::move(entry));
+
+    // R.3/CP.2: Handle emplace failure gracefully (bad_alloc or unexpected
+    // collision) In production, assert may be compiled out, so we need explicit
+    // check
+    if (!inserted) {
+        // Log critical failure with trace correlation
+        bidi::logging::log_error("Failed to register pending entry (allocation "
+                                 "failure or ID collision)",
+                                 std::error_code{}, nullptr, trace_id);
+
+        // CRITICAL: Handler was already moved into entry, so we cannot notify
+        // caller. This branch should be unreachable in practice:
+        // - ID collision is impossible (atomic counter guarantees uniqueness)
+        // - bad_alloc would propagate as exception (not return false from
+        // emplace)
+        //
+        // We keep this check for defense-in-depth and to satisfy static
+        // analyzers. In debug builds, assert will terminate to catch impossible
+        // scenarios. In release builds, we return early to avoid undefined
+        // behavior.
+        assert(false &&
+               "ID collision should be impossible with atomic counter");
+        return;
+    }
+
+    // Bump generation and arm timer AFTER entry is visible in map
+    ++(it->second.timer_generation);
+    const auto captured_gen = it->second.timer_generation;
+    it->second.timer.expires_after(timeout);
+    it->second.timer.async_wait(
+        [self = shared_from_this(), id,
+         captured_gen](const boost::system::error_code &error_code) {
+            if (error_code) {
+                return;
+            } // timer cancelled
+            auto it_timeout = self->pending_responses_.find(id);
+            if (it_timeout == self->pending_responses_.end()) {
+                return; // Should never happen after reordering fix
+            }
+            // Ignore stale timer if generation doesn't match
+            if (it_timeout->second.timer_generation != captured_gen) {
+                return;
+            }
+            ParsedResponse timeout_resp;
+            timeout_resp.id = id;
+            timeout_resp.is_success = false;
+            timeout_resp.error_code = "timeout";
+            timeout_resp.error_message = "operation timed out";
+            timeout_resp.method = it_timeout->second.method;
+            timeout_resp.trace_id = it_timeout->second.trace_id;
+            timeout_resp.timeout_expired = true;
+            timeout_resp.latency =
+                std::chrono::steady_clock::now() - it_timeout->second.start;
+            // log timeout with correlation
+            bidi::logging::log_error("BiDi command timeout", std::error_code{},
+                                     nullptr, timeout_resp.trace_id);
+            it_timeout->second.handler(std::move(timeout_resp));
+            self->pending_responses_.erase(it_timeout);
+        });
 
     auto message = build_command(id, method, params);
     auto logTransportErr = [self = shared_from_this(),
@@ -592,8 +631,8 @@ void BiDiSession::send_command(std::string_view method,
             return;
         }
 
-        auto it = self->pending_responses_.find(id);
-        if (it == self->pending_responses_.end()) {
+        auto it_transport = self->pending_responses_.find(id);
+        if (it_transport == self->pending_responses_.end()) {
             return;
         }
 
@@ -602,14 +641,15 @@ void BiDiSession::send_command(std::string_view method,
         resp.is_success = false;
         resp.error_code = "transport";
         resp.error_message = error_code.message();
-        resp.method = it->second.method;
-        resp.trace_id = it->second.trace_id;
-        resp.latency = std::chrono::steady_clock::now() - it->second.start;
+        resp.method = it_transport->second.method;
+        resp.trace_id = it_transport->second.trace_id;
+        resp.latency =
+            std::chrono::steady_clock::now() - it_transport->second.start;
         // Log transport send failure with trace_id
         bidi::logging::log_error("BiDi send transport error", error_code,
                                  nullptr, resp.trace_id);
-        it->second.handler(std::move(resp));
-        self->pending_responses_.erase(it);
+        it_transport->second.handler(std::move(resp));
+        self->pending_responses_.erase(it_transport);
     };
     ws_->async_send(std::move(message), logTransportErr);
 }
@@ -637,40 +677,79 @@ auto BiDiSession::send_command_awaitable(std::string_view method,
     auto response_async =
         asyncx::Async<ParsedResponse>::make(ws_->get_executor());
 
-    PendingEntry entry{.handler =
-                           [response_async](const ParsedResponse &resp) {
-                               response_async.fulfill(resp);
-                           },
-                       .method = std::string(method),
-                       .trace_id = trace_id,
-                       .timer = net::steady_timer(ws_->get_executor()),
-                       .start = start_tp};
-    entry.timer.expires_after(timeout);
-    entry.timer.async_wait([self = shared_from_this(),
-                            id](const boost::system::error_code &error_code) {
-        if (error_code) {
-            return; // timer cancelled
-        }
-        auto it = self->pending_responses_.find(id);
-        if (it == self->pending_responses_.end()) {
-            return;
-        }
-        ParsedResponse timeout_resp;
-        timeout_resp.id = id;
-        timeout_resp.is_success = false;
-        timeout_resp.error_code = "timeout";
-        timeout_resp.error_message = "operation timed out";
-        timeout_resp.method = it->second.method;
-        timeout_resp.trace_id = it->second.trace_id;
-        timeout_resp.timeout_expired = true;
-        timeout_resp.latency =
-            std::chrono::steady_clock::now() - it->second.start;
-        bidi::logging::log_error("BiDi command timeout", std::error_code{},
-                                 nullptr, timeout_resp.trace_id);
-        it->second.handler(std::move(timeout_resp));
-        self->pending_responses_.erase(it);
-    });
-    pending_responses_.emplace(id, std::move(entry));
+    // Create the pending entry with generation 0 (consistent with header
+    // default)
+    PendingEntry entry{[response_async](const ParsedResponse &resp) {
+                           response_async.fulfill(resp);
+                       },
+                       std::string(method),
+                       trace_id,
+                       net::steady_timer(ws_->get_executor()),
+                       /*timer_generation=*/0,
+                       start_tp};
+
+    // CRITICAL: Emplace BEFORE arming timer to avoid race window
+    auto [it2, inserted2] = pending_responses_.emplace(id, std::move(entry));
+
+    // R.3/CP.2: Handle emplace failure gracefully (bad_alloc or unexpected
+    // collision)
+    if (!inserted2) {
+        // Log critical failure with trace correlation
+        bidi::logging::log_error("Failed to register pending entry (allocation "
+                                 "failure or ID collision)",
+                                 std::error_code{}, nullptr, trace_id);
+
+        // Notify awaiting coroutine with internal error via Async<T>
+        ParsedResponse resp;
+        resp.id = id;
+        resp.is_success = false;
+        resp.error_code = "internal";
+        resp.error_message = "failed to allocate pending entry";
+        resp.trace_id = trace_id;
+        resp.method = std::string(method);
+        resp.latency = std::chrono::steady_clock::now() - start_tp;
+
+        // Fulfill the async result with error (coroutine will resume with
+        // error)
+        response_async.fulfill(std::move(resp));
+
+        // Return the error via use_awaitable adapter (converts Async<T> to
+        // awaitable<T>)
+        co_return co_await response_async(boost::asio::use_awaitable);
+    }
+
+    // Bump generation and arm timer AFTER entry is visible in map
+    ++(it2->second.timer_generation);
+    const auto captured_gen2 = it2->second.timer_generation;
+    it2->second.timer.expires_after(timeout);
+    it2->second.timer.async_wait(
+        [self = shared_from_this(), id,
+         captured_gen2](const boost::system::error_code &error_code) {
+            if (error_code) {
+                return; // timer cancelled
+            }
+            auto it_timeout = self->pending_responses_.find(id);
+            if (it_timeout == self->pending_responses_.end()) {
+                return;
+            }
+            if (it_timeout->second.timer_generation != captured_gen2) {
+                return;
+            }
+            ParsedResponse timeout_resp;
+            timeout_resp.id = id;
+            timeout_resp.is_success = false;
+            timeout_resp.error_code = "timeout";
+            timeout_resp.error_message = "operation timed out";
+            timeout_resp.method = it_timeout->second.method;
+            timeout_resp.trace_id = it_timeout->second.trace_id;
+            timeout_resp.timeout_expired = true;
+            timeout_resp.latency =
+                std::chrono::steady_clock::now() - it_timeout->second.start;
+            bidi::logging::log_error("BiDi command timeout", std::error_code{},
+                                     nullptr, timeout_resp.trace_id);
+            it_timeout->second.handler(std::move(timeout_resp));
+            self->pending_responses_.erase(it_timeout);
+        });
 
     auto message = build_command(id, method, params);
     ws_->async_send(
@@ -679,8 +758,8 @@ auto BiDiSession::send_command_awaitable(std::string_view method,
             if (!error_code) {
                 return;
             }
-            auto it = self->pending_responses_.find(id);
-            if (it == self->pending_responses_.end()) {
+            auto it_transport = self->pending_responses_.find(id);
+            if (it_transport == self->pending_responses_.end()) {
                 return;
             }
             ParsedResponse resp;
@@ -688,13 +767,14 @@ auto BiDiSession::send_command_awaitable(std::string_view method,
             resp.is_success = false;
             resp.error_code = "transport";
             resp.error_message = error_code.message();
-            resp.method = it->second.method;
-            resp.trace_id = it->second.trace_id;
-            resp.latency = std::chrono::steady_clock::now() - it->second.start;
+            resp.method = it_transport->second.method;
+            resp.trace_id = it_transport->second.trace_id;
+            resp.latency =
+                std::chrono::steady_clock::now() - it_transport->second.start;
             bidi::logging::log_error("BiDi send transport error", error_code,
                                      nullptr, resp.trace_id);
-            it->second.handler(std::move(resp));
-            self->pending_responses_.erase(it);
+            it_transport->second.handler(std::move(resp));
+            self->pending_responses_.erase(it_transport);
         });
 
     /// Zero busy-wait: coroutine suspends until response_async is fulfilled

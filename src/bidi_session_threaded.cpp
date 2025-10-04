@@ -375,16 +375,27 @@ void ThreadedBiDiSession::setup_timeout(id_type request_id,
     // Create timer that suspends on kernel timer primitives
     auto timer = threading_->make_timer(duration);
 
+    std::uint64_t captured_gen = 0;
     if (auto it = pending_map_.find(request_id); it != pending_map_.end()) {
         it->second->timer = timer;
+        // bump generation to indicate a fresh timer has been armed
+        ++(it->second->timer_generation);
+        captured_gen = it->second->timer_generation;
     }
 
     // Async wait suspends thread until timeout or cancellation
-    timer->async_wait([this, self = shared_from_this(),
-                       request_id](boost::system::error_code err) {
+    timer->async_wait([this, self = shared_from_this(), request_id,
+                       captured_gen](boost::system::error_code err) {
         if (!err) { // Timeout fired (not cancelled)
             // Post to strand to access pending_map_ safely
-            threading_->post_ws([this, self, request_id]() {
+            threading_->post_ws([this, self, request_id, captured_gen]() {
+                auto it = pending_map_.find(request_id);
+                if (it == pending_map_.end()) {
+                    return;
+                }
+                if (it->second->timer_generation != captured_gen) {
+                    return; // stale timer
+                }
                 complete_pending_on_strand(request_id, false, {}, "timeout",
                                            "Request timed out");
             });
