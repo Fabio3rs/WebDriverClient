@@ -12,12 +12,12 @@
 
 namespace utils {
 
-// PoolVec: POC de um pool de objetos com slots contíguos e RAII handle.
-// - Prealoca N slots de armazenamento bruto.
-// - Cada slot tem um estado atômico (0 = free, 1 = used).
-// - borrow() faz CAS para marcar slot usado; retorna Handle que faz
-// destroy+free no dtor.
-// - Constrói o objeto no slot via placement-new quando emprestado.
+// PoolVec: Proof of concept for an object pool with contiguous slots and RAII handle.
+// - Preallocates N slots of raw storage.
+// - Each slot has an atomic state (0 = free, 1 = used).
+// - borrow() uses CAS to mark a slot as used; returns a Handle that performs
+// destroy+free in its destructor.
+// - Constructs the object in the slot via placement-new when borrowed.
 
 template <class T> class PoolVec;
 
