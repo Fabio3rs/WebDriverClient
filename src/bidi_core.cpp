@@ -83,9 +83,12 @@ static void fill_response_success(ParsedResponse &out,
                      : boost::json::object{};
 }
 
-/// @brief Fill ParsedResponse for error-type responses
-/// @note Maintains backward compatibility with existing tests while logging
-/// warnings for missing required fields
+/**
+ * @brief Fill ParsedResponse structure for error-type responses.
+ * @param out Output ParsedResponse structure to populate.
+ * @param obj Parsed JSON response object.
+ * @note Maintains backward compatibility with existing tests while logging warnings for missing required fields.
+ */
 static void fill_response_error(ParsedResponse &out,
                                 const boost::json::object &obj) noexcept {
     out.is_success = false;
