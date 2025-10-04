@@ -1,4 +1,4 @@
-// tests/subscription_move_test.cpp — Valida correção do bug de move
+// tests/subscription_move_test.cpp — Validates fix for move bug
 #include "bidi/core.hpp"
 #include <gtest/gtest.h>
 #include <memory>
