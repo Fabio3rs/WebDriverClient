@@ -18,7 +18,7 @@ TEST(TimerWheelPostTest, HeavyHandlersDoNotBlockTicks) {
 
     for (int i = 0; i < kTimers; ++i) {
         const auto tid = wheel.schedule_timeout(1ms, [&](TimeoutId) {
-            // Simula handler pesado (busy loop curta)
+            // Simulates a heavy handler (short busy loop)
             volatile int acc = 0;
             for (int j = 0; j < 10000; ++j) {
                 acc += j;
