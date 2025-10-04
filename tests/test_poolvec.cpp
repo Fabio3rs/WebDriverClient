@@ -150,7 +150,7 @@ struct ThrowingPayload {
     int v{0};
     ThrowingPayload(int val) : v(val) {
         int attempt_index = attempts.fetch_add(1) + 1;
-        // Força exceção nas duas primeiras tentativas para simular falha
+        // Force exception in the first two attempts to simulate failure
         if (attempt_index <= 2) {
             throw std::runtime_error("forced construction failure");
         }
