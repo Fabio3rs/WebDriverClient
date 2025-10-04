@@ -1,19 +1,20 @@
+#pragma once
 /**
  * @file guards.hpp
- * @brief RAII guards for production-grade resource management
+ * @brief Collection of small RAII helpers used throughout tests and examples.
  *
- * All classes follow RAII by default (C++ Core Guidelines R.1).
- * No explicit "raii" namespace needed - RAII is the standard way.
- *
- * This file provides exception-safe guards for managing:
- * - WebDriver sessions (automatic cleanup)
- * - BiDi client connections (automatic disconnect)
- * - Timers (automatic cancellation)
- * - Futures (timeout handling)
- * - IoContext threads (automatic join)
+ * Rationale:
+ * - Tests and examples create many resources that must be reliably cleaned up
+ *   (sessions, timers, io threads). These helpers codify the recommended
+ *   cleanup order used by the project: unsubscribe -> disconnect -> drain ->
+ *   stop -> join. Using RAII here reduces boilerplate in examples and makes
+ *   tests deterministic (important for ASan leak checking).
+ * - TimerGuard cancels timers explicitly in destructors to avoid dangling
+ *   callbacks that could be observed by sanitizers as indirect leaks when
+ *   stress tests create thousands of timers.
+ * - IoContextGuard ensures io_context is stopped and the runner thread is
+ *   joined to avoid races during teardown.
  */
-
-#pragma once
 
 #include "WebDriverClient.hpp"
 #include "bidi/client.hpp"
@@ -119,7 +120,7 @@ class SessionGuard {
 class TimerGuard {
   private:
     std::shared_ptr<boost::asio::steady_timer> timer_;
-    std::atomic<bool> &flag_;
+    [[maybe_unused]] std::atomic<bool> &flag_;
 
   public:
     TimerGuard(boost::asio::any_io_executor executor,

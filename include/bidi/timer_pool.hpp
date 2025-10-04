@@ -1,6 +1,18 @@
-// include/bidi/timer_pool.hpp — High-performance timer wheel for thousands of
-// timeouts
 #pragma once
+/**
+ * @file timer_pool.hpp
+ * @brief Timer wheel implementation for efficient handling of many timeouts.
+ *
+ * Rationale:
+ * - Creating a dedicated `steady_timer` per request becomes expensive when
+ *   the system handles thousands of concurrent pending operations. The timer
+ *   wheel centralizes tick processing, reduces kernel resource usage and
+ *   enables O(1) insertion/removal semantics.
+ * - The TimerWheel marks cancelled entries lazily for efficient removal.
+ *   Higher-level code (for example
+ * `BiDiSession::PendingEntry::timer_generation`) should still validate
+ * generation counters when a handler runs to avoid acting on stale entries.
+ */
 
 #include <atomic>
 #include <boost/asio.hpp>
@@ -13,26 +25,6 @@
 #include <vector>
 
 namespace bidi::core {
-
-/**
- * @brief High-performance timer pool using hierarchical timing wheels
- *
- * Problems with individual boost::asio::steady_timer per request:
- * - Each timer allocates kernel resources (timerfd on Linux)
- * - O(log n) insertion/deletion in timer heap
- * - High memory overhead for thousands of timeouts
- *
- * Timer wheel solution:
- * - Single shared timer drives the wheel
- * - O(1) insertion/deletion for timeouts
- * - Constant memory overhead regardless of pending count
- * - Batched timeout processing reduces context switches
- *
- * Performance characteristics:
- * - Supports 10k+ concurrent timeouts with minimal overhead
- * - ~50x less memory than individual timers
- * - ~10x faster timeout insertion/cancellation
- */
 
 using TimeoutId = std::uint64_t;
 using TimeoutHandler = std::function<void(TimeoutId)>;

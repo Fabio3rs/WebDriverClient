@@ -1,5 +1,27 @@
-// include/bidi/session_threaded.hpp — BiDi session with native suspension
 #pragma once
+/**
+ * @file session_threaded.hpp
+ * @brief Threaded BiDi session that integrates with ThreadingContext.
+ *
+ * This translation unit provides a blocking-friendly BiDi session variant
+ * suitable for environments that prefer `std::future`/`std::promise` based
+ * waits. It reuses the same architectural building blocks as the strand-only
+ * `BiDiSession`:
+ * - pending_map_: id -> PendingEntry (promise + timer) registered on the
+ *   strand to ensure serialized access
+ * - timer generation counters to avoid stale-timer races when entries are
+ *   recycled from a pool
+ * - RAII Subscription semantics to auto-unsubscribe when handles are destroyed
+ *
+ * Important invariants:
+ * - All accesses to `pending_map_`, `event_handlers_`, and write queue must
+ *   occur on the strand. Use ThreadingContext::post_ws(...) to marshal calls
+ *   to the correct context.
+ * - send_command_await() blocks the calling thread until the promise is set;
+ *   it must NOT be invoked from the strand or io_context threads to avoid
+ *   deadlocks. Prefer the awaitable/coroutine API (`send_command_awaitable`) in
+ *   strand-executing code.
+ */
 
 #include "bidi/core.hpp"
 #include "bidi/threading.hpp"

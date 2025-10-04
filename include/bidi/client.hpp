@@ -1,5 +1,23 @@
-// bidi/client.hpp — High-level BiDi Client with Async/Monadic API
 #pragma once
+/**
+ * @file client.hpp
+ * @brief High-level BiDi Client implementing the project DX and lazy API.
+ *
+ * The public `Task<T>` API (alias for `asyncx::Async<T>`) is intentionally
+ * lazy: operations are only materialized when a terminal is invoked (for
+ * example `.finally()` or `co_await`). This design minimizes unnecessary
+ * allocations and side-effects on the hot path.
+ *
+ * Rationale for [[nodiscard]] on Task-producing methods:
+ * - Prevents accidental ignoring of lazy operations which would otherwise
+ *   silently do nothing. The project enforces `[[nodiscard]]` for these
+ *   methods at source to make misuse visible at compile time.
+ *
+ * Threading expectations:
+ * - Client methods are non-blocking and will post work to the session's
+ *   strand when necessary. Long blocking waits should not be performed on the
+ *   strand.
+ */
 
 #include "asyncx.hpp"
 #include "bidi/commands.hpp"

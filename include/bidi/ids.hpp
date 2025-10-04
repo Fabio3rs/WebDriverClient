@@ -1,8 +1,18 @@
-// This shim keeps backwards compatibility for older code that included
-// `bidi/ids.hpp` and used uppercase constants. Prefer
-// `include/bidi_methods.hpp` (provides `bidi::ids::methods::...` and
-// `bidi::ids::events::...`).
 #pragma once
+/**
+ * @file ids.hpp
+ * @brief Compatibility shim for older code that used uppercase id constants.
+ *
+ * The project prefers a single source-of-truth for BiDi method and event
+ * identifiers (generated `bidi_methods.hpp`). This file re-exports a small
+ * set of uppercase aliases to ease incremental migration.
+ *
+ * Rationale:
+ * - Keeps user code compiling while encouraging migration to the
+ *   namespaced `bidi::ids::methods` / `bidi::ids::events` identifiers.
+ * - A future code-generation step can regenerate `bidi_methods.hpp` from the
+ *   W3C BiDi specification to avoid drift.
+ */
 
 #include "bidi_methods.hpp"
 

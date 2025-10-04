@@ -1,6 +1,22 @@
-// bidi/script_eval.hpp - Estruturas e política para tratamento de exceptions de
-// script.evaluate
 #pragma once
+/**
+ * @file script_eval.hpp
+ * @brief Script evaluation result modeling and exception policy utilities.
+ *
+ * The BiDi `script.evaluate` command can either return a normal result or a
+ * structured script exception (that may include a rich stack and details).
+ * This header models both outcomes and provides policy-driven helpers used by
+ * higher-level APIs to either throw an exception (`ScriptEvaluateException`)
+ * or return a `ScriptEvalOutcome` that preserves both the normal value and
+ * any exception details.
+ *
+ * Rationale:
+ * - Tests and callers that need robust error handling may prefer to receive
+ *   structured exception details instead of relying on textual messages.
+ * - The `script_eval_policy` enum controls the behavior: either throw or
+ *   return the outcome. This keeps the low-level parsing deterministic and
+ *   keeps DX options for different call-sites.
+ */
 
 #include <boost/json.hpp>
 #include <optional>

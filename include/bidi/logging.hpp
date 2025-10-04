@@ -1,4 +1,17 @@
 #pragma once
+/**
+ * @file logging.hpp
+ * @brief Structured logging helpers used by the project.
+ *
+ * Design notes:
+ * - Uses `std::source_location::current()` to capture call-site information
+ *   (file, line, function) without macros. This improves observability and
+ *   makes debugging easier in tests and examples.
+ * - For production builds that are sensitive to metadata size, define
+ *   `WEBDRIVER_STRIP_LOG_LOCATION` to omit `source` from the JSON payload.
+ * - The log format is JSON to simplify ingestion by tests and external
+ *   telemetry; `build_log()` returns a serialized JSON string.
+ */
 
 #include <boost/json.hpp>
 #include <chrono>

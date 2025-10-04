@@ -1,4 +1,14 @@
 #pragma once
+/**
+ * @file metrics.hpp
+ * @brief Lightweight metrics primitives used by pools and tests.
+ *
+ * The goal is a tiny, dependency-free metrics surface suitable for examples
+ * and unit tests: counters, histograms (bucketed), and a centralized
+ * Registry. PoolMetrics is the agreed-upon shape for all pool instrumentation
+ * and is used by `PendingEntryPoolVec` and others to expose capacity, in_use
+ * and cumulative counters.
+ */
 
 #include <atomic>
 #include <chrono>

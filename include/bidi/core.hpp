@@ -1,5 +1,32 @@
-// bidi/core.hpp — WebDriver BiDi Core (W3C spec-compliant)
 #pragma once
+/**
+ * @file core.hpp
+ * @brief Core types and low-level BiDi protocol primitives.
+ *
+ * This header defines the minimal, spec-aligned core for the BiDi client:
+ * - id_type and MAX_SAFE_ID (compatibility with IEEE-754 JavaScript safe
+ *   integer range)
+ * - fast-path message kind detection used by the router to avoid full JSON
+ *   materialization on the hot path
+ * - helpers to build commands and parse responses/events
+ *
+ * Architectural rationale (short):
+ * - Fast-path routing: scans incoming frames to decide Response vs Event with
+ *   a light-weight scan instead of allocating/parsing the whole DOM. This is
+ *   a key hot-path optimization to reduce allocations and latency.
+ * - ID safety: internal storage uses a 64-bit counter (`id_type`) for reuse
+ *   and monotonicity; when serializing to wire code must consider
+ *   MAX_SAFE_ID to remain interoperable with JS runtimes.
+ * - Pending map & timer race: requests are registered in the pending map and
+ *   raced with a steady_timer. The PendingEntry::timer_generation exists to
+ *   prevent stale timer callbacks from affecting newer requests that reuse the
+ *   same entry object.
+ *
+ * Threading model expectations:
+ * - Classes in this header assume they are used from a strand-serialized
+ *   context (see `threading.hpp` for helpers). Public methods that can be
+ *   called from other threads will document required synchronization.
+ */
 
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>

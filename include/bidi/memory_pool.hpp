@@ -1,5 +1,16 @@
-// include/bidi/memory_pool.hpp — Arena allocation for high-performance JSON
 #pragma once
+/**
+ * @file memory_pool.hpp
+ * @brief PMR/arena helpers for fast JSON parsing in hot paths.
+ *
+ * Key rules:
+ * - Use `JsonParser` to parse a single incoming message into an arena-backed
+ *   `boost::json::value`. The arena is released when the parser instance
+ *   goes out of scope.
+ * - Never allow `string_view` or pointers into the arena to escape the
+ *   parser lifetime. The consumer must materialize copies if values need to
+ *   outlive the message handling scope.
+ */
 
 #include <boost/json.hpp>
 #include <boost/json/monotonic_resource.hpp>

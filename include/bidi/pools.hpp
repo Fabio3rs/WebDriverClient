@@ -1,4 +1,14 @@
 #pragma once
+/**
+ * @file pools.hpp
+ * @brief Convenience facade exposing shared resource pools for examples/tests.
+ *
+ * Notes:
+ * - `ResourcePools` is intended for examples and unit tests where a single
+ *  , easily-accessible set of pools simplifies wiring and assertions. It is
+ *   not meant to mandate global state for production use; prefer injecting
+ *   pool instances where possible.
+ */
 
 // Aggregated header that exposes the various resource pools used across the
 // BiDi implementation. The goal is to provide a single include for pools and

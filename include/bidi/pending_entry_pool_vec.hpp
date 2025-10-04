@@ -1,4 +1,16 @@
 #pragma once
+/**
+ * @file pending_entry_pool_vec.hpp
+ * @brief Pool-backed PendingEntry storage optimized for high-throughput.
+ *
+ * Rationale:
+ * - Avoid per-request heap allocations by storing PendingEntry in a pool
+ *   (`utils::PoolVec`). This reduces allocation churn under high concurrency
+ *   and improves cache locality.
+ * - The pool uses a fallback heap path when exhausted to preserve
+ *   functionality without blocking; metrics expose fallback counts so tests
+ *   can assert pool sizing expectations.
+ */
 
 #include "bidi/core.hpp"
 #include "bidi/metrics.hpp"

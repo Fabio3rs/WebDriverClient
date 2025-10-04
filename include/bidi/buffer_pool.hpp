@@ -1,18 +1,4 @@
-// include/bidi/buffer_pool.hpp — Zero-copy buffer management for WebSocket I/O
 #pragma once
-
-#include <atomic>
-#include <boost/asio.hpp>
-#include <boost/beast.hpp>
-#include <cstddef>
-#include <deque>
-#include <memory>
-#include <mutex>
-#include <string_view>
-#include <vector>
-
-namespace bidi::core {
-
 /**
  * @brief Zero-copy buffer pool for high-performance WebSocket I/O
  *
@@ -31,7 +17,26 @@ namespace bidi::core {
  * - 80-90% reduction in allocations for typical workloads
  * - Zero copy overhead for message passing
  * - Predictable memory usage patterns
+ *
+ * Backpressure guidance:
+ * - The BufferPool is intended to be combined with a write-queue high-water
+ *   mark. If the total bytes queued for transmission exceeds a configurable
+ *   threshold the client should reject or delay new sends to avoid unbounded
+ *   memory growth. This separation keeps the pool focused on reuse while the
+ *   transport layer enforces backpressure.
  */
+
+#include <atomic>
+#include <boost/asio.hpp>
+#include <boost/beast.hpp>
+#include <cstddef>
+#include <deque>
+#include <memory>
+#include <mutex>
+#include <string_view>
+#include <vector>
+
+namespace bidi::core {
 
 // Size classes for different message types
 enum class BufferSize : std::size_t {

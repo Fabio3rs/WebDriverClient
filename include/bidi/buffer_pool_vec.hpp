@@ -1,5 +1,18 @@
-// include/bidi/buffer_pool_vec.hpp — PoolVec-backed BufferPool POC
 #pragma once
+/**
+ * @file buffer_pool_vec.hpp
+ * @brief PoolVec-backed buffer pool proof-of-concept.
+ *
+ * This implementation mirrors `BufferPool` but stores slots in a pooled
+ * `PoolVec` structure to reduce per-buffer allocations and improve locality.
+ * Design notes:
+ * - When a pooled slot is not available the implementation falls back to a
+ *   heap-allocated buffer to preserve functionality (fallback path visible in
+ *   tests via BufferPool::Stats).
+ * - The returned `BufferHandle` keeps an owner object alive which releases
+ *   the slot when the handle is destroyed. This preserves RAII semantics for
+ *   the buffer while keeping the pool implementation efficient.
+ */
 
 #include "../utils/PoolVec.hpp"
 #include "buffer_pool.hpp"

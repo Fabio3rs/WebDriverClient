@@ -1,5 +1,25 @@
-// include/bidi/threading.hpp — Threading context for zero busy-wait
 #pragma once
+/**
+ * @file threading.hpp
+ * @brief Threading and executor primitives used across the BiDi client.
+ *
+ * This small helper centralizes creation and lifecycle of executors used by
+ * the project:
+ * - an io_context dedicated to I/O and timers (1 thread by default),
+ * - a CPU thread pool for heavy/parallelizable work (JSON parsing, transforms),
+ * - a strand bound to the I/O context used to serialize WebSocket and session
+ *   state transitions.
+ *
+ * Rationale and guiding rules:
+ * - Strand-only for WebSocket/session state: using a strand removes the need
+ *   for mutexes on the hot path and ensures a single `async_read` and a
+ *   single `async_write` active at a time (Beast best practice).
+ * - No busy-wait: all waiting is performed by kernel primitives exposed via
+ *   Boost.Asio (epoll/kevent/IOCP). Handlers must not perform blocking waits on
+ *   the strand or the io_context threads.
+ * - Use `post_ws`, `post_io`, `post_cpu` to schedule work; avoid creating raw
+ *   detached threads. This keeps shutdown deterministic and testable.
+ */
 
 #include <boost/asio.hpp>
 #include <boost/asio/thread_pool.hpp>
@@ -9,16 +29,6 @@
 
 namespace bidi::core {
 
-/**
- * @brief Thread management for BiDi client using Boost.Asio primitives
- *
- * Architecture:
- * - io_context: WebSocket I/O + timers (suspends on epoll/kqueue/IOCP)
- * - thread_pool: CPU-bound work (JSON parsing, transformations)
- * - strand: WebSocket state serialization (no mutex needed)
- *
- * Zero busy-wait guarantee: All threads suspend via native kernel primitives
- */
 class ThreadingContext {
   public:
     // NOTE FOR CONTRIBUTORS:

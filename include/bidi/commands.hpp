@@ -1,5 +1,16 @@
-// bidi/commands.hpp — BiDi Command Builders (W3C spec-compliant)
 #pragma once
+/**
+ * @file commands.hpp
+ * @brief Small, spec-aligned JSON builders for BiDi commands.
+ *
+ * Rationale:
+ * - Centralize command shape construction to keep wire format consistent and
+ *   to make unit testing straightforward.
+ * - Builders return `boost::json::object` so callers can reuse the existing
+ *   serializer logic and arena allocation patterns from `memory_pool.hpp`.
+ * - Use canonical names and enum->string helpers to avoid scattered string
+ *   literals throughout the codebase.
+ */
 
 #include <boost/json.hpp>
 #include <string>
@@ -56,7 +67,7 @@ navigate(std::string_view context, std::string_view url,
 // Build browsingContext.reload params
 [[nodiscard]] boost::json::object
 reload(std::string_view context, bool ignore_cache = false,
-    ReadinessState wait = ReadinessState::complete);
+       ReadinessState wait = ReadinessState::complete);
 
 } // namespace browsing_context
 
@@ -120,9 +131,12 @@ continue_request(std::string_view request_id, std::string_view url = {},
 // ======================== Utility Functions ========================
 
 // Convert enum to string for JSON serialization
-[[nodiscard]] std::string_view to_string(browsing_context::CreateType type) noexcept;
-[[nodiscard]] std::string_view to_string(browsing_context::ReadinessState state) noexcept;
-[[nodiscard]] std::string_view to_string(script::ResultOwnership ownership) noexcept;
+[[nodiscard]] std::string_view
+to_string(browsing_context::CreateType type) noexcept;
+[[nodiscard]] std::string_view
+to_string(browsing_context::ReadinessState state) noexcept;
+[[nodiscard]] std::string_view
+to_string(script::ResultOwnership ownership) noexcept;
 [[nodiscard]] std::string_view to_string(log::Level level) noexcept;
 
 // Create BiDi LocalValue from C++ value

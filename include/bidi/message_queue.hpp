@@ -1,5 +1,21 @@
-// include/bidi/message_queue.hpp — Lock-free high-performance message queuing
 #pragma once
+/**
+ * @file message_queue.hpp
+ * @brief Lock-free SPSC queue and optimized pending map used by the transport.
+ *
+ * Rationale and usage notes:
+ * - The write path is a hot path: to avoid contention and syscalls we use a
+ *   single-producer single-consumer lock-free queue for messages. The
+ *   producer can be any thread; the sole consumer is the WebSocket write
+ *   thread (or strand). This enforces the Beast best-practice of serializing
+ *   writes without mutexes.
+ * - QueuedMessage is a trivially-copyable fixed-size envelope to keep the
+ *   lock-free queue ABI simple and avoid destructor races in lock-free
+ *   containers.
+ * - OptimizedPendingMap is a small wrapper over boost::container::flat_map
+ *   chosen for cache locality; reserve capacity in tests to avoid rehashes
+ *   under high load.
+ */
 
 #include "bidi/core.hpp"
 #include <algorithm>
@@ -9,21 +25,6 @@
 #include <string_view>
 
 namespace bidi::core {
-
-/**
- * @brief Lock-free message queue system for high-throughput WebSocket I/O
- *
- * Design goals:
- * - Zero contention between producer/consumer threads
- * - Batch writes to reduce WebSocket overhead
- * - Memory pool for message strings (avoid malloc per message)
- * - SPSC (Single Producer Single Consumer) queue semantics
- *
- * Performance characteristics:
- * - ~2-5x faster than std::deque with mutex
- * - Batched writes reduce syscall overhead by 60-80%
- * - Lock-free reduces context switches under load
- */
 
 // Message envelope for queue (simplified for lock-free compatibility)
 struct QueuedMessage {
