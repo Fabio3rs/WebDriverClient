@@ -29,7 +29,7 @@ TEST(TimerWheelPostTest, HeavyHandlersDoNotBlockTicks) {
         (void)tid; // suppress warning nodiscard
     }
 
-    // Rodar o io_context em thread separada
+    // Run io_context in separate thread
     std::thread th([&] { ioc.run_for(200ms); });
     th.join();
 
