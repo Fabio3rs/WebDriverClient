@@ -41,6 +41,6 @@ TEST(PendingEntryPoolMetricsTest, TimeoutCountsAsFailure) {
     auto h_timeout = pool.acquire_for(1ms); // deve falhar por timeout
     ASSERT_FALSE(static_cast<bool>(h_timeout));
     auto metrics = pool.get_metrics();
-    // Timeout contabilizado como falha (failures >= 1)
+    // Timeout counted as failure (failures >= 1)
     EXPECT_GE(metrics.failures, 1u);
 }
