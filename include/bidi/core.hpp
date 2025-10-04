@@ -295,6 +295,14 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
         /// - Entry removed and ID recycled (though atomic counter prevents
         /// this)
         ///
+        /// @note Overflow behavior: uint64_t provides 2^64 distinct values.
+        /// At 1 billion increments/second, overflow takes ~584 years.
+        /// Even if overflow occurs, comparison by equality (captured_gen ==
+        /// current_gen) remains correct because we only compare within the
+        /// lifetime of a single PendingEntry. Once entry is erased and
+        /// recreated, generation resets to 0. Therefore, overflow is not a
+        /// practical concern and does not require special handling.
+        ///
         /// @see ThreadedBiDiSession::PendingEntry for threaded session
         /// equivalent
         std::uint64_t timer_generation{0};
@@ -386,6 +394,23 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
      */
     [[nodiscard]] std::size_t test_pending_size() const {
         return pending_responses_.size();
+    }
+
+    /**
+     * @brief TEST ONLY: Reserve capacity in pending_responses_ map
+     *
+     * @warning Must be called from strand context for thread safety.
+     *          Only for stress tests to reduce allocations under high load.
+     *
+     * @param capacity Number of entries to reserve capacity for
+     *
+     * @rationale In stress tests with 1000+ concurrent requests, pre-allocating
+     *            map capacity avoids multiple rehashing operations and improves
+     *            performance. Not needed in production where load is typically
+     *            lower and gradual growth is acceptable.
+     */
+    void test_reserve_pending(std::size_t capacity) {
+        pending_responses_.reserve(capacity);
     }
 #endif
 };

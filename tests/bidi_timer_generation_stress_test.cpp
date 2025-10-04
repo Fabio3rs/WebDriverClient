@@ -26,6 +26,10 @@ TEST(BiDiTimerGenerationStress, HighFrequencyTimeouts) {
     auto session = std::make_shared<BiDiSession>(ws);
 
     constexpr int N = 1000;
+
+    // Pre-allocate map capacity to reduce rehashing during stress test
+    session->test_reserve_pending(N);
+
     std::atomic<int> timeout_count{0};
     std::atomic<int> completed_count{0};
 

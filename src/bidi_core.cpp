@@ -552,9 +552,9 @@ void BiDiSession::send_command(std::string_view method,
     auto start_tp = std::chrono::steady_clock::now();
     /// Generate trace_id for distributed tracing and log correlation
     auto trace_id = bidi::logging::make_trace_id();
-    // Create the pending entry with generation 0 (uninitialized, consistent
-    // with header default)
-    PendingEntry entry{std::move(handler),
+    // Create the pending entry WITHOUT moving handler yet
+    // This allows us to notify caller if emplace() fails (defense-in-depth)
+    PendingEntry entry{ResponseHandler{}, // empty handler placeholder
                        std::string(method),
                        trace_id,
                        net::steady_timer(ws_->get_executor()),
@@ -574,20 +574,35 @@ void BiDiSession::send_command(std::string_view method,
                                  "failure or ID collision)",
                                  std::error_code{}, nullptr, trace_id);
 
-        // CRITICAL: Handler was already moved into entry, so we cannot notify
-        // caller. This branch should be unreachable in practice:
+        // FIXED: Handler was NOT moved yet, so we CAN notify caller
+        // This branch should be unreachable in practice:
         // - ID collision is impossible (atomic counter guarantees uniqueness)
         // - bad_alloc would propagate as exception (not return false from
         // emplace)
         //
-        // We keep this check for defense-in-depth and to satisfy static
-        // analyzers. In debug builds, assert will terminate to catch impossible
-        // scenarios. In release builds, we return early to avoid undefined
-        // behavior.
+        // However, if we reach here (e.g., low memory edge case), notify
+        // handler with error response so caller is aware of failure
+        ParsedResponse error_resp;
+        error_resp.id = id;
+        error_resp.is_success = false;
+        error_resp.error_code = "internal_error";
+        error_resp.error_message = "Failed to register pending entry";
+        error_resp.method = std::string(method);
+        error_resp.trace_id = trace_id;
+        error_resp.timeout_expired = false;
+
+        // Invoke handler with error (handler is still valid, not moved)
+        handler(std::move(error_resp));
+
+        // In debug builds, assert will still catch impossible scenarios
         assert(false &&
                "ID collision should be impossible with atomic counter");
         return;
     }
+
+    // FIXED: Move handler to entry AFTER successful emplace
+    // This ensures handler is only moved if entry was successfully inserted
+    it->second.handler = std::move(handler);
 
     // Bump generation and arm timer AFTER entry is visible in map
     ++(it->second.timer_generation);

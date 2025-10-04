@@ -52,6 +52,14 @@ struct PendingEntry {
     /// @threading Timer callbacks are posted to strand via post_ws() ensuring
     /// serialized access to timer_generation without mutex
     ///
+    /// @note Overflow behavior: uint64_t provides 2^64 distinct values.
+    /// At 1 billion increments/second, overflow takes ~584 years.
+    /// Even if overflow occurs, comparison by equality (captured_gen ==
+    /// current_gen) remains correct because we only compare within the
+    /// lifetime of a single PendingEntry. Once entry is erased and
+    /// recreated, generation resets to 0. Therefore, overflow is not a
+    /// practical concern and does not require special handling.
+    ///
     /// @see BiDiSession::PendingEntry for strand-based session equivalent
     std::uint64_t timer_generation{0};
 };
