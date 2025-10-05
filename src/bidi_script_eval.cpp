@@ -1,5 +1,4 @@
-// src/bidi_script_eval.cpp - Implementação de parsing/diagnóstico de exceptions
-// de script
+// src/bidi_script_eval.cpp - Implementation of parsing/diagnosis of script exceptions
 #include "bidi/core.hpp"
 #include "bidi/script_eval.hpp"
 
