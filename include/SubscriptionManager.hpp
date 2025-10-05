@@ -18,14 +18,15 @@ class SubscriptionHandle {
         : unsub_(std::move(o.unsub_)) {
         o.unsub_ = nullptr;
     }
-    SubscriptionHandle &operator=(SubscriptionHandle &&o) noexcept {
+    auto operator=(SubscriptionHandle &&o) noexcept -> SubscriptionHandle & {
         unsub_ = std::move(o.unsub_);
         o.unsub_ = nullptr;
         return *this;
     }
     ~SubscriptionHandle() {
-        if (unsub_)
+        if (unsub_) {
             unsub_();
+        }
     }
 
     void cancel() {
@@ -35,7 +36,9 @@ class SubscriptionHandle {
         }
     }
 
-    bool valid() const { return static_cast<bool>(unsub_); }
+    [[nodiscard]] auto valid() const -> bool {
+        return static_cast<bool>(unsub_);
+    }
 
   private:
     std::function<void()> unsub_{nullptr};
@@ -51,7 +54,7 @@ class SubscriptionManager {
 
     // Subscribe: returns a handle that will remove the subscription on
     // destruction
-    SubscriptionHandle subscribe(topic_t topic, callback_t cb) {
+    auto subscribe(topic_t topic, callback_t cb) -> SubscriptionHandle {
         std::lock_guard lock(m_);
         auto id = next_id_++;
         callbacks_.emplace(id, std::make_pair(std::move(topic), std::move(cb)));
@@ -60,7 +63,7 @@ class SubscriptionManager {
             std::lock_guard lock2(m_);
             callbacks_.erase(id);
         };
-        return SubscriptionHandle(unsub);
+        return {unsub};
     }
 
     // dispatch a payload to subscribers that match topic (exact match for now)
@@ -69,12 +72,14 @@ class SubscriptionManager {
         {
             std::lock_guard lock(m_);
             for (auto &kv : callbacks_) {
-                if (kv.second.first == topic)
+                if (kv.second.first == topic) {
                     list.push_back(kv.second.second);
+                }
             }
         }
-        for (auto &f : list)
+        for (auto &f : list) {
             f(payload);
+        }
     }
 
   private:

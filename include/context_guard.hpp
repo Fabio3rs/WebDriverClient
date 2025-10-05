@@ -23,7 +23,7 @@ class ContextGuard {
 
     // Non-copyable, movable
     ContextGuard(const ContextGuard &) = delete;
-    ContextGuard &operator=(const ContextGuard &) = delete;
+    auto operator=(const ContextGuard &) -> ContextGuard & = delete;
 
     ContextGuard(ContextGuard &&other) noexcept
         : client_{std::move(other.client_)},
@@ -31,7 +31,7 @@ class ContextGuard {
         other.context_id_.clear();
     }
 
-    ContextGuard &operator=(ContextGuard &&other) noexcept {
+    auto operator=(ContextGuard &&other) noexcept -> ContextGuard & {
         if (this != &other) {
             client_ = std::move(other.client_);
             context_id_ = std::move(other.context_id_);
@@ -40,7 +40,7 @@ class ContextGuard {
         return *this;
     }
 
-    const std::string &id() const { return context_id_; }
+    [[nodiscard]] auto id() const -> const std::string & { return context_id_; }
 
   private:
     std::shared_ptr<Client> client_;

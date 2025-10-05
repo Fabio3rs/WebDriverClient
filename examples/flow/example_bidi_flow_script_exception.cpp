@@ -5,6 +5,7 @@
 
 #include "WebDriverClient.hpp"
 #include "bidi/client.hpp"
+#include "bidi/connection_builder.hpp"
 #include "bidi/guards.hpp"
 #include "bidi/logging.hpp"
 #include "bidi/script_eval.hpp"
@@ -18,62 +19,59 @@
 
 namespace asio = boost::asio;
 
-// Coroutine that creates context, navigates and triggers a JS exception.
-asio::awaitable<int> run_script_exception_flow(std::string websocket_url,
-                                               asio::io_context &io_context_) {
+namespace {
+
+auto run_script_test(bidi::ClientGuard &guard, const std::string &ctx)
+    -> asio::awaitable<int> {
+    using namespace std::chrono_literals;
+    using bidi::script::script_eval_policy::throw_on_script_exception;
+
+    const std::string failing_expression =
+        "(() => { throw new Error('IntentionalScriptError: variable not "
+        "defined'); })()";
+
+    std::cout << "\n\n\n";
+    auto resa = guard.client()->evaluate(failing_expression, ctx,
+                                         throw_on_script_exception, true);
+    bidi::logging::log_info(
+        "Waiting 100ms before awaiting the failing evaluation...");
+
+    // Use the client's executor for the timer (concise constructor)
+    auto ex = guard.client()->get_executor();
+    asio::steady_timer timer(ex, 100ms);
+    co_await timer.async_wait(asio::use_awaitable);
+
+    bidi::logging::log_info("Awaiting the evaluation that should fail "
+                            "with script error...");
+
+    auto res = co_await resa();
+
+    std::cout << "\n\n\n";
+    bidi::logging::log_error(
+        "Expected script exception but evaluation succeeded: " +
+        boost::json::serialize(res.raw));
+
+    co_return 1;
+}
+
+} // namespace
+
+// Coroutine that operates on an already-connected Client
+auto run_script_exception_flow_with_client(
+    std::shared_ptr<bidi::Client> client_ptr) -> asio::awaitable<int> {
     try {
-        auto client_ptr =
-            co_await bidi::Client::connect(io_context_, websocket_url)();
-        if (!client_ptr) {
-            bidi::logging::log_error("Failed to connect BiDi client");
-            co_return 1;
-        }
         bidi::ClientGuard guard(client_ptr);
         auto ctx = co_await guard.client()->create_context()();
         (void)co_await guard.client()->navigate(ctx, "https://example.com")();
 
-        using namespace std::chrono_literals;
-        using bidi::script::script_eval_policy::throw_on_script_exception;
-
-        // Intentionally evaluate an expression that throws: accessing undefined
-        // variable triggers ReferenceError.
-        const std::string failing_expression =
-            "(() => { throw new Error('IntentionalScriptError: variable not "
-            "defined'); })()";
         try {
-            std::cout << "\n\n\n";
-            auto resa = guard.client()->evaluate(
-                failing_expression, ctx, throw_on_script_exception, true);
-            bidi::logging::log_info(
-                "Waiting 100ms before awaiting the failing evaluation...");
-
-            // Don't block the io_context thread: use an awaitable timer so
-            // other async operations (including the websocket write) can
-            // progress while we wait.
-            asio::steady_timer timer(io_context_, 100ms);
-            co_await timer.async_wait(asio::use_awaitable);
-
-            bidi::logging::log_info("Awaiting the evaluation that should fail "
-                                    "with script error...");
-
-            auto res = co_await resa();
-
-            std::cout << "\n\n\n";
-            // If we reach here the driver did not surface the error as
-            // expected.
-            bidi::logging::log_error(
-                "Expected script exception but evaluation succeeded: " +
-                boost::json::serialize(res.raw));
+            co_await run_script_test(guard, ctx);
             co_return 1;
         } catch (const bidi::script::ScriptEvaluateException &e) {
-            // This is the expected path: we caught the script exception
-            // wrapped in ScriptEvaluateException
             bidi::logging::log_info(
                 std::string("Successfully captured script exception: ") +
                 e.what());
-
             const auto &details = e.details();
-
             bidi::logging::log_info("  exception_type: " +
                                     details.exception_type);
             bidi::logging::log_info("  text: " + details.text);
@@ -103,12 +101,11 @@ asio::awaitable<int> run_script_exception_flow(std::string websocket_url,
                         std::to_string(frame.column_number));
                 }
             }
-            co_return 0; // success path of the example: we demonstrated capture
+            co_return 0;
         } catch (const std::exception &e) {
-            // Current implementation wraps everything into std::runtime_error.
             bidi::logging::log_info(std::string("Captured script exception: ") +
                                     e.what());
-            co_return 0; // success path of the example: we demonstrated capture
+            co_return 0;
         } catch (...) {
             bidi::logging::log_error(
                 "Unknown non-std exception while evaluating failing script");
@@ -121,36 +118,50 @@ asio::awaitable<int> run_script_exception_flow(std::string websocket_url,
     }
 }
 
-int main() {
+auto main() -> int {
     bidi::logging::log_info("BiDi Script Exception Example");
     try {
-        // Acquire websocket URL via SessionGuard (legacy HTTP handshake)
-        // enabling BiDi
-        bidi::SessionGuard session("http://localhost:9515");
-        WebDriver::json args =
-            WebDriver::json::array({"--headless", "--no-sandbox"});
-        auto ws_url_res = session.connect(args, "chrome", true);
-        if (!ws_url_res) {
-            bidi::logging::log_error(ws_url_res.error());
-            return 1;
-        }
         asio::io_context ioc;
         int exit_code = 1;
-        asio::co_spawn(ioc, run_script_exception_flow(*ws_url_res, ioc),
-                       [&](std::exception_ptr ep, int result) {
-                           if (ep) {
-                               try {
-                                   std::rethrow_exception(ep);
-                               } catch (const std::exception &e) {
-                                   bidi::logging::log_error(
-                                       std::string("Unhandled exception: ") +
-                                       e.what());
-                               }
-                               exit_code = 1;
-                           } else {
-                               exit_code = result;
-                           }
-                       });
+        // Starter coroutine that connects and runs the flow. No lambda capture
+        auto starter = [](asio::io_context *ioc_ptr) -> asio::awaitable<int> {
+            try {
+                // Optional: demonstrate how to reuse an existing websocket URL
+                // auto client_ptr = co_await
+                // bidi::connect_to("http://localhost:9515")
+                //                           .use_existing_websocket("ws://host:port/session/...")
+                //                           .connect(*ioc_ptr)();
+
+                auto client_ptr =
+                    co_await bidi::connect_to("http://localhost:9515")
+                        .headless()
+                        .no_sandbox()
+                        .connect(*ioc_ptr)();
+                co_return co_await run_script_exception_flow_with_client(
+                    client_ptr);
+            } catch (const std::exception &ex) {
+                bidi::logging::log_error(
+                    std::string("Failed to connect BiDi client: ") + ex.what());
+                co_return 1;
+            }
+        };
+
+        // Spawn the starter coroutine
+        asio::co_spawn(
+            ioc, starter(&ioc), [&](const std::exception_ptr &exc, int result) {
+                if (exc) {
+                    try {
+                        std::rethrow_exception(exc);
+                    } catch (const std::exception &e) {
+                        bidi::logging::log_error(
+                            std::string("Unhandled exception: ") + e.what());
+                    }
+                    exit_code = 1;
+                } else {
+                    exit_code = result;
+                }
+            });
+
         ioc.run();
         return exit_code;
     } catch (const std::exception &e) {

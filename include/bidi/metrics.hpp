@@ -44,7 +44,7 @@ class Counter {
     void dec(std::uint64_t n = 1) noexcept {
         value_.fetch_sub(n, std::memory_order_relaxed);
     }
-    std::uint64_t value() const noexcept {
+    [[nodiscard]] auto value() const noexcept -> std::uint64_t {
         return value_.load(std::memory_order_relaxed);
     }
 
@@ -67,17 +67,17 @@ class Histogram {
         total_ += usec;
     }
 
-    std::uint64_t count() const noexcept { return count_; }
-    std::uint64_t total() const noexcept { return total_; }
+    auto count() const noexcept -> std::uint64_t { return count_; }
+    auto total() const noexcept -> std::uint64_t { return total_; }
 
     // Return a snapshot of buckets (index -> count)
-    std::vector<std::uint64_t> snapshot() const {
+    auto snapshot() const -> std::vector<std::uint64_t> {
         std::lock_guard<std::mutex> lk(m_);
         return buckets_;
     }
 
   private:
-    static std::size_t bucket_index(std::uint64_t usec) noexcept {
+    static auto bucket_index(std::uint64_t usec) noexcept -> std::size_t {
         // buckets: [0-1), [1-2), [2-4), [4-8), ...
         std::size_t index = 0;
         std::uint64_t value_for_shift = usec;
@@ -97,12 +97,12 @@ class Histogram {
 // Registry for named metrics (very small, safe for examples)
 class Registry {
   public:
-    Counter &counter(const std::string &name) {
+    auto counter(const std::string &name) -> Counter & {
         std::lock_guard<std::mutex> lk(m_);
         return counters_[name];
     }
 
-    Histogram &histogram(const std::string &name) {
+    auto histogram(const std::string &name) -> Histogram & {
         std::lock_guard<std::mutex> lk(m_);
         return histograms_[name];
     }

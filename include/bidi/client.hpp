@@ -44,8 +44,8 @@ class Client : public std::enable_shared_from_this<Client> {
     explicit Client(std::shared_ptr<core::BiDiSession> session);
 
     // Factory: connect to BiDi WebSocket directly
-    static Task<Ptr> connect(boost::asio::io_context &ioc,
-                             std::string_view websocket_url);
+    static auto connect(boost::asio::io_context &ioc,
+                        std::string_view websocket_url) -> Task<Ptr>;
 
     // Generic zero-overhead async_send (CompletionToken based)
     template <class CompletionToken>
@@ -55,39 +55,45 @@ class Client : public std::enable_shared_from_this<Client> {
     // ======================== BrowsingContext API ========================
 
     // Create new browsing context (tab/window)
-    [[nodiscard]] Task<std::string>
+    [[nodiscard]] auto
     create_context(commands::browsing_context::CreateType type =
-                       commands::browsing_context::CreateType::window);
+                       commands::browsing_context::CreateType::window)
+        -> Task<std::string>;
 
     // Navigate to URL
-    [[nodiscard]] Task<std::string>
+    [[nodiscard]] auto
     navigate(std::string_view context, std::string_view url,
              commands::browsing_context::ReadinessState wait =
-                 commands::browsing_context::ReadinessState::complete);
+                 commands::browsing_context::ReadinessState::complete)
+        -> Task<std::string>;
 
     // Close browsing context
-    [[nodiscard]] Task<bool> close_context(std::string_view context);
+    [[nodiscard]] auto close_context(std::string_view context) -> Task<bool>;
 
     // Get browsing context tree
-    [[nodiscard]] Task<boost::json::object>
-    get_context_tree(std::string_view root = {});
+    [[nodiscard]] auto get_context_tree(std::string_view root = {})
+        -> Task<boost::json::object>;
 
     // ======================== Script API ========================
 
     // Evaluate JavaScript expression
-    [[nodiscard]] Task<boost::json::object>
-    evaluate(std::string_view expression, std::string_view context,
-             bool await_promise = true);
+    [[nodiscard]] auto evaluate(std::string_view expression,
+                                std::string_view context,
+                                bool await_promise = true)
+        -> Task<boost::json::object>;
 
     // Evaluate JavaScript expression with script evaluation policy
-    [[nodiscard]] Task<script::ScriptEvalOutcome>
+    [[nodiscard]] auto
     evaluate(std::string_view expression, std::string_view context,
-             script::script_eval_policy policy, bool await_promise = true);
+             script::script_eval_policy policy, bool await_promise = true)
+        -> Task<script::ScriptEvalOutcome>;
 
     // Call JavaScript function
-    [[nodiscard]] Task<boost::json::object> call_function(
-        std::string_view function_declaration, std::string_view context,
-        const boost::json::array &arguments = {}, bool await_promise = true);
+    [[nodiscard]] auto call_function(std::string_view function_declaration,
+                                     std::string_view context,
+                                     const boost::json::array &arguments = {},
+                                     bool await_promise = true)
+        -> Task<boost::json::object>;
 
     // ======================== Session API ========================
 
@@ -99,12 +105,14 @@ class Client : public std::enable_shared_from_this<Client> {
 
         // Move-only
         Subscription(Subscription &&other) noexcept;
-        Subscription &operator=(Subscription &&other) noexcept;
+        auto operator=(Subscription &&other) noexcept -> Subscription &;
         Subscription(const Subscription &) = delete;
-        Subscription &operator=(const Subscription &) = delete;
+        auto operator=(const Subscription &) -> Subscription & = delete;
 
         // Check if subscription is active
-        [[nodiscard]] bool is_active() const { return !events_.empty(); }
+        [[nodiscard]] auto is_active() const -> bool {
+            return !events_.empty();
+        }
 
       private:
         friend class Client;
@@ -116,22 +124,24 @@ class Client : public std::enable_shared_from_this<Client> {
     };
 
     // Subscribe to events with RAII cleanup
-    [[nodiscard]] Task<Subscription>
-    subscribe(const std::vector<std::string> &events,
-              const std::vector<std::string> &contexts = {});
+    [[nodiscard]] auto subscribe(const std::vector<std::string> &events,
+                                 const std::vector<std::string> &contexts = {})
+        -> Task<Subscription>;
 
     // Set event handler for specific method
-    boost::asio::awaitable<void>
-    set_event_handler(std::string method,
-                      std::function<void(boost::json::object)> handler);
+    auto set_event_handler(std::string method,
+                           std::function<void(boost::json::object)> handler)
+        -> boost::asio::awaitable<void>;
 
     // ======================== Utility ========================
 
     // Get underlying session (for advanced usage)
-    std::shared_ptr<core::BiDiSession> session() const { return session_; }
+    auto session() const -> std::shared_ptr<core::BiDiSession> {
+        return session_;
+    }
 
     // Get executor for async operations
-    boost::asio::any_io_executor get_executor() const;
+    auto get_executor() const -> boost::asio::any_io_executor;
 
     // Graceful disconnect (releases pending responses and closes websocket)
     void disconnect() {

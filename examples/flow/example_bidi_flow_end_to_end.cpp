@@ -20,7 +20,7 @@ namespace asio = boost::asio;
 
 class EndToEndFlowDemo {
   private:
-    asio::io_context io_context_{};
+    asio::io_context io_context_;
     // RAII session and client handled via guards in run()
     std::string websocket_url_;
     std::atomic<bool> finished{false};
@@ -32,11 +32,11 @@ class EndToEndFlowDemo {
     ~EndToEndFlowDemo() { cleanup(); }
 
     EndToEndFlowDemo(const EndToEndFlowDemo &) = delete;
-    EndToEndFlowDemo &operator=(const EndToEndFlowDemo &) = delete;
+    auto operator=(const EndToEndFlowDemo &) -> EndToEndFlowDemo & = delete;
     EndToEndFlowDemo(EndToEndFlowDemo &&) = delete;
-    EndToEndFlowDemo &operator=(EndToEndFlowDemo &&) = delete;
+    auto operator=(EndToEndFlowDemo &&) -> EndToEndFlowDemo & = delete;
 
-    bool initialize_session() {
+    auto initialize_session() -> bool {
         using namespace bidi::logging;
         try {
             bidi::SessionGuard guard("http://localhost:9515");
@@ -119,7 +119,8 @@ class EndToEndFlowDemo {
                 result.fulfill(client);
             }
         };
-        auto finally_handler = [on_complete, result](auto, auto ec_opt, auto) {
+        auto finally_handler = [on_complete, result](const auto &, auto ec_opt,
+                                                     const auto &) {
             if (!ec_opt) {
                 on_complete();
             } else {
@@ -175,7 +176,7 @@ class EndToEndFlowDemo {
         }
     }
 
-    int run() {
+    auto run() -> int {
         if (!initialize_session()) {
             return 1;
         }

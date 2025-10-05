@@ -37,14 +37,14 @@ struct ResourcePools {
 
     // Non-copyable
     ResourcePools(const ResourcePools &) = delete;
-    ResourcePools &operator=(const ResourcePools &) = delete;
+    auto operator=(const ResourcePools &) -> ResourcePools & = delete;
 
     // Moveable
     ResourcePools(ResourcePools &&) = default;
-    ResourcePools &operator=(ResourcePools &&) = default;
+    auto operator=(ResourcePools &&) -> ResourcePools & = default;
 
-    PendingEntryPoolVec &get_pending_pool() { return *pending_pool; }
-    BufferPoolVec &get_buffer_pool() { return *buffer_pool; }
+    auto get_pending_pool() -> PendingEntryPoolVec & { return *pending_pool; }
+    auto get_buffer_pool() -> BufferPoolVec & { return *buffer_pool; }
 
     // Stats snapshot combining pool stats into a simple struct
     struct Stats {
@@ -52,7 +52,7 @@ struct ResourcePools {
         BufferPool::Stats buffer_stats{}; // manter nome para compatibilidade
     };
 
-    Stats snapshot() const {
+    [[nodiscard]] auto snapshot() const -> Stats {
         Stats snapshot{};
         snapshot.pending_stats = pending_pool->get_stats();
         snapshot.buffer_stats = buffer_pool->get_stats();
@@ -65,7 +65,7 @@ struct ResourcePools {
 };
 
 // Convenience accessor for tests/demos
-inline ResourcePools &get_default_resource_pools() {
+inline auto get_default_resource_pools() -> ResourcePools & {
     static ResourcePools pools;
     return pools;
 }

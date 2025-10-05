@@ -22,7 +22,7 @@
 namespace asio = boost::asio;
 
 // Helper to identify thread type
-std::string get_thread_info() {
+auto get_thread_info() -> std::string {
     auto tid = std::this_thread::get_id();
     std::ostringstream oss;
     oss << tid;
@@ -30,7 +30,8 @@ std::string get_thread_info() {
 }
 
 // Simulates heavy CPU-bound work (JSON processing, data transformation, etc.)
-boost::json::object process_heavy_data(const boost::json::object &input) {
+auto process_heavy_data(const boost::json::object &input)
+    -> boost::json::object {
     auto thread_id = get_thread_info();
     bidi::logging::log_info(
         std::format("CPU thread {}: Processing heavy data", thread_id));
@@ -49,10 +50,10 @@ boost::json::object process_heavy_data(const boost::json::object &input) {
 
 // Coroutine that offloads work to CPU pool
 // Pass context_id by value to avoid lifetime issues
-asio::awaitable<void>
-process_with_cpu_offload(std::shared_ptr<bidi::Client> client,
-                         std::string context_id,
-                         std::shared_ptr<asio::thread_pool> cpu_pool) {
+auto process_with_cpu_offload(std::shared_ptr<bidi::Client> client,
+                              std::string context_id,
+                              std::shared_ptr<asio::thread_pool> cpu_pool)
+    -> asio::awaitable<void> {
 
     bidi::logging::log_info(
         std::format("I/O thread {}: Starting command", get_thread_info()));
@@ -85,9 +86,9 @@ process_with_cpu_offload(std::shared_ptr<bidi::Client> client,
 }
 
 // Main demo coroutine
-asio::awaitable<int>
-run_cpu_pool_demo(std::string websocket_url,
-                  std::shared_ptr<asio::thread_pool> cpu_pool) {
+auto run_cpu_pool_demo(std::string websocket_url,
+                       std::shared_ptr<asio::thread_pool> cpu_pool)
+    -> asio::awaitable<int> {
     try {
         auto executor = co_await asio::this_coro::executor;
         auto &ioc = static_cast<asio::io_context &>(executor.context());
@@ -107,6 +108,7 @@ run_cpu_pool_demo(std::string websocket_url,
         // Launch multiple concurrent operations
         // Each will offload CPU work to the thread pool
         std::vector<asio::awaitable<void>> tasks;
+        tasks.reserve(5);
         for (int i = 0; i < 5; ++i) {
             tasks.push_back(process_with_cpu_offload(client, ctx, cpu_pool));
         }
@@ -138,7 +140,7 @@ run_cpu_pool_demo(std::string websocket_url,
     }
 }
 
-int main() {
+auto main() -> int {
     try {
         bidi::logging::log_info("=== CPU Thread Pool Example ===");
 

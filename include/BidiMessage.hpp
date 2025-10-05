@@ -11,18 +11,20 @@ namespace bidi::ws {
 
 using id_type = bidi::core::id_type;
 
-inline bool is_id_safe(std::uint64_t id) noexcept {
+inline auto is_id_safe(std::uint64_t id) noexcept -> bool {
     return bidi::core::is_id_safe(id);
 }
 
-inline std::string build_command(id_type id, std::string_view method,
-                                 const boost::json::object &params = {}) {
+inline auto build_command(id_type id, std::string_view method,
+                          const boost::json::object &params = {})
+    -> std::string {
     return bidi::core::build_command(id, method, params);
 }
 
 enum class MessageKind { Response, Event, Unknown };
 
-inline MessageKind detect_message_kind(std::string_view payload) noexcept {
+inline auto detect_message_kind(std::string_view payload) noexcept
+    -> MessageKind {
     try {
         // Fast attempt: parse as object and check for "type" == "event" or
         // presence of "id"
@@ -34,12 +36,13 @@ inline MessageKind detect_message_kind(std::string_view payload) noexcept {
             return MessageKind::Unknown;
         }
         const auto &obj = v.as_object();
-        auto it_type = obj.find("type");
+        const auto *it_type = obj.find("type");
         if (it_type != obj.end() && it_type->value().is_string()) {
-            if (it_type->value().as_string() == "event")
+            if (it_type->value().as_string() == "event") {
                 return MessageKind::Event;
+            }
         }
-        if (obj.if_contains("id")) {
+        if (obj.if_contains("id") != nullptr) {
             return MessageKind::Response;
         }
         return MessageKind::Unknown;

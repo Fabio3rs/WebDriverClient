@@ -41,19 +41,19 @@ namespace bidi::core {
 
 // Pending entry with native promise (no condition_variable needed)
 struct PendingEntry {
-    std::string method{};
-    boost::json::object params{};
+    std::string method;
+    boost::json::object params;
     std::chrono::steady_clock::time_point created{
         std::chrono::steady_clock::now()};
 
     // Native promise for co_await (suspends thread via kernel)
-    std::shared_ptr<std::promise<boost::json::object>> promise{};
-    std::shared_ptr<boost::asio::steady_timer> timer{};
+    std::shared_ptr<std::promise<boost::json::object>> promise;
+    std::shared_ptr<boost::asio::steady_timer> timer;
     // Optional completion callback invoked on strand when response arrives
     // Signature: (success, result, error_code, error_message)
     std::function<void(bool, const boost::json::object &, const std::string &,
                        const std::string &)>
-        on_complete{};
+        on_complete;
 
     /// Generation counter for timer lifecycle (prevents stale timer callbacks)
     ///
@@ -120,19 +120,20 @@ class ThreadedBiDiSession
 
     // Non-copyable, non-movable
     ThreadedBiDiSession(const ThreadedBiDiSession &) = delete;
-    ThreadedBiDiSession &operator=(const ThreadedBiDiSession &) = delete;
+    auto operator=(const ThreadedBiDiSession &)
+        -> ThreadedBiDiSession & = delete;
     ThreadedBiDiSession(ThreadedBiDiSession &&) = delete;
-    ThreadedBiDiSession &operator=(ThreadedBiDiSession &&) = delete;
+    auto operator=(ThreadedBiDiSession &&) -> ThreadedBiDiSession & = delete;
 
     // Connect with native async (no polling)
-    [[nodiscard]] auto
-    async_connect(const std::string &ws_url) -> std::future<bool>;
+    [[nodiscard]] auto async_connect(const std::string &ws_url)
+        -> std::future<bool>;
 
     // Send command with native await (thread suspends until response)
     [[nodiscard]] auto send_command_await(
         const std::string &method, const boost::json::object &params = {},
-        std::chrono::milliseconds timeout = std::chrono::milliseconds{
-            30000}) -> boost::json::object;
+        std::chrono::milliseconds timeout = std::chrono::milliseconds{30000})
+        -> boost::json::object;
 
     // Awaitable version for coroutines
     [[nodiscard]] auto send_command_awaitable(std::string method,
@@ -160,14 +161,14 @@ class ThreadedBiDiSession
 
         Subscription() = default;
         Subscription(const Subscription &) = delete;
-        Subscription &operator=(const Subscription &) = delete;
+        auto operator=(const Subscription &) -> Subscription & = delete;
         Subscription(Subscription &&other) noexcept
             : session(std::move(other.session)),
               method(std::move(other.method)),
               context(std::move(other.context)), active(other.active) {
             other.active = false;
         }
-        Subscription &operator=(Subscription &&other) noexcept {
+        auto operator=(Subscription &&other) noexcept -> Subscription & {
             if (this != &other) {
                 cancel();
                 session = std::move(other.session);
@@ -182,15 +183,15 @@ class ThreadedBiDiSession
 
     // Subscribe to one event (optionally scoped by context). Returns RAII
     // handle.
-    [[nodiscard]] Subscription
-    subscribe(const std::string &method,
-              const std::optional<std::string> &context, EventHandler handler);
+    [[nodiscard]] auto subscribe(const std::string &method,
+                                 const std::optional<std::string> &context,
+                                 EventHandler handler) -> Subscription;
 
     // Batch subscribe helper: returns N handles.
-    [[nodiscard]] std::vector<Subscription>
+    [[nodiscard]] auto
     subscribe_many(const std::vector<std::string> &methods,
                    std::optional<std::vector<std::string>> contexts,
-                   const EventHandler &handler);
+                   const EventHandler &handler) -> std::vector<Subscription>;
 
   private:
     void start_read_loop();
@@ -248,7 +249,7 @@ class ThreadedBiDiSession
     // Default timeout used for subscribe/unsubscribe commands. Inline so it
     // has internal linkage and can be used in translation units without ODR
     // issues.
-    inline static constexpr std::chrono::milliseconds kSubscribeTimeout{5000};
+    static constexpr std::chrono::milliseconds kSubscribeTimeout{5000};
     void send_unsubscribe_wire(const std::vector<std::string> &methods,
                                const std::vector<std::string> *contexts_opt);
 
@@ -269,20 +270,20 @@ class ThreadedBiDiSession
     std::atomic<bool> connected_{false};
 
     // I/O buffers
-    boost::beast::flat_buffer read_buffer_{};
+    boost::beast::flat_buffer read_buffer_;
     using WriteCompletionHandler =
         std::function<void(const boost::system::error_code &)>;
-    std::deque<std::pair<std::string, WriteCompletionHandler>> write_queue_{};
+    std::deque<std::pair<std::string, WriteCompletionHandler>> write_queue_;
     std::atomic<bool> is_writing_{false};
 
     // Pending requests (accessed only on strand - thread safe)
-    std::unordered_map<id_type, std::shared_ptr<PendingEntry>> pending_map_{};
+    std::unordered_map<id_type, std::shared_ptr<PendingEntry>> pending_map_;
     std::atomic<id_type> next_id_{1};
 
     // Pool for PendingEntry to reduce allocations in high-throughput
     std::vector<std::shared_ptr<PendingEntry>> pending_entry_pool_;
     std::mutex pending_entry_pool_mutex_;
-    std::shared_ptr<PendingEntry> acquire_pending_entry();
+    auto acquire_pending_entry() -> std::shared_ptr<PendingEntry>;
     void recycle_pending_entry(std::shared_ptr<PendingEntry> entry);
 
     // Event handlers (accessed only on strand)

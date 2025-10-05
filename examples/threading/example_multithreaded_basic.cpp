@@ -35,9 +35,9 @@ void log_thread(const std::string &message) {
 // issues (AddressSanitizer acusou stack-use-after-return quando referências
 // eram usadas em frames de corrotinas finalizados). strings são pequenas e
 // movidas pelo NRVO.
-asio::awaitable<void>
-execute_concurrent_commands(std::shared_ptr<bidi::Client> client,
-                            std::string context_id, int command_count) {
+auto execute_concurrent_commands(std::shared_ptr<bidi::Client> client,
+                                 std::string context_id, int command_count)
+    -> asio::awaitable<void> {
 
     log_thread("Starting concurrent command execution");
 
@@ -68,8 +68,8 @@ execute_concurrent_commands(std::shared_ptr<bidi::Client> client,
 
 // Main coroutine
 // Também passamos websocket_url por valor.
-asio::awaitable<int> run_multithreaded_demo(asio::io_context *ioc_ptr,
-                                            std::string websocket_url) {
+auto run_multithreaded_demo(asio::io_context *ioc_ptr,
+                            std::string websocket_url) -> asio::awaitable<int> {
     try {
         auto executor = co_await asio::this_coro::executor;
 
@@ -119,7 +119,7 @@ asio::awaitable<int> run_multithreaded_demo(asio::io_context *ioc_ptr,
     }
 }
 
-int main() {
+auto main() -> int {
     try {
         bidi::logging::log_info("=== Multi-threaded BiDi Example ===");
 

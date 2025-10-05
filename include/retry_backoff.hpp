@@ -30,28 +30,28 @@ struct RetryPolicy {
         [](const asyncx::EC &) { return true; }};
     // optional hook invoked before scheduling a retry: (tries, next_delay, ec)
     std::function<void(int, std::chrono::milliseconds, const asyncx::EC &)>
-        on_retry{};
+        on_retry;
 };
 
 struct RetryState {
     int tries{0};
-    std::shared_ptr<std::function<void()>> attempt_holder{};
+    std::shared_ptr<std::function<void()>> attempt_holder;
     std::mt19937_64 rng{std::random_device{}()};
     std::chrono::milliseconds delay{};
-    std::optional<asyncx::Async<void>> current{};
+    std::optional<asyncx::Async<void>> current;
     bool cancelled{false};
 };
 
-namespace {
 // Move the definition of calculate_next_delay_with_jitter here
-auto calculate_next_delay_with_jitter(
-    const RetryPolicy &policy, const std::shared_ptr<RetryState> &retry_state)
+inline auto
+calculate_next_delay_with_jitter(const RetryPolicy &policy,
+                                 const std::shared_ptr<RetryState> &retry_state)
     -> std::chrono::milliseconds {
     const auto base_ms = static_cast<double>(retry_state->delay.count());
     std::uniform_real_distribution<double> dist{-policy.jitter, +policy.jitter};
     double jitter_factor = std::max(1.0 + dist(retry_state->rng), 0.0);
 
-    long long next_ms = static_cast<long long>(base_ms * jitter_factor);
+    auto next_ms = static_cast<long long>(base_ms * jitter_factor);
     next_ms = std::max(next_ms, 1LL);
     if (policy.max_delay.count() > 0) {
         next_ms =
@@ -59,7 +59,7 @@ auto calculate_next_delay_with_jitter(
     }
 
     double grown = base_ms * policy.multiplier;
-    long long grown_ll = static_cast<long long>(grown);
+    auto grown_ll = static_cast<long long>(grown);
     if (policy.max_delay.count() > 0) {
         grown_ll = std::min(grown_ll,
                             static_cast<long long>(policy.max_delay.count()));
@@ -71,7 +71,6 @@ auto calculate_next_delay_with_jitter(
 
     return std::chrono::milliseconds{next_ms};
 }
-} // namespace
 
 void schedule_retry(const std::shared_ptr<std::function<void()>> &retry_attempt,
                     const boost::asio::any_io_executor &executor,
@@ -103,22 +102,22 @@ auto retry_with_backoff(Factory make_async, net::any_io_executor executor,
                     if (retry_state->current) {
                         retry_state->current->request_stop();
                     }
-                } catch (...) {
+                } catch (...) { // NOLINT
                 }
                 try {
                     weak_out.try_fail(make_error_code(
                         boost::system::errc::operation_canceled));
-                } catch (...) {
+                } catch (...) { // NOLINT
                 }
             });
 
         if constexpr (std::is_void_v<T>) {
             out.finally([reg](std::optional<asyncx::EC> /*error_code*/,
-                              std::exception_ptr /*exception_ptr*/) {});
+                              const std::exception_ptr & /*exception_ptr*/) {});
         } else {
             out.finally([reg](std::optional<T> /*value*/,
                               std::optional<asyncx::EC> /*error_code*/,
-                              std::exception_ptr /*exception_ptr*/) {});
+                              const std::exception_ptr & /*exception_ptr*/) {});
         }
     }
 
@@ -203,7 +202,7 @@ auto retry_with_backoff(Factory make_async, net::any_io_executor executor,
                             retry_state->tries,
                             std::chrono::milliseconds{next_ms.count()},
                             *error_code);
-                    } catch (...) {
+                    } catch (...) { // NOLINT
                     }
                 }
 
@@ -288,7 +287,7 @@ auto retry_with_backoff(Factory make_async, net::any_io_executor executor,
                             retry_state->tries,
                             std::chrono::milliseconds{next_ms.count()},
                             *error_code);
-                    } catch (...) {
+                    } catch (...) { // NOLINT
                     }
                 }
 
@@ -323,7 +322,7 @@ auto retry_with_backoff(Factory make_async, net::any_io_executor executor,
                             net::post(executor, [sleeper_attempt]() mutable {
                                 try {
                                     (*sleeper_attempt)();
-                                } catch (...) {
+                                } catch (...) { // NOLINT
                                 }
                             });
                         } catch (const std::exception &e) {
@@ -341,16 +340,18 @@ auto retry_with_backoff(Factory make_async, net::any_io_executor executor,
     };
 
     if constexpr (std::is_void_v<T>) {
-        out.finally([retry_state](std::optional<asyncx::EC> /*error_code*/,
-                                  std::exception_ptr /*exception_ptr*/) {
-            retry_state->attempt_holder.reset();
-        });
+        out.finally(
+            [retry_state](std::optional<asyncx::EC> /*error_code*/,
+                          const std::exception_ptr & /*exception_ptr*/) {
+                retry_state->attempt_holder.reset();
+            });
     } else {
-        out.finally([retry_state](std::optional<T> /*value*/,
-                                  std::optional<asyncx::EC> /*error_code*/,
-                                  std::exception_ptr /*exception_ptr*/) {
-            retry_state->attempt_holder.reset();
-        });
+        out.finally(
+            [retry_state](std::optional<T> /*value*/,
+                          std::optional<asyncx::EC> /*error_code*/,
+                          const std::exception_ptr & /*exception_ptr*/) {
+                retry_state->attempt_holder.reset();
+            });
     }
 
     retry_state->attempt_holder = retry_attempt;

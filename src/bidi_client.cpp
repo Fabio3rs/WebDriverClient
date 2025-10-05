@@ -139,7 +139,7 @@ auto Client::evaluate(std::string_view expression, std::string_view context,
                       bool await_promise) -> Task<boost::json::object> {
     auto ex = get_executor();
     auto result = Task<boost::json::object>::make(ex);
-    commands::script::Target target{.context = context};
+    commands::script::Target target{.context = context, .sandbox = {}};
     auto params = commands::script::evaluate(expression, target, await_promise);
     session_->send_command(
         std::string(bidi::ids::methods::script_evaluate), params,
@@ -156,11 +156,11 @@ auto Client::evaluate(std::string_view expression, std::string_view context,
 }
 
 auto Client::evaluate(std::string_view expression, std::string_view context,
-                      script::script_eval_policy policy,
-                      bool await_promise) -> Task<script::ScriptEvalOutcome> {
+                      script::script_eval_policy policy, bool await_promise)
+    -> Task<script::ScriptEvalOutcome> {
     auto ex = get_executor();
     auto task = Task<script::ScriptEvalOutcome>::make(ex);
-    commands::script::Target target{.context = context};
+    commands::script::Target target{.context = context, .sandbox = {}};
     auto params = commands::script::evaluate(expression, target, await_promise);
     auto responseHandler = [task, policy](
                                const core::ParsedResponse &response) mutable {
@@ -221,7 +221,7 @@ auto Client::call_function(std::string_view function_declaration,
                            bool await_promise) -> Task<boost::json::object> {
     auto ex = get_executor();
     auto result = Task<boost::json::object>::make(ex);
-    commands::script::Target target{.context = context};
+    commands::script::Target target{.context = context, .sandbox = {}};
     auto params = commands::script::call_function(function_declaration, target,
                                                   arguments, await_promise);
     session_->send_command(

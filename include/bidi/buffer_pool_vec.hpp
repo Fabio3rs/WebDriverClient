@@ -28,7 +28,7 @@ class PooledBufferSlot {
   public:
     explicit PooledBufferSlot(std::size_t capacity) : buf_{capacity} {}
 
-    PooledBuffer &get() noexcept { return buf_; }
+    auto get() noexcept -> PooledBuffer & { return buf_; }
 
     void reset() noexcept { buf_.reset(); }
 
@@ -52,7 +52,7 @@ class BufferPoolVec {
 
     // Acquire buffer of specific size. Preserve API by returning BufferHandle
     // which wraps a shared_ptr with custom deleter that returns slot to pool.
-    [[nodiscard]] BufferHandle acquire_buffer(BufferSize size) {
+    [[nodiscard]] auto acquire_buffer(BufferSize size) -> BufferHandle {
         auto &pool = pool_for(size);
         auto handle =
             pool.borrow(std::chrono::milliseconds(0), capacity_for(size));
@@ -79,7 +79,7 @@ class BufferPoolVec {
             // Custom return_fn: when last shared_ptr goes away, owner is freed
             // and slot_handle destructor will return slot via PoolHandle's
             // reset().
-            auto return_fn = [](std::shared_ptr<PooledBuffer> /*buf*/) {
+            auto return_fn = [](const std::shared_ptr<PooledBuffer> & /*buf*/) {
                 // nothing to do: owner destructor will release slot
             };
 
@@ -88,11 +88,11 @@ class BufferPoolVec {
 
         // fallback: create heap buffer and return with noop return_fn
         auto heap_buf = std::make_shared<PooledBuffer>(capacity_for(size));
-        auto return_fn = [](std::shared_ptr<PooledBuffer> /*buf*/) {};
+        auto return_fn = [](const std::shared_ptr<PooledBuffer> & /*buf*/) {};
         return BufferHandle{std::move(heap_buf), std::move(return_fn)};
     }
 
-    [[nodiscard]] BufferPool::Stats get_stats() const {
+    [[nodiscard]] auto get_stats() const -> BufferPool::Stats {
         BufferPool::Stats s{};
         s.small_available =
             small_pool_.capacity() - small_pool_.borrowed_count();
@@ -106,7 +106,7 @@ class BufferPoolVec {
     }
 
   private:
-    utils::PoolVec<PooledBufferSlot> &pool_for(BufferSize size) {
+    auto pool_for(BufferSize size) -> utils::PoolVec<PooledBufferSlot> & {
         switch (size) {
         case BufferSize::Small:
             return small_pool_;
@@ -121,7 +121,7 @@ class BufferPoolVec {
         }
     }
 
-    static std::size_t capacity_for(BufferSize size) {
+    static auto capacity_for(BufferSize size) -> std::size_t {
         return static_cast<std::size_t>(size);
     }
 

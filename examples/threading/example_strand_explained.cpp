@@ -27,7 +27,7 @@ void print_message(const std::string &msg) {
     auto tid = std::this_thread::get_id();
     std::ostringstream oss;
     oss << tid;
-    std::cout << std::format("[Thread {:>6}] {}", oss.str(), msg) << std::endl;
+    std::cout << std::format("[Thread {:>6}] {}", oss.str(), msg) << '\n';
 }
 
 // Simulates a shared resource (like WebSocket state)
@@ -67,8 +67,10 @@ class SharedResource {
                                   operation_id, counter_));
     }
 
-    int get_counter() const { return counter_; }
-    std::string get_last_operation() const { return last_operation_; }
+    [[nodiscard]] auto get_counter() const -> int { return counter_; }
+    [[nodiscard]] auto get_last_operation() const -> std::string {
+        return last_operation_;
+    }
     void reset() {
         counter_ = 0;
         last_operation_.clear();
@@ -89,6 +91,7 @@ void demo_without_strand() {
 
     // Run on 3 threads - operations can run CONCURRENTLY
     std::vector<std::thread> threads;
+    threads.reserve(3);
     for (int i = 0; i < 3; ++i) {
         threads.emplace_back([&ioc]() { ioc.run(); });
     }
@@ -124,6 +127,7 @@ void demo_with_strand() {
 
     // Run on 3 threads - but strand serializes access
     std::vector<std::thread> threads;
+    threads.reserve(3);
     for (int i = 0; i < 3; ++i) {
         threads.emplace_back([&ioc]() { ioc.run(); });
     }
@@ -162,6 +166,7 @@ void demo_strand_thread_migration() {
     print_message("Starting 4 I/O threads...\n");
 
     std::vector<std::thread> threads;
+    threads.reserve(4);
     for (int i = 0; i < 4; ++i) {
         threads.emplace_back([&ioc]() { ioc.run(); });
     }
@@ -200,6 +205,7 @@ void demo_strand_performance() {
         }
 
         std::vector<std::thread> threads;
+        threads.reserve(4);
         for (int i = 0; i < 4; ++i) {
             threads.emplace_back([&ioc]() { ioc.run(); });
         }
@@ -236,6 +242,7 @@ void demo_strand_performance() {
         }
 
         std::vector<std::thread> threads;
+        threads.reserve(4);
         for (int i = 0; i < 4; ++i) {
             threads.emplace_back([&ioc]() { ioc.run(); });
         }
@@ -260,7 +267,7 @@ void demo_strand_performance() {
     print_message("   Safety is worth the tiny performance cost");
 }
 
-int main() {
+auto main() -> int {
     std::cout << "\n";
     std::cout
         << "╔════════════════════════════════════════════════════════════╗\n";
@@ -311,7 +318,7 @@ int main() {
         return 0;
 
     } catch (const std::exception &e) {
-        std::cerr << "Error: " << e.what() << std::endl;
+        std::cerr << "Error: " << e.what() << '\n';
         return 1;
     }
 }

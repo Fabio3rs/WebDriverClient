@@ -60,46 +60,47 @@ enum class MessageKind {
 };
 
 // Spec: Fast message kind detection (no full JSON parse)
-[[nodiscard]] MessageKind
-detect_message_kind(std::string_view payload) noexcept;
+[[nodiscard]] auto detect_message_kind(std::string_view payload) noexcept
+    -> MessageKind;
 
 // Spec: Check if ID is within safe integer range
-[[nodiscard]] constexpr bool is_id_safe(std::uint64_t id) noexcept {
+[[nodiscard]] constexpr auto is_id_safe(std::uint64_t id) noexcept -> bool {
     return id <= MAX_SAFE_ID;
 }
 
 // Spec: Build command message {id, method, params}
-[[nodiscard]] std::string build_command(id_type id_value,
-                                        std::string_view method,
-                                        const boost::json::object &params = {});
+[[nodiscard]] auto build_command(id_type id_value, std::string_view method,
+                                 const boost::json::object &params = {})
+    -> std::string;
 
 // Spec: Parsed response structure
 struct ParsedResponse {
     id_type id{};
     bool is_success{};
-    boost::json::object result{};
-    std::string error_code{};
-    std::string error_message{};
-    std::string stacktrace{}; // W3C BiDi: optional, execution stack on errors
+    boost::json::object result;
+    std::string error_code;
+    std::string error_message;
+    std::string stacktrace; // W3C BiDi: optional, execution stack on errors
     // Additional fields for traceability/telemetry
-    std::string method{};   // original command method
-    std::string trace_id{}; // locally generated trace id for correlation
-    std::string raw_json{}; // raw received payload
+    std::string method;   // original command method
+    std::string trace_id; // locally generated trace id for correlation
+    std::string raw_json; // raw received payload
     std::chrono::steady_clock::duration
         latency{};               // duration between send and response
     bool timeout_expired{false}; // true se construído localmente por timeout
 };
 
-[[nodiscard]] std::optional<ParsedResponse>
-parse_response(std::string_view payload);
+[[nodiscard]] auto parse_response(std::string_view payload)
+    -> std::optional<ParsedResponse>;
 
 // Spec: Parsed event structure
 struct ParsedEvent {
-    std::string method{};
-    boost::json::object params{};
+    std::string method;
+    boost::json::object params;
 };
 
-[[nodiscard]] std::optional<ParsedEvent> parse_event(std::string_view payload);
+[[nodiscard]] auto parse_event(std::string_view payload)
+    -> std::optional<ParsedEvent>;
 
 // ======================== WebSocket Transport ========================
 
@@ -154,7 +155,7 @@ class WebSocketClient : public std::enable_shared_from_this<WebSocketClient> {
      * @brief Get executor for async operations
      * @return Executor by value (safe for capture in lambdas)
      */
-    net::any_io_executor get_executor() const {
+    auto get_executor() const -> net::any_io_executor {
         return strand_.get_inner_executor();
     }
 
@@ -207,15 +208,18 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
         Subscription() = default;
         ~Subscription() noexcept;
         Subscription(const Subscription &) = delete;
-        Subscription &operator=(const Subscription &) = delete;
+        auto operator=(const Subscription &) -> Subscription & = delete;
         Subscription(Subscription &&other) noexcept;
-        Subscription &operator=(Subscription &&other) noexcept;
+        auto operator=(Subscription &&other) noexcept -> Subscription &;
 
         void cancel() noexcept;
         // Detach: prevents refcount decrement on destruction
         void release() noexcept { active_ = false; }
-        [[nodiscard]] bool is_active() const noexcept { return active_; }
-        [[nodiscard]] const std::string &subscription_id() const noexcept {
+        [[nodiscard]] auto is_active() const noexcept -> bool {
+            return active_;
+        }
+        [[nodiscard]] auto subscription_id() const noexcept
+            -> const std::string & {
             return subscription_id_;
         }
 
@@ -243,13 +247,13 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
                      kDefaultTimeout});
 
     // Awaitable version for coroutines
-    [[nodiscard]] boost::asio::awaitable<ParsedResponse> send_command_awaitable(
+    [[nodiscard]] auto send_command_awaitable(
         std::string_view method, boost::json::object params,
         std::chrono::milliseconds timeout = std::chrono::milliseconds{
-            kDefaultTimeout});
+            kDefaultTimeout}) -> boost::asio::awaitable<ParsedResponse>;
 
     // default timeout used across BiDi core for request operations
-    static inline constexpr std::chrono::milliseconds kDefaultTimeout{5000};
+    static constexpr std::chrono::milliseconds kDefaultTimeout{5000};
 
     // Transport sender injection for async non-blocking sends used by core
     using TransportSender = std::function<void(
@@ -264,24 +268,27 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
     }
 
     // Subscribe to events (global scope). Returns RAII handle.
-    [[nodiscard]] asyncx::Async<std::shared_ptr<Subscription>>
-    subscribe_event(std::string_view event_method, EventHandler handler);
-    [[nodiscard]] boost::asio::awaitable<Subscription>
-    subscribe_event_awaitable(std::string event_method, EventHandler handler);
-    [[nodiscard]] asyncx::Async<std::shared_ptr<Subscription>>
-    subscribe_event_async(std::string event_method, EventHandler handler);
+    [[nodiscard]] auto subscribe_event(std::string_view event_method,
+                                       EventHandler handler)
+        -> asyncx::Async<std::shared_ptr<Subscription>>;
+    [[nodiscard]] auto subscribe_event_awaitable(std::string event_method,
+                                                 EventHandler handler)
+        -> boost::asio::awaitable<Subscription>;
+    [[nodiscard]] auto subscribe_event_async(std::string event_method,
+                                             EventHandler handler)
+        -> asyncx::Async<std::shared_ptr<Subscription>>;
     void unsubscribe_event(const std::string &event_method);
 
     // Subscribe to events scoped by contexts (deduped by refcount per context)
-    [[nodiscard]] Subscription
+    [[nodiscard]] auto
     subscribe_event_scoped(const std::string &event_method,
                            const std::vector<std::string> &contexts,
-                           EventHandler handler);
+                           EventHandler handler) -> Subscription;
     void unsubscribe_event_scoped(const std::string &event_method,
                                   const std::vector<std::string> &contexts);
 
     // Get executor for async operations
-    net::any_io_executor get_executor() const;
+    auto get_executor() const -> net::any_io_executor;
 
     // Remove handler from event list (MUST be called from strand context for
     // thread-safety) WARNING: This is a low-level method - only call from
@@ -390,7 +397,7 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
 
     // Optional transport sender used by core to send async commands via
     // the underlying transport implementation (e.g., ThreadedBiDiSession).
-    TransportSender transport_sender_{};
+    TransportSender transport_sender_;
 
 #ifdef BIDI_TESTING
   public:
@@ -449,7 +456,7 @@ auto WebSocketClient::async_connect(std::string_view url,
                                     CompletionToken &&token) {
     auto wrapper = [this, url = std::string(url)](auto &&handler) {
         // Parse WebSocket URL: ws://host:port/path
-        connect_handler_ = std::move(handler);
+        connect_handler_ = std::forward<decltype(handler)>(handler);
 
         std::string url_str = url.starts_with("ws://")
                                   ? std::string(url.substr(5))
@@ -485,17 +492,18 @@ auto WebSocketClient::async_send(std::string message, CompletionToken &&token) {
     auto wrapper = [this,
                     message = std::move(message)](auto &&handler) mutable {
         net::post(strand_, [this, message = std::move(message),
-                            handler = std::move(handler)]() mutable {
+                            handler = std::forward<decltype(handler)>(
+                                handler)]() mutable {
             // Store the message and its completion handler together so the
             // handler can be invoked with the real transport result once
             // the async write completes.
-            write_queue_.emplace_back(std::make_pair(
+            write_queue_.emplace_back(
                 std::move(message),
                 WriteCompletionHandler{
                     [h = std::move(handler)](
                         const boost::system::error_code &ec) mutable {
                         h(ec);
-                    }}));
+                    }});
 
             if (!is_writing_) {
                 do_write();
@@ -513,11 +521,12 @@ auto BiDiSession::async_start(std::string_view websocket_url,
     auto wrapper = [this, websocket_url = std::string(websocket_url)](
                        auto &&handler) mutable {
         ws_->set_message_handler(
-            [this](std::string msg) { on_message(std::move(msg)); });
+            [this](const std::string &msg) { on_message(msg); });
         ws_->set_error_handler([this](auto ec) { on_error(ec); });
 
         ws_->async_connect(websocket_url,
-                           [handler = std::move(handler)](auto ec) mutable {
+                           [handler = std::forward<decltype(handler)>(handler)](
+                               auto ec) mutable {
                                if (!ec) {
                                    // Connection successful, start read loop
                                    // Note: ws_ is now managed by this

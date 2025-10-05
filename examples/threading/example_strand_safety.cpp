@@ -14,6 +14,7 @@
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/post.hpp>
 #include <boost/asio/use_awaitable.hpp>
+#include <cstddef>
 #include <format>
 #include <mutex>
 #include <thread>
@@ -28,7 +29,7 @@ void safe_log(const std::string &msg) {
     auto tid = std::this_thread::get_id();
     std::ostringstream oss;
     oss << "[Thread " << tid << "] " << msg;
-    std::cout << oss.str() << std::endl;
+    std::cout << oss.str() << '\n';
 }
 
 // Demonstrates strand serialization
@@ -47,7 +48,7 @@ class StrandSafetyDemo {
           ioc_(ioc) {}
 
     // Execute a command and track timing
-    asio::awaitable<void> execute_tracked_command(int command_id) {
+    auto execute_tracked_command(size_t command_id) -> asio::awaitable<void> {
         int started = operations_started_.fetch_add(1) + 1;
         safe_log(std::format("Command {}: Started (total started: {})",
                              command_id, started));
@@ -76,18 +77,20 @@ class StrandSafetyDemo {
     }
 
     // Launch commands from multiple threads
-    void launch_concurrent_commands(int commands_per_thread, int thread_count) {
+    void launch_concurrent_commands(size_t commands_per_thread,
+                                    size_t thread_count) {
         safe_log(std::format("Launching {} threads, {} commands each",
                              thread_count, commands_per_thread));
 
         std::vector<std::thread> launcher_threads;
 
-        for (int t = 0; t < thread_count; ++t) {
+        launcher_threads.reserve(thread_count);
+        for (size_t t = 0; t < thread_count; ++t) {
             launcher_threads.emplace_back([this, t, commands_per_thread]() {
                 safe_log(std::format("Launcher thread {} started", t));
 
-                for (int i = 0; i < commands_per_thread; ++i) {
-                    int command_id = t * 100 + i;
+                for (size_t i = 0; i < commands_per_thread; ++i) {
+                    size_t command_id = (t * 100) + i;
 
                     // Post coroutine spawn from this thread
                     // Even though we're posting from different threads,
@@ -95,7 +98,7 @@ class StrandSafetyDemo {
                     asio::post(ioc_, [this, command_id]() {
                         asio::co_spawn(
                             ioc_, execute_tracked_command(command_id),
-                            [command_id](std::exception_ptr ep) {
+                            [command_id](const std::exception_ptr &ep) {
                                 if (ep) {
                                     try {
                                         std::rethrow_exception(ep);
@@ -125,14 +128,16 @@ class StrandSafetyDemo {
         safe_log("All launcher threads completed");
     }
 
-    int get_operations_started() const { return operations_started_.load(); }
-    int get_operations_completed() const {
+    [[nodiscard]] auto get_operations_started() const -> int {
+        return operations_started_.load();
+    }
+    [[nodiscard]] auto get_operations_completed() const -> int {
         return operations_completed_.load();
     }
 };
 
 // Main coroutine
-asio::awaitable<int> run_strand_safety_demo(std::string websocket_url) {
+auto run_strand_safety_demo(std::string websocket_url) -> asio::awaitable<int> {
     try {
         auto executor = co_await asio::this_coro::executor;
         auto &ioc = static_cast<asio::io_context &>(executor.context());
@@ -186,7 +191,7 @@ asio::awaitable<int> run_strand_safety_demo(std::string websocket_url) {
     }
 }
 
-int main() {
+auto main() -> int {
     try {
         safe_log("=== Strand Safety Demonstration ===");
         safe_log("This example shows how strand protects shared state");
@@ -218,6 +223,7 @@ int main() {
         safe_log("Starting 3 I/O threads for event processing\n");
 
         std::vector<std::thread> io_threads;
+        io_threads.reserve(3);
         for (int i = 0; i < 3; ++i) {
             io_threads.emplace_back([&ioc, i]() {
                 safe_log(std::format("I/O thread {} started", i));

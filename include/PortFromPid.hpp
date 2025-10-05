@@ -12,19 +12,20 @@
 struct ListeningPort {
     std::string protocol;
     std::string localAddress;
-    uint16_t port;
+    uint16_t port{};
 };
 
-inline std::ostream &operator<<(std::ostream &os, const ListeningPort &port) {
+inline auto operator<<(std::ostream &os, const ListeningPort &port)
+    -> std::ostream & {
     os << "Protocol: " << port.protocol
        << ", Local Address: " << port.localAddress << ", Port: " << port.port;
     return os;
 }
 
-inline std::vector<ListeningPort> getListeningPortsForPid(int pid) {
+inline auto getListeningPortsForPid(int pid) -> std::vector<ListeningPort> {
     std::unordered_set<int> sockets;
 
-    for (auto list : std::filesystem::directory_iterator(
+    for (const auto &list : std::filesystem::directory_iterator(
              "/proc/" + std::to_string(pid) + "/fd")) {
         if (!list.is_socket()) {
             continue;
@@ -79,7 +80,7 @@ inline std::vector<ListeningPort> getListeningPortsForPid(int pid) {
                 continue;
             }
 
-            if (sockets.find(std::stoi(match[2])) == sockets.end()) {
+            if (!sockets.contains(std::stoi(match[2]))) {
                 continue;
             }
 

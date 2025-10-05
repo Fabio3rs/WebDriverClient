@@ -5,12 +5,12 @@
 #include <ws2tcpip.h>
 #pragma comment(lib, "ws2_32.lib")
 #else
-#include <sys/socket.h>
 #include <netinet/in.h>
+#include <sys/socket.h>
 #include <unistd.h>
 #endif
 
-inline int free_port() {
+inline auto free_port() -> int {
 #ifdef _WIN32
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
@@ -28,7 +28,8 @@ inline int free_port() {
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     addr.sin_port = htons(0);
 
-    if (bind(sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SOCKET_ERROR) {
+    if (bind(sock, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) ==
+        SOCKET_ERROR) {
         closesocket(sock);
         WSACleanup();
         return -1;
@@ -41,7 +42,8 @@ inline int free_port() {
     }
 
     int addr_len = sizeof(addr);
-    if (getsockname(sock, reinterpret_cast<sockaddr*>(&addr), &addr_len) == SOCKET_ERROR) {
+    if (getsockname(sock, reinterpret_cast<sockaddr *>(&addr), &addr_len) ==
+        SOCKET_ERROR) {
         closesocket(sock);
         WSACleanup();
         return -1;
@@ -57,13 +59,13 @@ inline int free_port() {
         return -1;
     }
 
-    sockaddr_in addr;
+    sockaddr_in addr{};
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     addr.sin_port = htons(0);
 
-    if (bind(sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == -1) {
+    if (bind(sock, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == -1) {
         close(sock);
         return -1;
     }
@@ -74,7 +76,8 @@ inline int free_port() {
     }
 
     socklen_t addr_len = sizeof(addr);
-    if (getsockname(sock, reinterpret_cast<sockaddr*>(&addr), &addr_len) == -1) {
+    if (getsockname(sock, reinterpret_cast<sockaddr *>(&addr), &addr_len) ==
+        -1) {
         close(sock);
         return -1;
     }

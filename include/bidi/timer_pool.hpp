@@ -32,8 +32,8 @@ using TimeoutHandler = std::function<void(TimeoutId)>;
 // Timeout entry in the timer wheel
 struct TimeoutEntry {
     TimeoutId id{0};
-    std::chrono::steady_clock::time_point expiry{};
-    TimeoutHandler handler{};
+    std::chrono::steady_clock::time_point expiry;
+    TimeoutHandler handler;
     bool cancelled{false};
 
     TimeoutEntry() = default;
@@ -60,13 +60,13 @@ class TimerWheel {
 
     // Non-copyable, non-movable
     TimerWheel(const TimerWheel &) = delete;
-    TimerWheel &operator=(const TimerWheel &) = delete;
+    auto operator=(const TimerWheel &) -> TimerWheel & = delete;
     TimerWheel(TimerWheel &&) = delete;
-    TimerWheel &operator=(TimerWheel &&) = delete;
+    auto operator=(TimerWheel &&) -> TimerWheel & = delete;
 
     // Schedule timeout with handler (returns ID for cancellation)
-    [[nodiscard]] TimeoutId schedule_timeout(std::chrono::milliseconds duration,
-                                             TimeoutHandler handler);
+    [[nodiscard]] auto schedule_timeout(std::chrono::milliseconds duration,
+                                        TimeoutHandler handler) -> TimeoutId;
 
     // Cancel timeout by ID (idempotent - safe to call multiple times)
     void cancel_timeout(TimeoutId id);
@@ -87,7 +87,7 @@ class TimerWheel {
         std::size_t posted_handlers{0}; // novos handlers postados (não inline)
     };
 
-    [[nodiscard]] Stats get_stats() const;
+    [[nodiscard]] auto get_stats() const -> Stats;
 
   private:
     void schedule_next_tick();
@@ -132,7 +132,7 @@ class TimeoutGuard {
 
     // Non-copyable, movable
     TimeoutGuard(const TimeoutGuard &) = delete;
-    TimeoutGuard &operator=(const TimeoutGuard &) = delete;
+    auto operator=(const TimeoutGuard &) -> TimeoutGuard & = delete;
 
     TimeoutGuard(TimeoutGuard &&other) noexcept
         : wheel_{other.wheel_}, timeout_id_{other.timeout_id_} {
@@ -140,7 +140,7 @@ class TimeoutGuard {
         other.timeout_id_ = 0;
     }
 
-    TimeoutGuard &operator=(TimeoutGuard &&other) noexcept {
+    auto operator=(TimeoutGuard &&other) noexcept -> TimeoutGuard & {
         if (this != &other) {
             if (wheel_ != nullptr && timeout_id_ != 0) {
                 wheel_->cancel_timeout(timeout_id_);
@@ -162,12 +162,14 @@ class TimeoutGuard {
     }
 
     // Check if timeout is still active
-    [[nodiscard]] bool is_active() const noexcept {
+    [[nodiscard]] auto is_active() const noexcept -> bool {
         return wheel_ != nullptr && timeout_id_ != 0;
     }
 
     // Get timeout ID
-    [[nodiscard]] TimeoutId get_id() const noexcept { return timeout_id_; }
+    [[nodiscard]] auto get_id() const noexcept -> TimeoutId {
+        return timeout_id_;
+    }
 
   private:
     TimerWheel *wheel_;
@@ -175,9 +177,9 @@ class TimeoutGuard {
 };
 
 // Convenience factory method
-inline TimeoutGuard make_timeout_guard(TimerWheel &wheel,
-                                       std::chrono::milliseconds duration,
-                                       TimeoutHandler handler) {
+inline auto make_timeout_guard(TimerWheel &wheel,
+                               std::chrono::milliseconds duration,
+                               TimeoutHandler handler) -> TimeoutGuard {
     auto id = wheel.schedule_timeout(duration, std::move(handler));
     return TimeoutGuard{wheel, id};
 }

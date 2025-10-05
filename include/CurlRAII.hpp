@@ -34,8 +34,8 @@ class curlslitraii {
 /**
  * @brief RAII curl typedefs with unique_ptr
  */
-typedef std::unique_ptr<CURL, curlraii> curlraii_t;
-typedef std::unique_ptr<curl_slist, curlslitraii> curlslitraii_t;
+using curlraii_t = std::unique_ptr<CURL, curlraii>;
+using curlslitraii_t = std::unique_ptr<curl_slist, curlslitraii>;
 
 /**
  * @brief RAII curl callback class
@@ -57,23 +57,24 @@ class curlCallBack {
      *
      * @return Size written in bytes
      */
-    static size_t cb(void *data, size_t size, size_t nmemb,
-                     curlCallBack *userp) {
+    static auto cb(void *data, size_t size, size_t nmemb, curlCallBack *userp)
+        -> size_t {
         size_t realsize = size * nmemb;
 
         try {
-            if (userp->storedata)
+            if (userp->storedata) {
                 userp->buffer.insert(
                     userp->buffer.end(), reinterpret_cast<const char *>(data),
                     reinterpret_cast<const char *>(data) + realsize);
+            }
         } catch (const std::exception &e) {
-            std::cerr << "Error in curlCallBack::cb: " << e.what() << std::endl;
+            std::cerr << "Error in curlCallBack::cb: " << e.what() << '\n';
         }
 
         return realsize;
     }
 
-    curlCallBack() : response_code(0), curl_perfm_res(CURLE_OK) {}
+    curlCallBack() : curl_perfm_res(CURLE_OK) {}
 };
 
 class CurlRAII {
@@ -88,7 +89,7 @@ class CurlRAII {
      * @brief similar to make_unique but with cURL curl_easy_init and curlraii_
      * @return curlraii_t object
      */
-    static inline curlraii_t make_curl_easy() {
+    static auto make_curl_easy() -> curlraii_t {
         return curlraii_t(curl_easy_init());
     }
 
@@ -97,8 +98,7 @@ class CurlRAII {
      * cURL
      * @param[out] ptr The curlslitraii_t variable to create/append
      */
-    static inline void curl_slist_append_raii(curlslitraii_t &ptr,
-                                              const char *str) {
+    static void curl_slist_append_raii(curlslitraii_t &ptr, const char *str) {
         curl_slist *tmp = curl_slist_append(ptr.get(), str);
 
         if (tmp == nullptr) {
@@ -124,7 +124,7 @@ class CurlRAII {
      * curl_global_init
      * @return CurlRAII& instance
      */
-    static CurlRAII &instance();
+    static auto instance() -> CurlRAII &;
 
     static auto postJson(const std::string &url, const std::string &json)
         -> curlCallBack;

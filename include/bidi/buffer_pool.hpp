@@ -61,34 +61,42 @@ class PooledBuffer {
 
     // Non-copyable, movable
     PooledBuffer(const PooledBuffer &) = delete;
-    PooledBuffer &operator=(const PooledBuffer &) = delete;
+    auto operator=(const PooledBuffer &) -> PooledBuffer & = delete;
     PooledBuffer(PooledBuffer &&) = default;
-    PooledBuffer &operator=(PooledBuffer &&) = default;
+    auto operator=(PooledBuffer &&) -> PooledBuffer & = default;
 
     // Write data to buffer (zero-copy when possible)
     void write_data(std::string_view data);
     void write_data(const char *data, std::size_t length);
 
     // Get data view (zero-copy read)
-    [[nodiscard]] std::string_view as_string_view() const noexcept {
+    [[nodiscard]] auto as_string_view() const noexcept -> std::string_view {
         return {data_.data(), used_size_};
     }
 
     // Get boost::asio::const_buffer for async_write (zero-copy)
-    [[nodiscard]] boost::asio::const_buffer as_asio_buffer() const noexcept {
+    [[nodiscard]] auto as_asio_buffer() const noexcept
+        -> boost::asio::const_buffer {
         return boost::asio::buffer(data_.data(), used_size_);
     }
 
     // Buffer properties
-    [[nodiscard]] std::size_t capacity() const noexcept { return data_.size(); }
-    [[nodiscard]] std::size_t size() const noexcept { return used_size_; }
-    [[nodiscard]] bool empty() const noexcept { return used_size_ == 0; }
+    [[nodiscard]] auto capacity() const noexcept -> std::size_t {
+        return data_.size();
+    }
+    [[nodiscard]] auto size() const noexcept -> std::size_t {
+        return used_size_;
+    }
+    [[nodiscard]] auto empty() const noexcept -> bool {
+        return used_size_ == 0;
+    }
 
     // Reset for reuse (keep memory allocated)
     void reset() noexcept { used_size_ = 0; }
 
     // Check if buffer can fit additional data
-    [[nodiscard]] bool can_fit(std::size_t additional_size) const noexcept {
+    [[nodiscard]] auto can_fit(std::size_t additional_size) const noexcept
+        -> bool {
         return used_size_ + additional_size <= data_.size();
     }
 
@@ -114,21 +122,25 @@ class BufferHandle {
 
     // Non-copyable, movable
     BufferHandle(const BufferHandle &) = delete;
-    BufferHandle &operator=(const BufferHandle &) = delete;
+    auto operator=(const BufferHandle &) -> BufferHandle & = delete;
     BufferHandle(BufferHandle &&) = default;
-    BufferHandle &operator=(BufferHandle &&) = default;
+    auto operator=(BufferHandle &&) -> BufferHandle & = default;
 
     // Access underlying buffer
-    [[nodiscard]] PooledBuffer &operator*() { return *buffer_; }
-    [[nodiscard]] const PooledBuffer &operator*() const { return *buffer_; }
-    [[nodiscard]] PooledBuffer *operator->() { return buffer_.get(); }
-    [[nodiscard]] const PooledBuffer *operator->() const {
+    [[nodiscard]] auto operator*() -> PooledBuffer & { return *buffer_; }
+    [[nodiscard]] auto operator*() const -> const PooledBuffer & {
+        return *buffer_;
+    }
+    [[nodiscard]] auto operator->() -> PooledBuffer * { return buffer_.get(); }
+    [[nodiscard]] auto operator->() const -> const PooledBuffer * {
         return buffer_.get();
     }
 
     // Get raw buffer pointer
-    [[nodiscard]] PooledBuffer *get() { return buffer_.get(); }
-    [[nodiscard]] const PooledBuffer *get() const { return buffer_.get(); }
+    [[nodiscard]] auto get() -> PooledBuffer * { return buffer_.get(); }
+    [[nodiscard]] auto get() const -> const PooledBuffer * {
+        return buffer_.get();
+    }
 
   private:
     std::shared_ptr<PooledBuffer> buffer_;
@@ -145,12 +157,12 @@ class BufferPool {
 
     // Non-copyable, non-movable
     BufferPool(const BufferPool &) = delete;
-    BufferPool &operator=(const BufferPool &) = delete;
+    auto operator=(const BufferPool &) -> BufferPool & = delete;
     BufferPool(BufferPool &&) = delete;
-    BufferPool &operator=(BufferPool &&) = delete;
+    auto operator=(BufferPool &&) -> BufferPool & = delete;
 
     // Acquire buffer of specific size (creates new if pool empty)
-    [[nodiscard]] BufferHandle acquire_buffer(BufferSize size);
+    [[nodiscard]] auto acquire_buffer(BufferSize size) -> BufferHandle;
 
     // Get pool statistics for monitoring
     struct Stats {
@@ -163,7 +175,7 @@ class BufferPool {
         std::size_t total_created{0};
     };
 
-    [[nodiscard]] Stats get_stats() const;
+    [[nodiscard]] auto get_stats() const -> Stats;
 
     // Preallocate buffers to avoid allocation spikes
     void preallocate(BufferSize size, std::size_t count);
@@ -171,8 +183,8 @@ class BufferPool {
   private:
     void return_buffer(std::shared_ptr<PooledBuffer> buffer, BufferSize size);
 
-    [[nodiscard]] static std::shared_ptr<PooledBuffer>
-    create_buffer(BufferSize size);
+    [[nodiscard]] static auto create_buffer(BufferSize size)
+        -> std::shared_ptr<PooledBuffer>;
 
     // Size-specific buffer pools
     mutable std::mutex small_mutex_;
@@ -205,11 +217,11 @@ class StreamingBuffer {
     void write_chunk(std::string_view data);
 
     // Get all chunks for streaming write
-    [[nodiscard]] std::vector<boost::asio::const_buffer>
-    get_asio_buffers() const;
+    [[nodiscard]] auto get_asio_buffers() const
+        -> std::vector<boost::asio::const_buffer>;
 
     // Get total size across all chunks
-    [[nodiscard]] std::size_t total_size() const noexcept;
+    [[nodiscard]] auto total_size() const noexcept -> std::size_t;
 
     // Reset for reuse
     void reset();

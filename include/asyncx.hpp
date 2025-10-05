@@ -832,8 +832,8 @@ template <class T = void> class Async {
     }
 
     template <class Initiator>
-    static auto from_callback(net::any_io_executor ex,
-                              Initiator init) -> Async<T> {
+    static auto from_callback(net::any_io_executor ex, Initiator init)
+        -> Async<T> {
         auto a = Async<T>::make(ex);
         init(
             [a](EC ec, T v) {
@@ -1183,8 +1183,8 @@ template <> class Async<void> {
 
   public:
     template <class Initiator>
-    static auto from_callback(const net::any_io_executor &ex,
-                              Initiator init) -> Async<void> {
+    static auto from_callback(const net::any_io_executor &ex, Initiator init)
+        -> Async<void> {
         auto a = Async<void>::make(ex);
         init(
             [a](EC ec) {
@@ -1201,8 +1201,8 @@ template <> class Async<void> {
 
 // ---------- combinadores livres: all / race / timeout ----------
 template <class T>
-auto all(net::any_io_executor ex,
-         std::vector<Async<T>> vs) -> Async<std::vector<T>> {
+auto all(net::any_io_executor ex, std::vector<Async<T>> vs)
+    -> Async<std::vector<T>> {
     auto out = Async<std::vector<T>>::make(ex);
     auto ops = std::make_shared<std::vector<Async<T>>>(std::move(vs));
     auto res = std::make_shared<std::vector<std::optional<T>>>(ops->size());
@@ -1493,8 +1493,8 @@ template <class Rep, class Per>
 auto timeout_p(std::chrono::duration<Rep, Per> duration) {
     return Pipeable{[dur = duration](auto async_value) {
         using T = typename std::decay_t<decltype(async_value)>::value_type;
-        return timeout<T>(std::move(async_value), async_value.get_executor(),
-                          dur);
+        auto executor = async_value.get_executor();
+        return timeout<T>(std::move(async_value), executor, dur);
     }};
 }
 
@@ -1588,8 +1588,8 @@ template <class F> auto filter_map(F transform_fn) {
  * @see State<T> for additional synchronization rationale
  */
 template <class T, class U>
-auto zip(Async<T> first_async,
-         Async<U> second_async) -> Async<std::tuple<T, U>> {
+auto zip(Async<T> first_async, Async<U> second_async)
+    -> Async<std::tuple<T, U>> {
     /**
      * @brief Shared state for zip coordination with cross-executor safety
      *

@@ -6,14 +6,15 @@
 #include <memory>
 
 #include "bidi/client.hpp"
+#include "bidi/connection_builder.hpp"
 #include "bidi/guards.hpp"
 #include "bidi/logging.hpp"
 #include "bidi_methods.hpp"
 
 namespace net = boost::asio;
 
-net::awaitable<void>
-example_coroutine_flow(std::shared_ptr<bidi::Client> client, std::string ctx) {
+auto example_coroutine_flow(std::shared_ptr<bidi::Client> client,
+                            std::string ctx) -> net::awaitable<void> {
     boost::json::object params{
         {"expression", "document.title"},
         {"target", boost::json::object{{"context", ctx}}},
@@ -26,36 +27,36 @@ example_coroutine_flow(std::shared_ptr<bidi::Client> client, std::string ctx) {
     co_return;
 }
 
-net::awaitable<int> minimal_flow(net::io_context *ioc_ptr) {
-    // Obtain websocket url via temporary SessionGuard (RAII cleanup)
-    bidi::SessionGuard session_guard("http://localhost:9515");
-    WebDriver::json args =
-        WebDriver::json::array({"--headless", "--no-sandbox"});
-    auto ws_url = session_guard.connect(args, "chrome", true);
-    if (!ws_url) {
-        bidi::logging::log_error(ws_url.error());
+auto minimal_flow(net::io_context *ioc_ptr) -> net::awaitable<int> {
+    // Connect using ConnectionBuilder (fluent helper)
+    try {
+        // Example of passing explicit capabilities if desired
+        // auto caps = WebDriver::json::object();
+        // caps["capabilities"] = ...;
+        auto client_ptr = co_await bidi::connect_to("http://localhost:9515")
+                              .headless()
+                              .no_sandbox()
+                              .connect(*ioc_ptr)();
+        bidi::ClientGuard client_guard(client_ptr);
+        auto context_id = co_await client_guard.client()->create_context()();
+        bidi::logging::log_info(std::string("Context: ") + context_id);
+        auto nav_url = co_await client_guard.client()->navigate(
+            context_id, "https://example.com")();
+        bidi::logging::log_info(std::string("Navigated to: ") + nav_url);
+        // Evaluate readyState and title using awaitable + generic async_send
+        net::co_spawn(*ioc_ptr,
+                      example_coroutine_flow(client_guard.client(), context_id),
+                      net::detached);
+        auto ready_obj = co_await client_guard.client()->evaluate(
+            "document.readyState", context_id)();
+        bidi::logging::log_info(std::string("readyState: ") +
+                                boost::json::serialize(ready_obj));
+        co_return 0;
+    } catch (const std::exception &ex) {
+        bidi::logging::log_error(std::string("Connection failed: ") +
+                                 ex.what());
         co_return 1;
     }
-    auto client_ptr = co_await bidi::Client::connect(*ioc_ptr, *ws_url)();
-    if (!client_ptr) {
-        bidi::logging::log_error("Connection failed");
-        co_return 1;
-    }
-    bidi::ClientGuard client_guard(client_ptr);
-    auto context_id = co_await client_guard.client()->create_context()();
-    bidi::logging::log_info(std::string("Context: ") + context_id);
-    auto nav_url = co_await client_guard.client()->navigate(
-        context_id, "https://example.com")();
-    bidi::logging::log_info(std::string("Navigated to: ") + nav_url);
-    // Evaluate readyState and title using awaitable + generic async_send
-    net::co_spawn(*ioc_ptr,
-                  example_coroutine_flow(client_guard.client(), context_id),
-                  net::detached);
-    auto ready_obj = co_await client_guard.client()->evaluate(
-        "document.readyState", context_id)();
-    bidi::logging::log_info(std::string("readyState: ") +
-                            boost::json::serialize(ready_obj));
-    co_return 0;
 }
 
 auto main() -> int {

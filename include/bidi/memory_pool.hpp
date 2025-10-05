@@ -51,17 +51,19 @@ class JsonArenaPool {
 
         // Non-copyable, non-movable (monotonic_resource is not movable)
         Arena(const Arena &) = delete;
-        Arena &operator=(const Arena &) = delete;
+        auto operator=(const Arena &) -> Arena & = delete;
         Arena(Arena &&) = delete;
-        Arena &operator=(Arena &&) = delete;
+        auto operator=(Arena &&) -> Arena & = delete;
 
         // Get boost::json::memory_resource for parsing
-        [[nodiscard]] boost::json::memory_resource *resource() noexcept {
+        [[nodiscard]] auto resource() noexcept
+            -> boost::json::memory_resource * {
             return &resource_;
         }
 
         // Parse JSON using arena memory (zero heap fragmentation)
-        [[nodiscard]] boost::json::value parse(std::string_view json_text);
+        [[nodiscard]] auto parse(std::string_view json_text)
+            -> boost::json::value;
 
         // Reset arena for reuse (much faster than delete + new)
         void reset() noexcept;
@@ -80,8 +82,9 @@ class JsonArenaPool {
         ~ThreadLocalPool() = default;
 
         // Create arena of appropriate size for parsing
-        [[nodiscard]] std::unique_ptr<Arena>
-        create_arena(std::size_t estimated_size = MEDIUM_ARENA_SIZE) {
+        [[nodiscard]] auto
+        create_arena(std::size_t estimated_size = MEDIUM_ARENA_SIZE)
+            -> std::unique_ptr<Arena> {
             std::size_t arena_size = MEDIUM_ARENA_SIZE;
             if (estimated_size <= SMALL_ARENA_SIZE) {
                 arena_size = SMALL_ARENA_SIZE;
@@ -100,7 +103,7 @@ class JsonArenaPool {
     };
 
     // Global singleton access to thread-local pools
-    [[nodiscard]] static ThreadLocalPool &get_thread_local_pool() {
+    [[nodiscard]] static auto get_thread_local_pool() -> ThreadLocalPool & {
         static thread_local ThreadLocalPool pool;
         return pool;
     }
@@ -126,18 +129,19 @@ class JsonParser {
 
     // Non-copyable, non-movable (contains non-movable Arena)
     JsonParser(const JsonParser &) = delete;
-    JsonParser &operator=(const JsonParser &) = delete;
+    auto operator=(const JsonParser &) -> JsonParser & = delete;
     JsonParser(JsonParser &&) = delete;
-    JsonParser &operator=(JsonParser &&) = delete;
+    auto operator=(JsonParser &&) -> JsonParser & = delete;
 
     // Factory method for cleaner syntax
-    [[nodiscard]] static JsonParser create(std::string_view json_text,
-                                           std::size_t estimated_size = 0) {
+    [[nodiscard]] static auto create(std::string_view json_text,
+                                     std::size_t estimated_size = 0)
+        -> JsonParser {
         return JsonParser{json_text, estimated_size};
     }
 
     // Parse using arena (high performance, zero fragmentation)
-    [[nodiscard]] boost::json::value parse() {
+    [[nodiscard]] auto parse() -> boost::json::value {
         return arena_->parse(json_text_);
     }
 

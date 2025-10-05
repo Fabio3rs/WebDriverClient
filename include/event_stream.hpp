@@ -44,11 +44,13 @@ template <class E> class EventStream {
     // cópia/move default OK (só move/copia o shared_ptr)
     EventStream(const EventStream &) = default;
     EventStream(EventStream &&) noexcept = default;
-    EventStream &operator=(const EventStream &) = default;
-    EventStream &operator=(EventStream &&) noexcept = default;
+    auto operator=(const EventStream &) -> EventStream & = default;
+    auto operator=(EventStream &&) noexcept -> EventStream & = default;
 
-    bool valid() const { return (bool)st_; }
-    boost::asio::any_io_executor get_executor() const { return st_->ex; }
+    [[nodiscard]] auto valid() const -> bool { return (bool)st_; }
+    [[nodiscard]] auto get_executor() const -> boost::asio::any_io_executor {
+        return st_->ex;
+    }
 
     // publica um evento para todos os assinantes (thread-safe)
     void push(const E &e) const {
@@ -66,7 +68,7 @@ template <class E> class EventStream {
     }
 
     // assinar => devolve Subscription com cancel
-    Subscription subscribe(Handler h) const {
+    auto subscribe(Handler h) const -> Subscription {
         const auto id = st_->next_id.fetch_add(1, std::memory_order_relaxed);
         {
             std::scoped_lock lk(st_->mx);
@@ -86,7 +88,8 @@ template <class E> class EventStream {
 
     // operadores funcionais — retornam novos streams (copiáveis/movíveis)
 
-    EventStream<E> take_until(const std::shared_ptr<StopToken> &stop) const {
+    auto take_until(const std::shared_ptr<StopToken> &stop) const
+        -> EventStream<E> {
         EventStream<E> out(st_->ex);
         auto sub = subscribe([out, stop](const E &e) mutable {
             if (!stop->stop.load(std::memory_order_relaxed)) {
@@ -97,7 +100,7 @@ template <class E> class EventStream {
         return out;
     }
 
-    EventStream<E> filter(std::function<bool(const E &)> pred) const {
+    auto filter(std::function<bool(const E &)> pred) const -> EventStream<E> {
         EventStream<E> out(st_->ex);
         auto sub = subscribe([out, pred = std::move(pred)](const E &e) mutable {
             if (pred(e)) {
@@ -109,7 +112,7 @@ template <class E> class EventStream {
     }
 
     template <class F, class R = std::invoke_result_t<F, const E &>>
-    EventStream<R> map(F f) const {
+    auto map(F f) const -> EventStream<R> {
         EventStream<R> out(st_->ex);
         auto sub = subscribe(
             [out, f = std::move(f)](const E &e) mutable { out.push(f(e)); });

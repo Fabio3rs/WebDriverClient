@@ -57,15 +57,16 @@ class PendingEntryHandleVec {
         : fallback_(std::move(fallback)) {}
 
     PendingEntryHandleVec(PendingEntryHandleVec &&) noexcept = default;
-    PendingEntryHandleVec &
-    operator=(PendingEntryHandleVec &&) noexcept = default;
+    auto operator=(PendingEntryHandleVec &&) noexcept
+        -> PendingEntryHandleVec & = default;
 
     ~PendingEntryHandleVec() noexcept = default;
 
     PendingEntryHandleVec(const PendingEntryHandleVec &) = delete;
-    PendingEntryHandleVec &operator=(const PendingEntryHandleVec &) = delete;
+    auto operator=(const PendingEntryHandleVec &)
+        -> PendingEntryHandleVec & = delete;
 
-    PendingEntryVec *operator->() noexcept {
+    auto operator->() noexcept -> PendingEntryVec * {
         if (pool_handle_) {
             return pool_handle_.operator->();
         }
@@ -75,7 +76,7 @@ class PendingEntryHandleVec {
         return nullptr;
     }
 
-    PendingEntryVec &operator*() noexcept { return *operator->(); }
+    auto operator*() noexcept -> PendingEntryVec & { return *operator->(); }
 
     explicit operator bool() const noexcept {
         return static_cast<bool>(pool_handle_) || static_cast<bool>(fallback_);
@@ -83,7 +84,7 @@ class PendingEntryHandleVec {
 
     // Release ownership of fallback (if any). Returns nullptr if this is a
     // pooled handle.
-    std::unique_ptr<PendingEntryVec> release_fallback() noexcept {
+    auto release_fallback() noexcept -> std::unique_ptr<PendingEntryVec> {
         return std::move(fallback_);
     }
 
@@ -107,13 +108,14 @@ class PendingEntryPoolVec {
     ~PendingEntryPoolVec() = default;
 
     PendingEntryPoolVec(const PendingEntryPoolVec &) = delete;
-    PendingEntryPoolVec &operator=(const PendingEntryPoolVec &) = delete;
+    auto operator=(const PendingEntryPoolVec &)
+        -> PendingEntryPoolVec & = delete;
     PendingEntryPoolVec(PendingEntryPoolVec &&) = delete;
-    PendingEntryPoolVec &operator=(PendingEntryPoolVec &&) = delete;
+    auto operator=(PendingEntryPoolVec &&) -> PendingEntryPoolVec & = delete;
 
     // Acquire: non-blocking attempt; if pool exhausted, return a heap-allocated
     // fallback to preserve functionality without blocking.
-    [[nodiscard]] PendingEntryHandleVec acquire_nonblocking() noexcept {
+    [[nodiscard]] auto acquire_nonblocking() noexcept -> PendingEntryHandleVec {
         auto handle = pool_.borrow(std::chrono::milliseconds(0));
         if (handle) {
             // reset state (Pool policy Recreate already reconstructed object)
@@ -134,8 +136,8 @@ class PendingEntryPoolVec {
     }
 
     // Blocking acquire with timeout
-    [[nodiscard]] PendingEntryHandleVec
-    acquire_for(std::chrono::milliseconds timeout) noexcept {
+    [[nodiscard]] auto acquire_for(std::chrono::milliseconds timeout) noexcept
+        -> PendingEntryHandleVec {
         auto handle = pool_.borrow(timeout);
         if (handle) {
             handle->reset();
@@ -146,7 +148,7 @@ class PendingEntryPoolVec {
         }
         // timeout => failure semantic
         metrics_failures_.fetch_add(1, std::memory_order_relaxed);
-        return PendingEntryHandleVec();
+        return {};
     }
 
     // Stats wrapper
@@ -161,7 +163,7 @@ class PendingEntryPoolVec {
         std::size_t failures{0};
     };
 
-    [[nodiscard]] Stats get_stats() const noexcept {
+    [[nodiscard]] auto get_stats() const noexcept -> Stats {
         const auto metrics_snapshot = get_metrics();
         Stats legacy{};
         legacy.available = metrics_snapshot.capacity - metrics_snapshot.in_use;
@@ -177,7 +179,8 @@ class PendingEntryPoolVec {
         return legacy;
     }
 
-    [[nodiscard]] bidi::metrics::PoolMetrics get_metrics() const noexcept {
+    [[nodiscard]] auto get_metrics() const noexcept
+        -> bidi::metrics::PoolMetrics {
         bidi::metrics::PoolMetrics pm{};
         pm.capacity = capacity_;
         pm.in_use = pool_.borrowed_count();
@@ -204,7 +207,8 @@ class PendingEntryPoolVec {
 };
 
 // Factory overload to match existing convenience
-inline PendingEntryHandleVec make_pending_entry(PendingEntryPoolVec &pool) {
+inline auto make_pending_entry(PendingEntryPoolVec &pool)
+    -> PendingEntryHandleVec {
     return pool.acquire_nonblocking();
 }
 

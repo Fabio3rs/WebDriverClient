@@ -39,7 +39,7 @@ class TaskQueue {
         tasks_.push(std::move(task));
     }
 
-    std::optional<Task> try_pop() {
+    auto try_pop() -> std::optional<Task> {
         std::lock_guard<std::mutex> lock(mutex_);
         if (tasks_.empty()) {
             return std::nullopt;
@@ -49,12 +49,12 @@ class TaskQueue {
         return task;
     }
 
-    bool empty() const {
+    auto empty() const -> bool {
         std::lock_guard<std::mutex> lock(mutex_);
         return tasks_.empty();
     }
 
-    size_t size() const {
+    auto size() const -> size_t {
         std::lock_guard<std::mutex> lock(mutex_);
         return tasks_.size();
     }
@@ -82,7 +82,7 @@ class BiDiWorker {
           task_queue_(std::move(task_queue)), ioc_(ioc) {}
 
     // Start worker coroutine
-    asio::awaitable<void> run() {
+    auto run() -> asio::awaitable<void> {
         running_ = true;
         bidi::logging::log_info("Worker started");
 
@@ -129,14 +129,18 @@ class BiDiWorker {
 
     void stop() { running_ = false; }
 
-    int get_tasks_processed() const { return tasks_processed_.load(); }
-    int get_tasks_failed() const { return tasks_failed_.load(); }
+    [[nodiscard]] auto get_tasks_processed() const -> int {
+        return tasks_processed_.load();
+    }
+    [[nodiscard]] auto get_tasks_failed() const -> int {
+        return tasks_failed_.load();
+    }
 };
 
 // Production application with proper lifecycle
 class ProductionBiDiApp {
   public:
-    asio::io_context &ioc() { return ioc_; }
+    auto ioc() -> asio::io_context & { return ioc_; }
 
   private:
     asio::io_context ioc_;
@@ -161,14 +165,14 @@ class ProductionBiDiApp {
 
     // Movível, não copiável (gerencia recursos de I/O)
     ProductionBiDiApp(const ProductionBiDiApp &) = delete;
-    ProductionBiDiApp &operator=(const ProductionBiDiApp &) = delete;
+    auto operator=(const ProductionBiDiApp &) -> ProductionBiDiApp & = delete;
     ProductionBiDiApp(ProductionBiDiApp &&) = delete;
-    ProductionBiDiApp &operator=(ProductionBiDiApp &&) = delete;
+    auto operator=(ProductionBiDiApp &&) -> ProductionBiDiApp & = delete;
 
     ~ProductionBiDiApp() = default; // shutdown é explícito no main
 
     // Initialize BiDi connection
-    asio::awaitable<bool> initialize(std::string websocket_url) {
+    auto initialize(std::string websocket_url) -> asio::awaitable<bool> {
         try {
             bidi::logging::log_info("Initializing BiDi client");
 
@@ -225,13 +229,13 @@ class ProductionBiDiApp {
 
     // Add task to queue
     void submit_task(const std::string &expression, int task_id) {
-        task_queue_->push({expression, task_id});
+        task_queue_->push({.expression = expression, .task_id = task_id});
         bidi::logging::log_info(std::format("Task {} queued (queue size: {})",
                                             task_id, task_queue_->size()));
     }
 
     // Versão coroutine de shutdown para ordering seguro
-    asio::awaitable<void> shutdown_async() {
+    auto shutdown_async() -> asio::awaitable<void> {
         if (shutdown_requested_.exchange(true)) {
             co_return; // já em progresso
         }
@@ -343,7 +347,7 @@ class ProductionBiDiApp {
 };
 
 // Main application
-int main() {
+auto main() -> int {
     try {
         bidi::logging::log_info("=== Production Multi-threaded BiDi Example "
                                 "===\n");

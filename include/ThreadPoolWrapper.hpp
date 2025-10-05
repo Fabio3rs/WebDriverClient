@@ -20,7 +20,7 @@ struct ThreadPool {
     explicit ThreadPool(std::shared_ptr<boost::asio::thread_pool> external)
         : pool_shared(std::move(external)) {}
 
-    boost::asio::thread_pool &get() { return *pool_shared; }
+    auto get() -> boost::asio::thread_pool & { return *pool_shared; }
 };
 
 } // namespace webdriver

@@ -43,7 +43,7 @@ struct QueuedMessage {
         data[length] = '\0'; // Null terminate
     }
 
-    [[nodiscard]] std::string_view as_string_view() const noexcept {
+    [[nodiscard]] auto as_string_view() const noexcept -> std::string_view {
         return {data, length};
     }
 };
@@ -62,24 +62,26 @@ class MessageQueue {
 
     // Non-copyable, non-movable
     MessageQueue(const MessageQueue &) = delete;
-    MessageQueue &operator=(const MessageQueue &) = delete;
+    auto operator=(const MessageQueue &) -> MessageQueue & = delete;
     MessageQueue(MessageQueue &&) = delete;
-    MessageQueue &operator=(MessageQueue &&) = delete;
+    auto operator=(MessageQueue &&) -> MessageQueue & = delete;
 
     // Producer: enqueue message (lock-free)
-    [[nodiscard]] bool try_enqueue(std::string_view message, id_type id = 0) {
+    [[nodiscard]] auto try_enqueue(std::string_view message, id_type id = 0)
+        -> bool {
         return queue_.push(QueuedMessage{message, id});
     }
 
     // Consumer: dequeue single message (lock-free)
-    [[nodiscard]] bool try_dequeue(QueuedMessage &msg) {
+    [[nodiscard]] auto try_dequeue(QueuedMessage &msg) -> bool {
         return queue_.pop(msg);
     }
 
     // Consumer: dequeue batch of messages for efficient writing
     template <typename OutputIterator>
-    [[nodiscard]] std::size_t try_dequeue_batch(OutputIterator out,
-                                                std::size_t max_count = 32) {
+    [[nodiscard]] auto try_dequeue_batch(OutputIterator out,
+                                         std::size_t max_count = 32)
+        -> std::size_t {
         std::size_t count = 0;
         QueuedMessage msg{"", static_cast<id_type>(0)}; // Temporary for popping
 
@@ -92,10 +94,10 @@ class MessageQueue {
     }
 
     // Check if queue has pending messages (approximate - lock-free)
-    [[nodiscard]] bool empty() const noexcept { return queue_.empty(); }
+    [[nodiscard]] auto empty() const noexcept -> bool { return queue_.empty(); }
 
     // Get approximate queue size (may be stale - lock-free)
-    [[nodiscard]] std::size_t approximate_size() const noexcept {
+    [[nodiscard]] auto approximate_size() const noexcept -> std::size_t {
         // Note: boost::lockfree::queue doesn't provide size()
         // This is acceptable for lock-free semantics
         return empty() ? 0 : 1; // Approximation
@@ -138,7 +140,7 @@ template <typename T> class OptimizedPendingMap {
     }
 
     // Remove pending entry
-    [[nodiscard]] bool erase(core::id_type id) {
+    [[nodiscard]] auto erase(core::id_type id) -> bool {
         return pending_.erase(id) > 0;
     }
 
@@ -156,8 +158,12 @@ template <typename T> class OptimizedPendingMap {
         return pending_.end();
     }
 
-    [[nodiscard]] std::size_t size() const noexcept { return pending_.size(); }
-    [[nodiscard]] bool empty() const noexcept { return pending_.empty(); }
+    [[nodiscard]] auto size() const noexcept -> std::size_t {
+        return pending_.size();
+    }
+    [[nodiscard]] auto empty() const noexcept -> bool {
+        return pending_.empty();
+    }
 
     // Clear all pending (for cleanup)
     void clear() noexcept { pending_.clear(); }

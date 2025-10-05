@@ -93,6 +93,27 @@ class SessionGuard {
         }
     }
 
+    // Create a session using a pre-built capabilities payload
+    auto connect_with_payload(const WebDriver::json &payload)
+        -> std::expected<std::string, std::string> {
+        try {
+            auto response = driver_.connect_with_payload(payload);
+            session_id_ = driver_.sessionId;
+            connected_ = true;
+
+            if (!response.contains("capabilities") ||
+                !response["capabilities"].contains("webSocketUrl")) {
+                return std::unexpected(
+                    "Missing webSocketUrl in session capabilities");
+            }
+
+            return response["capabilities"]["webSocketUrl"].get<std::string>();
+        } catch (const std::exception &exception) {
+            return std::unexpected(std::string("Connection failed: ") +
+                                   exception.what());
+        }
+    }
+
     [[nodiscard]] auto session_id() const noexcept -> const std::string & {
         return session_id_;
     }
@@ -123,7 +144,7 @@ class TimerGuard {
     [[maybe_unused]] std::atomic<bool> &flag_;
 
   public:
-    TimerGuard(boost::asio::any_io_executor executor,
+    TimerGuard(const boost::asio::any_io_executor &executor,
                std::chrono::seconds timeout, std::atomic<bool> &flag)
         : timer_(std::make_shared<boost::asio::steady_timer>(executor)),
           flag_(flag) {
@@ -224,8 +245,8 @@ class ClientGuard {
         return client_;
     }
 
-    [[nodiscard]] auto
-    client() const noexcept -> const std::shared_ptr<bidi::Client> & {
+    [[nodiscard]] auto client() const noexcept
+        -> const std::shared_ptr<bidi::Client> & {
         return client_;
     }
 
