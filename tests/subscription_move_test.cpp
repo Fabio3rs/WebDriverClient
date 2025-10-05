@@ -7,7 +7,7 @@ namespace {
 
 // Helper para criar uma subscription de teste
 // Note: Não usado atualmente pois subscription_id_ é private
-// Mantido para referência de testes futuros com friend access
+// Kept for reference for future tests with friend access
 #if 0
 class SubscriptionTestHelper {
 public:
