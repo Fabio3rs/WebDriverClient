@@ -12,7 +12,8 @@
 
 namespace utils {
 
-// PoolVec: Proof of concept for an object pool with contiguous slots and RAII handle.
+// PoolVec: Proof of concept for an object pool with contiguous slots and RAII
+// handle.
 // - Preallocates N slots of raw storage.
 // - Each slot has an atomic state (0 = free, 1 = used).
 // - borrow() uses CAS to mark a slot as used; returns a Handle that performs
@@ -87,12 +88,12 @@ template <class T> class PoolVec {
     PoolVec(PoolVec &&) = delete;
     PoolVec &operator=(PoolVec &&) = delete;
 
-    ~PoolVec() noexcept { /* não destrói objetos que ainda possam estar em uso
+    ~PoolVec() noexcept { /* does not destroy objects that may still be in use
                            */
     }
 
-    // Tenta pegar um objeto; se sucesso constrói T(in-place) e retorna handle.
-    // timeout = 0 => tentativa única (não-blocking)
+    // Try to borrow an object; on success constructs T(in-place) and returns a
+    // handle. timeout = 0 => single attempt (non-blocking)
     template <class... Args>
     PoolHandle<T> borrow(std::chrono::milliseconds timeout,
                          Args &&...args) noexcept {
@@ -109,7 +110,7 @@ template <class T> class PoolVec {
             }
             idx = get_valid_index(std::forward<Args>(args)...);
         }
-        // garantimos que o objeto está construído conforme política; se falhar
+        // ensure the object is constructed according to the policy; if it fails
         // retorna handle vazio
         if (!construct_if_needed(idx, std::forward<Args>(args)...)) {
             return PoolHandle<T>();
@@ -122,7 +123,7 @@ template <class T> class PoolVec {
         return handle;
     }
 
-    // destroy_and_free é chamado pelo Handle no reset/destrutor.
+    // destroy_and_free is called by the Handle on reset/destructor.
     void destroy_and_free(std::size_t idx) noexcept {
         if (idx >= capacity_) {
             return;
@@ -167,7 +168,7 @@ template <class T> class PoolVec {
     std::atomic<std::size_t> first_free_;
     // borrowed_count_ uses relaxed ordering for increments/decrements
     std::atomic<std::size_t> borrowed_count_;
-    // contador de falhas de construção (exception safety)
+    // construction failure counter (exception safety)
     std::atomic<std::size_t> failures_{0};
     // rotating probe index to avoid starting scans at 0 on contention
     std::atomic<std::size_t> next_probe_{0};
@@ -193,7 +194,7 @@ template <class T> class PoolVec {
                                                  std::memory_order_relaxed)) {
             return npos;
         }
-        // reservamos o slot; a construção será feita separadamente
+        // reserve the slot; construction will be done separately
         borrowed_count_.fetch_add(1, std::memory_order_relaxed);
         return hint;
     }
@@ -232,8 +233,8 @@ template <class T> class PoolVec {
 
     template <class... Args>
     bool construct_if_needed(std::size_t idx, Args &&...args) noexcept {
-        // Política Recreate: sempre cria objeto novo.
-        // Política Keep: cria apenas se ainda não inicializado.
+        // Recreate policy: always construct a new object.
+        // Keep policy: construct only if not already initialized.
         bool need_construct = false;
         if (policy_ == Policy::Recreate) {
             need_construct = true;
@@ -245,7 +246,7 @@ template <class T> class PoolVec {
         if (!need_construct) {
             return true;
         }
-        // Exception safety: se emplace lançar, liberamos o slot e
+        // Exception safety: if emplace throws, free the slot and
         // contabilizamos falha.
         try {
             storage_[idx].emplace(std::forward<Args>(args)...);

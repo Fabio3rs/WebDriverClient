@@ -10,7 +10,7 @@
  *   materialization on the hot path
  * - helpers to build commands and parse responses/events
  *
- * Architectural rationale (short):
+ * Architectural rationale:
  * - Fast-path routing: scans incoming frames to decide Response vs Event with
  *   a light-weight scan instead of allocating/parsing the whole DOM. This is
  *   a key hot-path optimization to reduce allocations and latency.
@@ -18,14 +18,25 @@
  *   and monotonicity; when serializing to wire code must consider
  *   MAX_SAFE_ID to remain interoperable with JS runtimes.
  * - Pending map & timer race: requests are registered in the pending map and
- *   raced with a steady_timer. The PendingEntry::timer_generation exists to
- *   prevent stale timer callbacks from affecting newer requests that reuse the
- *   same entry object.
+ *   raced with a steady_timer (deterministic timeouts via kernel primitives).
+ *   The PendingEntry::timer_generation exists to prevent stale timer callbacks
+ *   from affecting newer requests that reuse the same entry object.
+ * - Zero busy-wait: All async operations use native kernel suspension via
+ *   Boost.Asio primitives (epoll/kqueue/IOCP). No polling loops or sleep.
+ * - Write queue serialization: Beast best practice ensures only one
+ *   async_write active at a time, preventing overlapping writes.
+ * - Arena allocation: JSON parsing uses boost::json::monotonic_resource for
+ *   bulk allocation/deallocation. CRITICAL SAFETY RULE: No string_view or
+ *   pointer from arena memory may escape the message handler scope; consumers
+ *   must materialize copies if values need to outlive the parse operation.
+ * - Pool-based allocation: Memory/buffer/timer/pending_entry pools reduce
+ *   allocation overhead and improve cache locality under high load.
  *
  * Threading model expectations:
  * - Classes in this header assume they are used from a strand-serialized
  *   context (see `threading.hpp` for helpers). Public methods that can be
  *   called from other threads will document required synchronization.
+ * - All WebSocket state transitions occur on the strand to eliminate mutexes.
  */
 
 #include <boost/asio.hpp>
@@ -60,8 +71,8 @@ enum class MessageKind {
 };
 
 // Spec: Fast message kind detection (no full JSON parse)
-[[nodiscard]] auto detect_message_kind(std::string_view payload) noexcept
-    -> MessageKind;
+[[nodiscard]] auto
+detect_message_kind(std::string_view payload) noexcept -> MessageKind;
 
 // Spec: Check if ID is within safe integer range
 [[nodiscard]] constexpr auto is_id_safe(std::uint64_t id) noexcept -> bool {
@@ -69,9 +80,9 @@ enum class MessageKind {
 }
 
 // Spec: Build command message {id, method, params}
-[[nodiscard]] auto build_command(id_type id_value, std::string_view method,
-                                 const boost::json::object &params = {})
-    -> std::string;
+[[nodiscard]] auto
+build_command(id_type id_value, std::string_view method,
+              const boost::json::object &params = {}) -> std::string;
 
 // Spec: Parsed response structure
 struct ParsedResponse {
@@ -87,11 +98,11 @@ struct ParsedResponse {
     std::string raw_json; // raw received payload
     std::chrono::steady_clock::duration
         latency{};               // duration between send and response
-    bool timeout_expired{false}; // true se construído localmente por timeout
+    bool timeout_expired{false}; // true if locally constructed due to timeout
 };
 
-[[nodiscard]] auto parse_response(std::string_view payload)
-    -> std::optional<ParsedResponse>;
+[[nodiscard]] auto
+parse_response(std::string_view payload) -> std::optional<ParsedResponse>;
 
 // Spec: Parsed event structure
 struct ParsedEvent {
@@ -99,8 +110,8 @@ struct ParsedEvent {
     boost::json::object params;
 };
 
-[[nodiscard]] auto parse_event(std::string_view payload)
-    -> std::optional<ParsedEvent>;
+[[nodiscard]] auto
+parse_event(std::string_view payload) -> std::optional<ParsedEvent>;
 
 // ======================== WebSocket Transport ========================
 
@@ -218,8 +229,8 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
         [[nodiscard]] auto is_active() const noexcept -> bool {
             return active_;
         }
-        [[nodiscard]] auto subscription_id() const noexcept
-            -> const std::string & {
+        [[nodiscard]] auto
+        subscription_id() const noexcept -> const std::string & {
             return subscription_id_;
         }
 

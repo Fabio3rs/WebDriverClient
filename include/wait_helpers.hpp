@@ -1,4 +1,27 @@
 #pragma once
+/**
+ * @file wait_helpers.hpp
+ * @brief Zero busy-wait element waiting using browser MutationObserver.
+ *
+ * Architectural rationale:
+ * - Zero busy-wait on browser side: Uses MutationObserver instead of polling
+ *   loops to detect when elements appear in the DOM. This is consistent with
+ *   the project's zero busy-wait principle.
+ * - Event-driven on client side: Returns a Promise that resolves when the
+ *   element appears or timeout expires, integrating with BiDi's async model.
+ * - Efficient DOM watching: MutationObserver is a browser-native primitive
+ *   that suspends until DOM changes occur (kernel-level event notification).
+ * - Timeout handling: Explicit timeout with automatic cleanup (observer
+ *   disconnection) prevents resource leaks in the browser context.
+ *
+ * Integration with architecture:
+ * - Used via script.evaluate BiDi command (promise-based execution)
+ * - await_promise=true enables co_await on client side
+ * - No CPU waste on either browser or client side
+ *
+ * @note This script is meant to be evaluated in the browser context via
+ *       BiDi script.evaluate command with await_promise=true.
+ */
 
 #include <string>
 

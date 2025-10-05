@@ -10,6 +10,19 @@
  * cross-executor composition where operations can span different execution
  * contexts.
  *
+ * @section Lazy_Evaluation
+ *
+ * **Lazy evaluation model:**
+ *
+ * - Operations are lazy: Async<T> objects are lightweight and do not start
+ *   execution when created.
+ * - Composition operators (.map, .and_then, .on_error, .timeout, .retry) build
+ *   up a chain of transformations without executing anything.
+ * - Terminal operations materialize the chain: .finally(), co_await, operator()
+ *   are the only triggers that start actual async work.
+ * - This design enables optimization (chain flattening) and clean error
+ * handling.
+ *
  * @section Synchronization
  *
  * **Why std::mutex instead of strand?**
@@ -129,17 +142,33 @@ template <> struct State<void> {
     explicit State(net::any_io_executor e) : ex(std::move(e)) {}
 };
 
-// awaiter genérico para Async<T> (definido em namespace para permitir
-// member templates como await_suspend). Possui especialização para void.
+// Generic awaiter for Async<T> (defined in namespace scope to allow
+// member templates like await_suspend). Specialized for void.
 template <class T> struct async_awaiter {
     std::shared_ptr<State<T>> st;
+    /**
+     * @brief Fast-path check for completion
+     *
+     * await_ready returns true when the shared state already holds a
+     * completion result. This enables the coroutine to continue without
+     * suspension when the operation finished before the co_await point.
+     */
     [[nodiscard]] auto await_ready() const noexcept -> bool { return st->done; }
     template <class Promise>
     void await_suspend(std::coroutine_handle<Promise> h) {
         std::scoped_lock lk(st->mx);
+        // Store a continuation that will resume the awaiting coroutine.
+        // The continuation is posted by the fulfiller via net::post so the
+        // resumption happens on the executor stored in the shared state.
         st->conts.push_back([h]() mutable { h.resume(); });
     }
     auto await_resume() -> T {
+        // On resume inspect the shared result variant. Order matters:
+        // 1) If a value is present, return it.
+        // 2) If an error_code is present, translate to system_error.
+        // 3) Otherwise the stored exception_ptr is rethrown preserving the
+        //    original domain exception type (this is how producers can
+        //    communicate typed exceptions across executors).
         if (auto p = std::get_if<T>(&st->result)) {
             return std::move(*p);
         }
@@ -290,9 +319,20 @@ template <class T = void> class Async {
 
     void request_stop() { st_->stop_src.request_stop(); }
 
+    /**
+     * @brief Notes on cancellation and stop_token
+     *
+     * Cancellation is cooperative: callers may invoke `request_stop()` or use
+     * the `stop_token` returned by `get_stop_token()` to observe cancellation.
+     * The library posts cancellation requests and it's the responsibility of
+     * producers to honor the stop token. This design keeps the Async primitive
+     * lightweight and allows different producers to implement their own
+     * cancellation semantics.
+     */
+
     using type = T;
 
-    // Conversão implícita para boost::asio::awaitable<void>
+    // Implicit conversion to boost::asio::awaitable<void>
     operator net::awaitable<void>() const {
         auto self = *this;
         return [self]() -> net::awaitable<void> {
@@ -301,11 +341,18 @@ template <class T = void> class Async {
         }();
     }
 
-    // Conversão implícita para boost::asio::awaitable<T>
+    // Implicit conversion to boost::asio::awaitable<T>
     operator net::awaitable<T>() const {
         auto self = *this;
         return [self]() -> net::awaitable<T> { co_return co_await self; }();
     }
+
+    /**
+     * @note The implicit conversions above capture `*this` by value to keep
+     * the shared state alive for the duration of the awaitable. This avoids
+     * use-after-move or lifetime issues when an Async is materialized inside
+     * a temporary expression in a coroutine.
+     */
 
     void cancel() { st_->stop_src.request_stop(); }
 
@@ -350,22 +397,51 @@ template <class T = void> class Async {
             initiation, std::forward<CompletionToken>(token));
     }
 
-    // ============================
-    // Default: returns awaitable<T>
-    // ============================
+    /**
+     * @brief Adapt Async<T> into a Boost.Asio awaitable
+     *
+     * This adapter converts a lazy `Async<T>` into a
+     * `boost::asio::awaitable<T>` so callers can `co_await` the operation
+     * inside a Boost.Asio coroutine. It uses the CompletionToken path
+     * (`use_awaitable`) internally to materialize the operation.
+     *
+     * Behavior:
+     * - Success: the awaitable returns the contained value (or returns
+     *   normally for `void`).
+     * - Failure with stored exception: if the shared state holds a
+     *   `std::exception_ptr` (for example a domain exception like
+     *   `ScriptEvaluateException`), the adapter will rethrow that exception
+     *   so the awaiting coroutine receives the original, typed exception.
+     * - Failure without stored exception: if a `boost::system::system_error`
+     *   occurred (e.g. transport or cancellation error) it will be propagated
+     *   unchanged.
+     *
+     * Note: producers may call `fail(std::exception_ptr)` to record domain
+     * exceptions. This adapter ensures those exceptions are preserved for
+     * `co_await` consumers rather than being masked as a generic
+     * `system_error`.
+     *
+     * @throws Any exception stored in the Async's state (rethrows the
+     *         original exception type) or `boost::system::system_error`
+     *         for transport/cancellation errors.
+     *
+     * Example usage:
+     * @code
+     * try {
+     *   auto value = co_await my_async_operation();
+     * } catch (const ScriptEvaluateException& e) {
+     *   // handle domain-specific error (preserved)
+     * } catch (const boost::system::system_error& se) {
+     *   // handle transport or cancellation errors
+     * }
+     * @endcode
+     */
     auto operator()() -> boost::asio::awaitable<T> {
-        // Use the CompletionToken path (use_awaitable) to integrate with
-        // Boost.Asio's awaitable machinery. If Boost.Asio throws a
-        // boost::system::system_error (e.g. operation_aborted) we inspect
-        // the shared state under the mutex and rethrow any stored
-        // std::exception_ptr so awaiting callers receive the original
-        // exception (e.g. ScriptEvaluateException) instead of a generic
-        // system_error.
         if constexpr (std::is_void_v<T>) {
             try {
                 co_await (*this)(boost::asio::use_awaitable);
                 co_return;
-            } catch (const boost::system::system_error &se) {
+            } catch (const boost::system::system_error & /*se*/) {
                 std::exception_ptr eptr;
                 {
                     std::scoped_lock lk(st_->mx);
@@ -382,7 +458,7 @@ template <class T = void> class Async {
         } else {
             try {
                 co_return co_await (*this)(boost::asio::use_awaitable);
-            } catch (const boost::system::system_error &se) {
+            } catch (const boost::system::system_error & /*se*/) {
                 std::exception_ptr eptr;
                 {
                     std::scoped_lock lk(st_->mx);
@@ -401,7 +477,9 @@ template <class T = void> class Async {
 
     template <class Fn> auto on_error(Fn fn) -> Async<T> {
         auto &a = *this;
-        auto ex = a.get_executor(); // assuma que você já expõe isso
+        // Capture the executor from this Async. The executor is used to
+        // create downstream Async objects and to post continuations.
+        auto ex = a.get_executor();
         auto out = Async<T>::make(ex);
 
         a.finally([out, fn](std::optional<T> v, std::optional<EC> ec,
@@ -410,7 +488,7 @@ template <class T = void> class Async {
                 out.fulfill(std::move(*v));
                 return;
             }
-            // Tap (efeito colateral); se só houver exceção, passe EC{}.
+            // Tap (side-effect); if only an exception is present, pass EC{}.
             try {
                 if (ec) {
                     fn(*ec);
@@ -418,7 +496,8 @@ template <class T = void> class Async {
                     // fn(EC{});
                 }
             } catch (...) {
-                // nunca deixe exceção escapar do handler
+                // Never let exceptions escape the handler; swallow to avoid
+                // terminating the process from user-provided handlers.
             }
             if (ec) {
                 out.fail(*ec);
@@ -429,7 +508,7 @@ template <class T = void> class Async {
         return out;
     }
 
-    // --- completar sucesso/erro (agora const) ---
+    // --- complete success/error (now const) ---
     void fulfill(T v) const {
         std::vector<std::function<void()>> cs;
         assert(st_ != nullptr);
@@ -442,6 +521,11 @@ template <class T = void> class Async {
             st_->result = std::move(v);
             cs.swap(st_->conts);
         }
+        // Post continuations to the executor stored in the shared state.
+        // Posting (instead of calling inline) ensures continuations run on
+        // the intended executor and avoids unexpectedly re-entering user
+        // code on the fulfiller's thread which could violate assumptions
+        // about executor affinity.
         for (auto &c : cs) {
             net::post(st_->ex, std::move(c));
         }
@@ -458,6 +542,8 @@ template <class T = void> class Async {
             st_->result = ec;
             cs.swap(st_->conts);
         }
+        // See note in fulfill(): post continuations to preserve executor
+        // affinity and avoid surprising inline invocation of user handlers.
         for (auto &c : cs) {
             net::post(st_->ex, std::move(c));
         }
@@ -474,6 +560,9 @@ template <class T = void> class Async {
             st_->result = eptr;
             cs.swap(st_->conts);
         }
+        // Rethrow semantics: producers store exception_ptr here. Consumers
+        // expecting typed domain exceptions will receive the original type
+        // when awaiting (see async_awaiter::await_resume()).
         for (auto &c : cs) {
             net::post(st_->ex, std::move(c));
         }
@@ -639,7 +728,7 @@ template <class T = void> class Async {
             }
         }
 
-        // remove todas as continuations sem completar (usado por timeout)
+        // remove all continuations without completing (used by timeout)
         void try_abandon() const noexcept {
             if (auto s = wst.lock()) {
                 std::scoped_lock lk(s->mx);
@@ -810,7 +899,7 @@ template <class T = void> class Async {
     }
 
   public:
-    // ---------- fábricas ----------
+    // ---------- factories ----------
     template <class U>
     static auto
     from_future(net::any_io_executor ex, std::future<U> fut,
@@ -832,8 +921,8 @@ template <class T = void> class Async {
     }
 
     template <class Initiator>
-    static auto from_callback(net::any_io_executor ex, Initiator init)
-        -> Async<T> {
+    static auto from_callback(net::any_io_executor ex,
+                              Initiator init) -> Async<T> {
         auto a = Async<T>::make(ex);
         init(
             [a](EC ec, T v) {
@@ -952,7 +1041,7 @@ template <> class Async<void> {
                 // anyway.
             }
         }
-        // remove todas as continuations sem completar (usado por timeout)
+        // remove all continuations without completing (used by timeout)
         void try_abandon() const noexcept {
             try {
                 if (auto s = wst.lock()) {
@@ -1183,8 +1272,8 @@ template <> class Async<void> {
 
   public:
     template <class Initiator>
-    static auto from_callback(const net::any_io_executor &ex, Initiator init)
-        -> Async<void> {
+    static auto from_callback(const net::any_io_executor &ex,
+                              Initiator init) -> Async<void> {
         auto a = Async<void>::make(ex);
         init(
             [a](EC ec) {
@@ -1201,8 +1290,8 @@ template <> class Async<void> {
 
 // ---------- combinadores livres: all / race / timeout ----------
 template <class T>
-auto all(net::any_io_executor ex, std::vector<Async<T>> vs)
-    -> Async<std::vector<T>> {
+auto all(net::any_io_executor ex,
+         std::vector<Async<T>> vs) -> Async<std::vector<T>> {
     auto out = Async<std::vector<T>>::make(ex);
     auto ops = std::make_shared<std::vector<Async<T>>>(std::move(vs));
     auto res = std::make_shared<std::vector<std::optional<T>>>(ops->size());
@@ -1351,7 +1440,7 @@ auto timeout(Async<T> inA, net::any_io_executor ex,
     auto weak_in = inA.weak();
     auto weak_out = out.weak();
 
-    // Quando o timer dispara primeiro -> falha por timeout
+    // When the timer fires first -> fail with timeout
     // Capture 'a' by value so we can request_stop() on it.
     // propagate cancellation from composed Async to the child and timer
     if (auto token = out.get_stop_token(); token.stop_possible()) {
@@ -1423,7 +1512,8 @@ inline auto value_on(const boost::asio::any_io_executor &ex) -> Async<void> {
 }
 
 inline auto value() -> Async<void> {
-    // executa no system_executor; é imediato e não bloqueia o seu io_context
+    // Execute on the system_executor; this is immediate and does not block
+    // the caller's io_context.
     auto a = Async<void>::make(boost::asio::system_executor{});
     a.fulfill();
     return a;
@@ -1588,8 +1678,8 @@ template <class F> auto filter_map(F transform_fn) {
  * @see State<T> for additional synchronization rationale
  */
 template <class T, class U>
-auto zip(Async<T> first_async, Async<U> second_async)
-    -> Async<std::tuple<T, U>> {
+auto zip(Async<T> first_async,
+         Async<U> second_async) -> Async<std::tuple<T, U>> {
     /**
      * @brief Shared state for zip coordination with cross-executor safety
      *

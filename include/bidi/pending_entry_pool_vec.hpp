@@ -3,13 +3,28 @@
  * @file pending_entry_pool_vec.hpp
  * @brief Pool-backed PendingEntry storage optimized for high-throughput.
  *
- * Rationale:
- * - Avoid per-request heap allocations by storing PendingEntry in a pool
- *   (`utils::PoolVec`). This reduces allocation churn under high concurrency
- *   and improves cache locality.
- * - The pool uses a fallback heap path when exhausted to preserve
- *   functionality without blocking; metrics expose fallback counts so tests
- *   can assert pool sizing expectations.
+ * Architectural rationale:
+ * - High-throughput optimization: Avoids per-request heap allocations by
+ *   storing PendingEntry in a pool (`utils::PoolVec`). Critical for
+ *   workloads with thousands of concurrent BiDi commands.
+ * - Cache locality: Contiguous PoolVec storage improves cache hit rates when
+ *   scanning pending entries (e.g., during timer expiry processing).
+ * - Integration with timer racing: Each PendingEntry participates in
+ *   operation vs steady_timer race for deterministic timeout handling.
+ * - Non-blocking semantics: Pool uses fallback heap path when exhausted to
+ *   preserve functionality without blocking callers.
+ * - Metrics instrumentation: Exposes acquire/reuse/fallback counts via
+ *   PoolMetrics for monitoring pool efficiency and detecting sizing issues.
+ *
+ * Performance characteristics:
+ * - Reduces allocation churn under high concurrency
+ * - PoolVec::Policy::Recreate ensures clean state per acquisition
+ * - Fallback path ensures graceful degradation under overload
+ *
+ * Integration with architecture:
+ * - Used by BiDiSession to store pending command responses
+ * - Works with timer_generation pattern to prevent stale callbacks
+ * - Supports zero busy-wait via native kernel timeout primitives
  */
 
 #include "bidi/core.hpp"
@@ -63,8 +78,8 @@ class PendingEntryHandleVec {
     ~PendingEntryHandleVec() noexcept = default;
 
     PendingEntryHandleVec(const PendingEntryHandleVec &) = delete;
-    auto operator=(const PendingEntryHandleVec &)
-        -> PendingEntryHandleVec & = delete;
+    auto operator=(const PendingEntryHandleVec &) -> PendingEntryHandleVec & =
+                                                         delete;
 
     auto operator->() noexcept -> PendingEntryVec * {
         if (pool_handle_) {
@@ -108,8 +123,8 @@ class PendingEntryPoolVec {
     ~PendingEntryPoolVec() = default;
 
     PendingEntryPoolVec(const PendingEntryPoolVec &) = delete;
-    auto operator=(const PendingEntryPoolVec &)
-        -> PendingEntryPoolVec & = delete;
+    auto
+    operator=(const PendingEntryPoolVec &) -> PendingEntryPoolVec & = delete;
     PendingEntryPoolVec(PendingEntryPoolVec &&) = delete;
     auto operator=(PendingEntryPoolVec &&) -> PendingEntryPoolVec & = delete;
 
@@ -152,7 +167,7 @@ class PendingEntryPoolVec {
     }
 
     // Stats wrapper
-    // Mantém struct antiga para compat (poderá ser removida após migração)
+    // Keep old struct for compatibility (may be removed after migration)
     struct Stats {
         std::size_t available{0};
         std::size_t acquired{0};
@@ -173,14 +188,14 @@ class PendingEntryPoolVec {
         legacy.returned =
             metrics_snapshot.acquired > metrics_snapshot.in_use
                 ? (metrics_snapshot.acquired - metrics_snapshot.in_use)
-                : 0; // aproximação
+                : 0; // approximation
         legacy.fallback = metrics_snapshot.fallback;
         legacy.failures = metrics_snapshot.failures;
         return legacy;
     }
 
-    [[nodiscard]] auto get_metrics() const noexcept
-        -> bidi::metrics::PoolMetrics {
+    [[nodiscard]] auto
+    get_metrics() const noexcept -> bidi::metrics::PoolMetrics {
         bidi::metrics::PoolMetrics pm{};
         pm.capacity = capacity_;
         pm.in_use = pool_.borrowed_count();
@@ -196,7 +211,7 @@ class PendingEntryPoolVec {
   private:
     utils::PoolVec<PendingEntryVec> pool_;
     std::size_t capacity_;
-    // Contadores atômicos (cumulativos)
+    // Atomic counters (cumulative)
     std::atomic<std::size_t> metrics_acquired_{0};
     std::atomic<std::size_t> metrics_reused_{
         0}; // sempre 0 para Policy::Recreate (placeholder para futuro
@@ -207,8 +222,8 @@ class PendingEntryPoolVec {
 };
 
 // Factory overload to match existing convenience
-inline auto make_pending_entry(PendingEntryPoolVec &pool)
-    -> PendingEntryHandleVec {
+inline auto
+make_pending_entry(PendingEntryPoolVec &pool) -> PendingEntryHandleVec {
     return pool.acquire_nonblocking();
 }
 

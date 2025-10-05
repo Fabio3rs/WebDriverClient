@@ -1,22 +1,31 @@
 #pragma once
 /**
  * @file client.hpp
- * @brief High-level BiDi Client implementing the project DX and lazy API.
+ * @brief High-level BiDi Client with lazy evaluation and RAII subscriptions.
  *
- * The public `Task<T>` API (alias for `asyncx::Async<T>`) is intentionally
- * lazy: operations are only materialized when a terminal is invoked (for
- * example `.finally()` or `co_await`). This design minimizes unnecessary
- * allocations and side-effects on the hot path.
- *
- * Rationale for [[nodiscard]] on Task-producing methods:
- * - Prevents accidental ignoring of lazy operations which would otherwise
- *   silently do nothing. The project enforces `[[nodiscard]]` for these
- *   methods at source to make misuse visible at compile time.
+ * Architectural rationale:
+ * - Lazy evaluation model: The public `Task<T>` API (alias for
+ * `asyncx::Async<T>`) is intentionally lazy. Operations are only materialized
+ * when a terminal is invoked (`.finally()` or `co_await`). This design
+ * minimizes unnecessary allocations and side-effects on the hot path.
+ * - [[nodiscard]] enforcement: Prevents accidental ignoring of lazy operations
+ *   which would otherwise silently do nothing. Compile-time safety for API
+ * misuse.
+ * - RAII subscription management: Event subscriptions return RAII handles that
+ *   auto-unsubscribe on destruction, preventing subscription leaks.
+ * - Integration with BiDiSession: Client wraps core::BiDiSession and provides
+ *   high-level convenience methods while preserving all architectural
+ * guarantees (strand serialization, timer racing, pool-based allocation).
+ * - Pool-based allocation: Underlying BiDiSession uses pending_entry pools and
+ *   buffer pools to minimize allocation overhead under high throughput.
+ * - Zero busy-wait: All async operations use native kernel suspension via
+ *   Boost.Asio primitives (epoll/kqueue/IOCP).
  *
  * Threading expectations:
  * - Client methods are non-blocking and will post work to the session's
- *   strand when necessary. Long blocking waits should not be performed on the
- *   strand.
+ *   strand when necessary.
+ * - Long blocking waits must not be performed on the strand to avoid deadlocks.
+ * - Terminal operations (.finally, co_await) trigger actual async work.
  */
 
 #include "asyncx.hpp"
@@ -71,29 +80,28 @@ class Client : public std::enable_shared_from_this<Client> {
     [[nodiscard]] auto close_context(std::string_view context) -> Task<bool>;
 
     // Get browsing context tree
-    [[nodiscard]] auto get_context_tree(std::string_view root = {})
-        -> Task<boost::json::object>;
+    [[nodiscard]] auto
+    get_context_tree(std::string_view root = {}) -> Task<boost::json::object>;
 
     // ======================== Script API ========================
 
     // Evaluate JavaScript expression
-    [[nodiscard]] auto evaluate(std::string_view expression,
-                                std::string_view context,
-                                bool await_promise = true)
-        -> Task<boost::json::object>;
+    [[nodiscard]] auto
+    evaluate(std::string_view expression, std::string_view context,
+             bool await_promise = true) -> Task<boost::json::object>;
 
     // Evaluate JavaScript expression with script evaluation policy
     [[nodiscard]] auto
     evaluate(std::string_view expression, std::string_view context,
-             script::script_eval_policy policy, bool await_promise = true)
-        -> Task<script::ScriptEvalOutcome>;
+             script::script_eval_policy policy,
+             bool await_promise = true) -> Task<script::ScriptEvalOutcome>;
 
     // Call JavaScript function
-    [[nodiscard]] auto call_function(std::string_view function_declaration,
-                                     std::string_view context,
-                                     const boost::json::array &arguments = {},
-                                     bool await_promise = true)
-        -> Task<boost::json::object>;
+    [[nodiscard]] auto
+    call_function(std::string_view function_declaration,
+                  std::string_view context,
+                  const boost::json::array &arguments = {},
+                  bool await_promise = true) -> Task<boost::json::object>;
 
     // ======================== Session API ========================
 

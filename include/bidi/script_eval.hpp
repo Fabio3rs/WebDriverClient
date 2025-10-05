@@ -23,23 +23,23 @@
 #include <string>
 #include <vector>
 
-// Forward declaration minimal de ParsedResponse para evitar incluir core.hpp
-// neste header
+// Minimal forward declaration of ParsedResponse to avoid including core.hpp
+// in this header
 namespace bidi::core {
 struct ParsedResponse;
 }
 
 namespace bidi::script {
 
-// Representa um frame de stack de script (quando fornecido pelo driver BiDi)
+// Represents a script stack frame (when provided by the BiDi driver)
 struct ScriptStackFrame {
-    std::string url;                // pode estar vazio
-    std::string function_name;      // pode estar vazio
-    std::int64_t line_number{-1};   // -1 quando ausente
-    std::int64_t column_number{-1}; // -1 quando ausente
+    std::string url;                // may be empty
+    std::string function_name;      // may be empty
+    std::int64_t line_number{-1};   // -1 when absent
+    std::int64_t column_number{-1}; // -1 when absent
 };
 
-// Detalhes completos de uma exception de script, preservando subobjeto bruto
+// Full details of a script exception, preserving the raw sub-object
 struct ScriptExceptionDetails {
     std::string exception_type; // normalmente "exception"
     std::string text;           // exceptionDetails.text
@@ -53,24 +53,24 @@ struct ScriptExceptionDetails {
         raw; // snapshot de exceptionDetails (ou vazio se inexistente)
 };
 
-// Política de avaliação de script para tratamento de exceptions
+// Script evaluation policy for exception handling
 enum class script_eval_policy : std::uint8_t {
     throw_on_script_exception,
     return_outcome
 };
 
-// Resultado composto opcional (usado quando política == return_outcome)
+// Composite optional result (used when policy == return_outcome)
 struct ScriptEvalOutcome {
-    boost::json::value result; // valor normal (se não houve exception)
+    boost::json::value result; // normal value (if no exception)
     std::optional<ScriptExceptionDetails>
-        exception;           // presente se script lançou
+        exception;           // present if the script threw
     boost::json::object raw; // sempre: response.result original
     [[nodiscard]] auto has_exception() const noexcept -> bool {
         return exception.has_value();
     }
 };
 
-// Exceção especializada contendo detalhes completos
+// Specialized exception containing full details
 class ScriptEvaluateException : public std::runtime_error {
     ScriptExceptionDetails details_;
 
@@ -79,33 +79,31 @@ class ScriptEvaluateException : public std::runtime_error {
         : std::runtime_error(details.text.empty() ? "script evaluate exception"
                                                   : details.text),
           details_(std::move(details)) {}
-    [[nodiscard]] auto details() const noexcept
-        -> const ScriptExceptionDetails & {
+    [[nodiscard]] auto
+    details() const noexcept -> const ScriptExceptionDetails & {
         return details_;
     }
 };
 
-// API interna: detecta se result representa uma exception de script
+// Internal API: detect whether result represents a script exception
 [[nodiscard]] auto
 is_script_exception_result(const boost::json::object &result) noexcept -> bool;
 
-// API interna: extrai ScriptExceptionDetails de um result cujo type ==
+// Internal API: parse ScriptExceptionDetails from a result whose type ==
 // "exception"
-[[nodiscard]] auto
-parse_script_exception(const boost::json::object &result) noexcept
-    -> ScriptExceptionDetails;
+[[nodiscard]] auto parse_script_exception(
+    const boost::json::object &result) noexcept -> ScriptExceptionDetails;
 
-// Estrutura auxiliar interna usada pelo overload evaluate para aplicar
-// política.
+// Internal helper structure used by the evaluate overload to apply policy.
 struct PolicyApplicationResult {
     enum class Action : std::uint8_t { fulfill, throw_exception };
     Action action{Action::fulfill};
-    ScriptEvalOutcome outcome;        // válido quando action == fulfill
-    ScriptExceptionDetails exception; // válido quando action == throw_exception
+    ScriptEvalOutcome outcome;        // valid when action == fulfill
+    ScriptExceptionDetails exception; // valid when action == throw_exception
 };
 
-[[nodiscard]] auto apply_policy(const core::ParsedResponse &response,
-                                script_eval_policy policy) noexcept
-    -> PolicyApplicationResult;
+[[nodiscard]] auto
+apply_policy(const core::ParsedResponse &response,
+             script_eval_policy policy) noexcept -> PolicyApplicationResult;
 
 } // namespace bidi::script

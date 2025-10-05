@@ -1,17 +1,29 @@
 #pragma once
 /**
  * @file buffer_pool_vec.hpp
- * @brief PoolVec-backed buffer pool proof-of-concept.
+ * @brief PoolVec-backed buffer pool for zero-copy WebSocket operations.
  *
- * This implementation mirrors `BufferPool` but stores slots in a pooled
- * `PoolVec` structure to reduce per-buffer allocations and improve locality.
- * Design notes:
- * - When a pooled slot is not available the implementation falls back to a
- *   heap-allocated buffer to preserve functionality (fallback path visible in
- *   tests via BufferPool::Stats).
- * - The returned `BufferHandle` keeps an owner object alive which releases
- *   the slot when the handle is destroyed. This preserves RAII semantics for
- *   the buffer while keeping the pool implementation efficient.
+ * Architectural rationale:
+ * - Zero-copy operations: Buffers are reused across multiple WebSocket
+ *   write operations, eliminating per-message allocations.
+ * - Size class optimization: Four size classes (Small/Medium/Large/XLarge)
+ *   minimize wasted memory while covering typical BiDi message sizes.
+ * - Cache locality: PoolVec stores buffer slots contiguously, improving
+ *   cache hit rates during high-throughput operations.
+ * - RAII semantics: BufferHandle automatically returns buffer to pool on
+ *   destruction, preventing leaks and simplifying error handling.
+ * - Non-blocking fallback: When pool exhausted, falls back to heap allocation
+ *   to preserve functionality without blocking (metrics expose fallback count).
+ *
+ * Performance characteristics:
+ * - Eliminates allocation overhead for steady-state operations
+ * - Reduces memory fragmentation from repeated alloc/free cycles
+ * - Metrics tracking enables pool sizing validation
+ *
+ * Integration with architecture:
+ * - Used by WebSocket write queue for serialized message sends
+ * - Supports Beast's buffer sequence interface for zero-copy async_write
+ * - Metrics tracked via BufferPool::Stats for monitoring
  */
 
 #include "../utils/PoolVec.hpp"

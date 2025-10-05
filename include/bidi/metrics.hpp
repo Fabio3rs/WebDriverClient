@@ -19,19 +19,18 @@
 
 namespace bidi::metrics {
 
-// Unificação de métricas de pools (P0-3):
-// Estrutura padronizada para todos os pools de recursos.
-// Campos cumulativos onde aplicável; in_use é instantâneo.
+// Unification of pool metrics (P0-3):
+// Standardized shape for all resource pools.
+// Cumulative fields where applicable; in_use is instantaneous.
 struct PoolMetrics {
-    std::size_t capacity{0}; // slots configurados ou capacidade lógica
-    std::size_t in_use{0};   // slots atualmente emprestados/ocupados
-    std::size_t acquired{0}; // total de aquisições (inclui reused + created)
+    std::size_t capacity{0}; // configured slots or logical capacity
+    std::size_t in_use{0};   // slots currently borrowed/occupied
+    std::size_t acquired{0}; // total acquisitions (includes reused + created)
     std::size_t reused{
-        0}; // aquisições servidas a partir de objeto já inicializado
-    std::size_t created{0};  // construções efetivas de objeto
-    std::size_t fallback{0}; // vezes que recorreu a heap/out-of-pool
-    std::size_t failures{
-        0}; // falhas de construção ou outros erros transitórios
+        0}; // acquisitions served from already-initialized object
+    std::size_t created{0};  // actual object constructions
+    std::size_t fallback{0}; // times fell back to heap/out-of-pool
+    std::size_t failures{0}; // construction failures or other transient errors
 };
 
 // Simple thread-safe counter

@@ -145,7 +145,7 @@ enum class CreateType { tab, window };     // browsingContext.CreateType
 } // namespace values
 } // namespace ids
 
-namespace mod {  // camadas tipadas por módulo
+namespace mod {  // typed layers per module
 struct Session { /* status/new/end/subscribe/unsubscribe */
 };
 struct Browser { /* user contexts, client windows */

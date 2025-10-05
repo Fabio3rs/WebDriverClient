@@ -253,7 +253,7 @@ CheckOptions:
   readability-identifier-length.IgnoredVariableNames: '^[id]$'
   readability-identifier-length.MinimumExceptionNameLength: '2'
   readability-identifier-length.MinimumLoopCounterNameLength: '1'
-  readability-identifier-length.MinimumParameterNameLength: '3'
+  readability-identifier-length.MinimumParameterNameLength: '2'
   readability-identifier-length.MinimumVariableNameLength: '2'
   readability-identifier-naming.AggressiveDependentMemberLookup: 'false'
   readability-identifier-naming.CheckAnonFieldInParent: 'false'

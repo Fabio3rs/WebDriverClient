@@ -1,19 +1,31 @@
 #pragma once
 /**
  * @file guards.hpp
- * @brief Collection of small RAII helpers used throughout tests and examples.
+ * @brief RAII guards for deterministic resource cleanup in tests and examples.
  *
- * Rationale:
- * - Tests and examples create many resources that must be reliably cleaned up
- *   (sessions, timers, io threads). These helpers codify the recommended
- *   cleanup order used by the project: unsubscribe -> disconnect -> drain ->
- *   stop -> join. Using RAII here reduces boilerplate in examples and makes
- *   tests deterministic (important for ASan leak checking).
- * - TimerGuard cancels timers explicitly in destructors to avoid dangling
- *   callbacks that could be observed by sanitizers as indirect leaks when
- *   stress tests create thousands of timers.
- * - IoContextGuard ensures io_context is stopped and the runner thread is
- *   joined to avoid races during teardown.
+ * Architectural rationale:
+ * - RAII everywhere: Core project principle is automatic resource management
+ *   via RAII wrappers. These guards codify the recommended cleanup order:
+ *   unsubscribe → disconnect → drain → stop → join.
+ * - Resource leak prevention: Guarantees cleanup even when exceptions occur
+ *   or early returns happen. Critical for ASan/LSan leak detection in tests.
+ * - Deterministic cleanup ordering: Destructors enforce correct teardown
+ *   sequence to avoid use-after-free and race conditions during shutdown.
+ * - Integration with zero busy-wait: IoContextGuard ensures io_context is
+ *   stopped and runner threads are joined without polling loops.
+ * - Timer lifecycle safety: TimerGuard explicitly cancels timers in destructor
+ *   to avoid dangling callbacks observed by sanitizers as indirect leaks in
+ *   stress tests with thousands of timers.
+ *
+ * Usage pattern:
+ * - SessionGuard: WebDriver HTTP session lifecycle (auto-cleanup on scope exit)
+ * - ClientGuard: BiDi client with subscription management (RAII unsubscribe)
+ * - TimerGuard: Explicit timer cancellation (prevents callback races)
+ * - IoContextGuard: io_context + runner thread lifecycle (safe shutdown)
+ *
+ * @note These guards are intended for tests and examples where boilerplate
+ *       reduction and deterministic cleanup are priorities. Production code
+ *       may prefer explicit lifecycle management for finer control.
  */
 
 #include "WebDriverClient.hpp"
@@ -245,8 +257,8 @@ class ClientGuard {
         return client_;
     }
 
-    [[nodiscard]] auto client() const noexcept
-        -> const std::shared_ptr<bidi::Client> & {
+    [[nodiscard]] auto
+    client() const noexcept -> const std::shared_ptr<bidi::Client> & {
         return client_;
     }
 

@@ -1,4 +1,41 @@
 #pragma once
+/**
+ * @file retry_backoff.hpp
+ * @brief Exponential backoff retry logic with zero busy-wait.
+ *
+ * Architectural rationale:
+ * - Zero busy-wait: Retry delays use boost::asio::steady_timer for native
+ *   kernel suspension (epoll/kqueue/IOCP). No sleep() or polling loops.
+ * - Exponential backoff: Configurable multiplier and max delay prevent
+ *   overwhelming failing services while allowing fast recovery.
+ * - Jitter: Randomized delay prevents thundering herd when multiple clients
+ *   retry simultaneously after shared service failure.
+ * - Integration with asyncx: Lazy evaluation model - retry chain is built
+ *   but not executed until terminal operation (.finally, co_await).
+ * - Cooperative cancellation: Respects stop_token for clean shutdown during
+ *   retry sequences without busy-wait polling.
+ *
+ * Performance characteristics:
+ * - Native kernel suspension for retry delays (no CPU waste)
+ * - Configurable retry policy per operation
+ * - Optional retry hooks for logging/metrics
+ * - Lazy evaluation enables optimization (chain flattening)
+ *
+ * Usage pattern:
+ * @code
+ * RetryPolicy policy{.max_tries = 5, .first_delay = 100ms, .multiplier = 2.0};
+ * auto result = co_await retry_with_backoff<Result>(
+ *     [&]() { return make_network_request(); },
+ *     executor,
+ *     policy
+ * );
+ * @endcode
+ *
+ * Integration with architecture:
+ * - Used by BiDi client for transient network failures
+ * - Works with pool-based allocation (minimal overhead per retry)
+ * - Respects strand serialization when used within BiDi session
+ */
 
 #include "asyncx.hpp"
 #include <algorithm>

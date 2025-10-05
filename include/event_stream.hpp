@@ -1,4 +1,4 @@
-// event_stream.hpp — versão com Shared-State (copiável/movível)
+// event_stream.hpp — shared-state version (copyable/movable)
 #pragma once
 #include <algorithm>
 #include <atomic>
@@ -30,7 +30,7 @@ template <class E> class EventStream {
         boost::asio::any_io_executor ex;
         std::mutex mx;
         std::vector<std::pair<std::uint64_t, Handler>> subs;
-        std::vector<Subscription> holds; // para manter encadeamentos vivos
+        std::vector<Subscription> holds; // to keep chains alive
         std::atomic<std::uint64_t> next_id{1};
     };
 
@@ -41,18 +41,18 @@ template <class E> class EventStream {
     explicit EventStream(boost::asio::any_io_executor ex)
         : st_(std::make_shared<State>(std::move(ex))) {}
 
-    // cópia/move default OK (só move/copia o shared_ptr)
+    // default copy/move OK (only moves/copies the shared_ptr)
     EventStream(const EventStream &) = default;
     EventStream(EventStream &&) noexcept = default;
     auto operator=(const EventStream &) -> EventStream & = default;
     auto operator=(EventStream &&) noexcept -> EventStream & = default;
 
-    [[nodiscard]] auto valid() const -> bool { return (bool)st_; }
+    [[nodiscard]] auto valid() const -> bool { return static_cast<bool>(st_); }
     [[nodiscard]] auto get_executor() const -> boost::asio::any_io_executor {
         return st_->ex;
     }
 
-    // publica um evento para todos os assinantes (thread-safe)
+    // publish an event to all subscribers (thread-safe)
     void push(const E &e) const {
         std::vector<Handler> cbs;
         {
@@ -67,7 +67,7 @@ template <class E> class EventStream {
         }
     }
 
-    // assinar => devolve Subscription com cancel
+    // subscribe => returns Subscription with cancel
     auto subscribe(Handler h) const -> Subscription {
         const auto id = st_->next_id.fetch_add(1, std::memory_order_relaxed);
         {
@@ -86,17 +86,18 @@ template <class E> class EventStream {
         }};
     }
 
-    // operadores funcionais — retornam novos streams (copiáveis/movíveis)
+    // functional operators — return new streams (copyable/movable)
 
-    auto take_until(const std::shared_ptr<StopToken> &stop) const
-        -> EventStream<E> {
+    auto
+    take_until(const std::shared_ptr<StopToken> &stop) const -> EventStream<E> {
         EventStream<E> out(st_->ex);
         auto sub = subscribe([out, stop](const E &e) mutable {
             if (!stop->stop.load(std::memory_order_relaxed)) {
                 out.push(e);
             }
         });
-        out.st_->holds.push_back(std::move(sub)); // mantém a ligação viva
+        out.st_->holds.push_back(
+            std::move(sub)); // keeps the subscription alive
         return out;
     }
 
