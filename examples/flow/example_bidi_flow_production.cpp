@@ -72,6 +72,12 @@ class ProductionFlowExample {
                 context_id, "https://example.com")();
             (void)co_await client_guard.client()->evaluate("document.title",
                                                            context_id)();
+
+            auto elementTest = co_await client_guard.client()->evaluate(
+                "document.documentElement", context_id)();
+
+            bidi::logging::log_info(std::string("  elementTest: ") +
+                                    boost::json::serialize(elementTest));
             finished_.store(true, std::memory_order_release);
             co_return 0;
         } catch (...) {

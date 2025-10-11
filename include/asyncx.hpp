@@ -356,6 +356,10 @@ template <class T = void> class Async {
 
     void cancel() { st_->stop_src.request_stop(); }
 
+    auto as_boost_future() { return (*this)(boost::asio::use_future); }
+
+    auto get() { return as_boost_future().get(); }
+
     // ============================
     // CompletionToken support (refactored for reduced complexity)
     // ============================

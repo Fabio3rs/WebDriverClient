@@ -103,6 +103,15 @@ class Client : public std::enable_shared_from_this<Client> {
                   const boost::json::array &arguments = {},
                   bool await_promise = true) -> Task<boost::json::object>;
 
+    // Call JavaScript function
+    [[nodiscard]] auto
+    call_function(std::string_view function_declaration,
+                  std::string_view context,
+                  const boost::json::array &arguments = {},
+                  script::script_eval_policy policy =
+                      script::script_eval_policy::return_outcome,
+                  bool await_promise = true) -> Task<script::ScriptEvalOutcome>;
+
     // ======================== Session API ========================
 
     // Subscribe to events (returns RAII subscription handle)

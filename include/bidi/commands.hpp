@@ -109,6 +109,13 @@ struct Target {
     const boost::json::array &arguments = {}, bool await_promise = true,
     ResultOwnership ownership = ResultOwnership::root) -> boost::json::object;
 
+template <class... Args>
+auto call_function(const Target &target, std::string_view function_declaration,
+                   Args &&...args) -> boost::json::object {
+    return call_function(function_declaration, target,
+                         boost::json::array{std::forward<Args>(args)...});
+}
+
 // Build script.disown params (cleanup remote objects)
 [[nodiscard]] auto disown(const boost::json::array &handles,
                           const Target &target) -> boost::json::object;

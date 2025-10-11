@@ -4,6 +4,7 @@
 #include "WebDriverClient.hpp"
 #include "bidi/client.hpp"
 #include "bidi/commands.hpp"
+#include "bidi/script/function_wrapper.hpp"
 #include "bidi/script_eval.hpp"
 
 #include <boost/asio/awaitable.hpp>
@@ -158,6 +159,29 @@ TEST_F(BiDiClientScriptTest, CallFunctionExceptionHandling) {
         "throwError", context_id_, empty_args, false));
     ASSERT_TRUE(result.contains("type"));
     EXPECT_EQ(result.at("type").as_string(), "exception");
+}
+
+TEST_F(BiDiClientScriptTest, CallFunctionWithWrapper) {
+    run_task(bidi_client_->evaluate(R"js(
+        function add(a, b) { return a + b; }
+    )js",
+                                    context_id_));
+
+    auto fun = bidi::script::make_function_caller<int, int, int>(
+        bidi_client_, context_id_, "add");
+    auto result = run_task(fun(2, 3));
+    ASSERT_EQ(result, 5);
+}
+
+TEST_F(BiDiClientScriptTest, CallFunctionWithWrapperThrowing) {
+    run_task(bidi_client_->evaluate(R"js(
+        function willThrow() { throw new Error('function error'); }
+    )js",
+                                    context_id_));
+
+    auto fun = bidi::script::make_function_caller<int>(
+        bidi_client_, context_id_, "willThrow");
+    EXPECT_THROW((void)run_task(fun()), ScriptEvaluateException);
 }
 
 TEST_F(BiDiClientScriptTest, ThrowPolicyExceptionWithoutDetails) {

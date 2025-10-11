@@ -296,8 +296,6 @@ list(APPEND WEBDRIVER_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/bidi_threading.cpp"          # Core threading
     "${CMAKE_CURRENT_SOURCE_DIR}/src/bidi_session_threaded.cpp"   # BiDi session
     "${CMAKE_CURRENT_SOURCE_DIR}/src/bidi_memory_pool.cpp"        # JSON arena allocation
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/bidi_timer_pool.cpp"         # Timer wheel
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/bidi_buffer_pool.cpp"        # Zero-copy buffers
 )
 
 # Create library target
@@ -384,11 +382,6 @@ if(WEBDRIVER_BUILD_EXAMPLES)
         target_link_libraries(example_bidi_threading_baseline PRIVATE webdriverclientcpp)
         configure_compiler_flags(example_bidi_threading_baseline)
         configure_sanitizers(example_bidi_threading_baseline)
-
-        add_executable(example_bidi_threading_optimized "examples/threading/example_bidi_threading_optimized.cpp")
-        target_link_libraries(example_bidi_threading_optimized PRIVATE webdriverclientcpp)
-        configure_compiler_flags(example_bidi_threading_optimized)
-        configure_sanitizers(example_bidi_threading_optimized)
 
         # New multi-threading examples with strand safety
         add_executable(example_multithreaded_basic "examples/threading/example_multithreaded_basic.cpp")
