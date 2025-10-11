@@ -42,6 +42,12 @@ auto AutomationSession::start(std::string_view webdriver_url,
     auto context_task = client->create_context();
     auto context_id = context_task.get(); // Blocking call via Task<T>::get()
 
+    // Validate context creation
+    if (context_id.empty()) {
+        throw std::runtime_error(
+            "Failed to create browsing context: empty context ID returned");
+    }
+
     // Phase 4: Extract SessionGuard from ConnectionBuilder's capture
     // Note: We rely on SessionGuard being kept alive by ConnectionBuilder's map
     // continuation.
@@ -51,8 +57,8 @@ auto AutomationSession::start(std::string_view webdriver_url,
 
     bidi::logging::log_info("AutomationSession started: context=" + context_id);
 
-    return AutomationSession(std::move(runner), std::move(session_guard),
-                             client, std::move(context_id));
+    return {std::move(runner), std::move(session_guard), client,
+            std::move(context_id)};
 }
 
 // Navigate (async, returns lazy Task)
@@ -68,24 +74,12 @@ auto AutomationSession::evaluate(std::string_view expression)
 
 // Get page title (convenience wrapper)
 auto AutomationSession::get_title() -> Task<std::string> {
-    return evaluate("document.title")
-        .map([](boost::json::object result) -> std::string {
-            if (result.contains("value") && result.at("value").is_string()) {
-                return std::string(result.at("value").as_string());
-            }
-            return "";
-        });
+    return evaluate_as_or("document.title", std::string(""));
 }
 
 // Get current URL (convenience wrapper)
 auto AutomationSession::get_url() -> Task<std::string> {
-    return evaluate("document.location.href")
-        .map([](boost::json::object result) -> std::string {
-            if (result.contains("value") && result.at("value").is_string()) {
-                return std::string(result.at("value").as_string());
-            }
-            return "";
-        });
+    return evaluate_as_or("document.location.href", std::string(""));
 }
 
 } // namespace bidi

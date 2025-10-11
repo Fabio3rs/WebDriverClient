@@ -1,8 +1,21 @@
 #pragma once
+/**
+ * @file resilience.hpp
+ * @brief Resilience patterns for BiDi operations
+ *
+ * Provides retry logic with exponential backoff and timeout operations with
+ * fallback values. These patterns help build robust automation that can handle
+ * transient failures and timing constraints.
+ *
+ * Architectural patterns:
+ * - Retry: Iterative resilience for transient failures
+ * - Timeout: Temporal constraints with graceful degradation
+ */
+
 #include "bidi/client.hpp"
 #include <chrono>
 
-namespace bidi::helpers {
+namespace bidi::resilience {
 
 struct RetryPolicy {
     int max_attempts = 3;
@@ -57,4 +70,9 @@ template <typename T, typename Factory>
     return current;
 }
 
-} // namespace bidi::helpers
+} // namespace bidi::resilience
+
+// Legacy compatibility alias
+namespace bidi {
+namespace helpers = resilience;
+} // namespace bidi

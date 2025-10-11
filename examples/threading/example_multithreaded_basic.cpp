@@ -36,8 +36,8 @@ void log_thread(const std::string &message) {
 // eram usadas em frames de corrotinas finalizados). strings são pequenas e
 // movidas pelo NRVO.
 auto execute_concurrent_commands(std::shared_ptr<bidi::Client> client,
-                                 std::string context_id, int command_count)
-    -> asio::awaitable<void> {
+                                 std::string context_id,
+                                 int command_count) -> asio::awaitable<void> {
 
     log_thread("Starting concurrent command execution");
 

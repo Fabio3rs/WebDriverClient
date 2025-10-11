@@ -78,8 +78,8 @@ class Strutils {
     }
 
     static constexpr auto constexpr_strncat(char *dest, const size_t start,
-                                            const char *src, const size_t n)
-        -> char * {
+                                            const char *src,
+                                            const size_t n) -> char * {
         for (size_t i = start; i < n; i++) {
             dest[i] = src[i];
         }
@@ -110,8 +110,8 @@ class Strutils {
     }
 
     template <class StrType = std::string>
-    static auto explode(std::string_view strview, std::string_view term)
-        -> std::vector<StrType> {
+    static auto explode(std::string_view strview,
+                        std::string_view term) -> std::vector<StrType> {
         size_t current = 0;
         std::vector<StrType> result;
 
@@ -217,8 +217,8 @@ class Strutils {
     }
 
     template <class StrType = std::string>
-    static auto split(std::string_view strview, std::string_view term)
-        -> std::vector<StrType> {
+    static auto split(std::string_view strview,
+                      std::string_view term) -> std::vector<StrType> {
         size_t current = 0;
         std::vector<StrType> result;
 

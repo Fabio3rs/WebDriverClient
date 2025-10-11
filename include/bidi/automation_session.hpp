@@ -1,14 +1,16 @@
 #pragma once
 
 #include "bidi/client.hpp"
-#include "bidi/connection_builder.hpp"
 #include "bidi/guards.hpp"
 #include "bidi/io_context_runner.hpp"
+#include "bidi/script/extraction.hpp"
+#include "bidi/script_eval.hpp"
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/json/object.hpp>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 
@@ -94,8 +96,8 @@ class AutomationSession {
      * auto title = result.at("value").as_string();
      * @endcode
      */
-    [[nodiscard]] auto
-    evaluate(std::string_view expression) -> Task<boost::json::object>;
+    [[nodiscard]] auto evaluate(std::string_view expression)
+        -> Task<boost::json::object>;
 
     /**
      * @brief Get page title (convenience wrapper for evaluate) (ASYNC)
@@ -117,6 +119,159 @@ class AutomationSession {
     [[nodiscard]] auto get_url() -> Task<std::string>;
 
     /**
+     * @brief Type-safe JavaScript evaluation (ASYNC)
+     *
+     * Evaluates expression and automatically converts result to specified type.
+     * Eliminates manual JSON parsing boilerplate.
+     *
+     * @tparam T Expected return type (must be Boost.JSON compatible)
+     * @param expression JavaScript code to evaluate
+     * @return Task<T> - Typed result (lazy, call () to execute)
+     *
+     * @throws std::runtime_error if conversion fails
+     * @throws ScriptEvaluateException if script execution fails
+     *
+     * @example
+     * @code
+     * // Instead of manual parsing:
+     * auto result = co_await session.evaluate("document.readyState")();
+     * std::string state = result.at("value").as_string();  // Manual!
+     *
+     * // Type-safe alternative:
+     * auto state = co_await
+     * session.evaluate_as<std::string>("document.readyState")();
+     *
+     * // Works with all JSON-compatible types:
+     * auto count = co_await
+     * session.evaluate_as<int>("document.links.length")(); auto visible =
+     * co_await session.evaluate_as<bool>("document.hasFocus()")();
+     * @endcode
+     */
+    template <typename T>
+    [[nodiscard]] auto evaluate_as(std::string_view expression) -> Task<T> {
+        return evaluate(expression)
+            .map([expr = std::string(expression)](
+                     boost::json::object result) -> T {
+                try {
+                    return bidi::script::extract_value<T>(result);
+                } catch (const std::exception &e) {
+                    throw std::runtime_error(std::format(
+                        "evaluate_as failed for expression '{}': {}", expr,
+                        e.what()));
+                }
+            });
+    }
+
+    /**
+     * @brief Type-safe evaluation with fallback (ASYNC)
+     *
+     * @tparam T Expected return type
+     * @param expression JavaScript code to evaluate
+     * @param fallback Default value if evaluation or conversion fails
+     * @return Task<T> - Typed result or fallback
+     *
+     * @example
+     * @code
+     * auto title = co_await session.evaluate_as_or("document.title",
+     *                                               std::string("Untitled"))();
+     * auto count = co_await session.evaluate_as_or("document.links.length",
+     * 0)();
+     * @endcode
+     */
+    template <typename T>
+    [[nodiscard]] auto evaluate_as_or(std::string_view expression, T fallback)
+        -> Task<T> {
+        return evaluate(expression)
+            .map([fallback =
+                      std::move(fallback)](boost::json::object result) -> T {
+                return bidi::script::extract_value_or(result, fallback);
+            });
+    }
+
+    /**
+     * @brief Policy-aware JavaScript evaluation (ASYNC)
+     *
+     * Uses script evaluation policy to control exception handling.
+     * With return_outcome policy, script exceptions are captured in the result
+     * instead of being thrown, allowing inspection of exception details.
+     *
+     * @param expression JavaScript code to evaluate
+     * @param policy Exception handling policy
+     * @return Task<script::ScriptEvalOutcome> - Result with optional exception
+     *
+     * @example
+     * @code
+     * using namespace bidi::script;
+     * auto outcome = co_await session.evaluate_outcome(
+     *     "nonexistent.property",
+     *     script_eval_policy::return_outcome
+     * )();
+     *
+     * if (outcome.has_exception()) {
+     *     std::cerr << "Script error: " << outcome.exception->text << "\n";
+     *     std::cerr << "Line: " << outcome.exception->line_number.value_or(-1)
+     * << "\n"; } else {
+     *     // Process result
+     * }
+     * @endcode
+     */
+    [[nodiscard]] auto
+    evaluate_outcome(std::string_view expression,
+                     script::script_eval_policy policy =
+                         script::script_eval_policy::return_outcome)
+        -> Task<script::ScriptEvalOutcome> {
+        return client_->evaluate(expression, context_id_, policy);
+    }
+
+    /**
+     * @brief Type-safe policy-aware evaluation (ASYNC)
+     *
+     * Combines policy-aware evaluation with type-safe extraction.
+     * Provides rich exception details when script fails.
+     *
+     * @tparam T Expected return type
+     * @param expression JavaScript code to evaluate
+     * @param policy Exception handling policy
+     * @return Task<T> - Typed result
+     *
+     * @throws ScriptEvaluateException with full details if script fails
+     * @throws std::runtime_error if type conversion fails
+     *
+     * @example
+     * @code
+     * try {
+     *     auto title = co_await session.evaluate_as_outcome<std::string>(
+     *         "document.title"
+     *     )();
+     * } catch (const script::ScriptEvaluateException &e) {
+     *     std::cerr << "Script error at line "
+     *               << e.details().line_number.value_or(-1) << ": "
+     *               << e.details().text << "\n";
+     * }
+     * @endcode
+     */
+    template <typename T>
+    [[nodiscard]] auto
+    evaluate_as_outcome(std::string_view expression,
+                        script::script_eval_policy policy =
+                            script::script_eval_policy::return_outcome)
+        -> Task<T> {
+        return evaluate_outcome(expression, policy)
+            .map([expr = std::string(expression)](
+                     script::ScriptEvalOutcome outcome) -> T {
+                try {
+                    return script::extract_value_from_outcome<T>(outcome);
+                } catch (const script::ScriptEvaluateException &) {
+                    throw; // Preserve rich exception details
+                } catch (const std::exception &e) {
+                    throw std::runtime_error(std::format(
+                        "evaluate_as_outcome failed for expression '{}': {}",
+                        expr, e.what()));
+                }
+            });
+    }
+
+    /**
      * @brief Run a coroutine workflow with automatic io_context management
      *
      * Hides boilerplate:
@@ -128,34 +283,56 @@ class AutomationSession {
      * @param workflow Async workflow to execute
      * @return Exit code (0 = success, non-zero = failure)
      *
+     * @throws std::exception Rethrows exceptions from workflow for caller
+     * handling
+     *
      * @example
      * @code
-     * return session.run([&]() -> boost::asio::awaitable<int> {
-     *     co_await session.navigate("https://example.com")();
-     *     co_return 0;
-     * });
+     * try {
+     *     return session.run([&]() -> boost::asio::awaitable<int> {
+     *         co_await session.navigate("https://example.com")();
+     *         co_return 0;
+     *     });
+     * } catch (const std::exception &e) {
+     *     std::cerr << "Workflow failed: " << e.what() << "\n";
+     *     return 1;
+     * }
      * @endcode
      */
     template <typename WorkflowFunc> auto run(WorkflowFunc &&workflow) -> int {
         int exit_code = 1;
+        std::exception_ptr stored_exception;
+
+        runner_->arm_work(); // Ensure guard is held
 
         boost::asio::co_spawn(
             runner_->get(), std::forward<WorkflowFunc>(workflow),
-            [&exit_code](const std::exception_ptr &exc, int result) {
+            [&exit_code, &stored_exception, this](const std::exception_ptr &exc,
+                                                  int result) {
                 if (exc) {
                     try {
                         std::rethrow_exception(exc);
                     } catch (const std::exception &e) {
                         bidi::logging::log_error(
                             std::string("Workflow exception: ") + e.what());
-                        exit_code = 1;
                     }
+                    stored_exception = exc;
+                    exit_code = 1;
                 } else {
                     exit_code = result;
                 }
+                runner_->release_work(); // Drop guard
+                runner_->stop();         // Unblock run()
             });
 
         runner_->get().run();
+        runner_->restart();  // Prepare for reuse
+        runner_->arm_work(); // Re-arm for future runs
+
+        if (stored_exception) {
+            std::rethrow_exception(stored_exception); // Let caller handle
+        }
+
         return exit_code;
     }
 

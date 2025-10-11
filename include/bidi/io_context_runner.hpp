@@ -1,9 +1,10 @@
 #pragma once
 
-#include "client.hpp"
 #include <boost/asio.hpp>
 #include <memory>
+#include <optional>
 #include <thread>
+#include <vector>
 
 namespace bidi {
 
@@ -12,6 +13,7 @@ namespace bidi {
 // - Keeps io_context alive via work_guard
 // - Exposes executor for creating tasks
 // - Joins thread on destruction
+// - Provides guard control for AutomationSession::run() workflow
 class IoContextRunner {
   public:
     IoContextRunner()
@@ -26,9 +28,21 @@ class IoContextRunner {
           }) {}
 
     explicit IoContextRunner(std::size_t threads) : IoContextRunner() {
-        // If threads > 1, spawn additional worker threads (not joinable here)
-        for (std::size_t i = 1; i < threads; ++i) {
-            workers_.emplace_back([ioc = ioc_]() mutable { ioc->run(); });
+        try {
+            // If threads > 1, spawn additional worker threads
+            for (std::size_t i = 1; i < threads; ++i) {
+                workers_.emplace_back([ioc = ioc_]() mutable { ioc->run(); });
+            }
+        } catch (...) {
+            // Exception safety: cleanup on failure
+            work_guard_.reset();
+            ioc_->stop();
+            for (auto &worker : workers_) {
+                if (worker.joinable()) {
+                    worker.join();
+                }
+            }
+            throw;
         }
     }
 
@@ -37,11 +51,13 @@ class IoContextRunner {
         if (ioc_) {
             ioc_->stop();
         }
-        if (thread_.joinable())
+        if (thread_.joinable()) {
             thread_.join();
-        for (auto &t : workers_) {
-            if (t.joinable())
-                t.join();
+        }
+        for (auto &worker : workers_) {
+            if (worker.joinable()) {
+                worker.join();
+            }
         }
     }
 
@@ -56,38 +72,42 @@ class IoContextRunner {
     IoContextRunner(IoContextRunner &&) noexcept = delete;
     IoContextRunner &operator=(IoContextRunner &&) noexcept = delete;
 
-    boost::asio::io_context &get() const { return *ioc_; }
-    boost::asio::io_context::executor_type get_executor() const {
+    [[nodiscard]] auto get() const -> boost::asio::io_context & {
+        return *ioc_;
+    }
+    [[nodiscard]] auto
+    get_executor() const -> boost::asio::io_context::executor_type {
         return ioc_->get_executor();
+    }
+
+    // Guard control for AutomationSession::run() workflow
+    void arm_work() {
+        if (!work_guard_) {
+            work_guard_.emplace(boost::asio::make_work_guard(*ioc_));
+        }
+    }
+
+    void release_work() { work_guard_.reset(); }
+
+    void stop() {
+        if (ioc_) {
+            ioc_->stop();
+        }
+    }
+
+    void restart() {
+        if (ioc_) {
+            ioc_->restart();
+        }
     }
 
   private:
     std::shared_ptr<boost::asio::io_context> ioc_;
-    boost::asio::executor_work_guard<boost::asio::io_context::executor_type>
+    std::optional<boost::asio::executor_work_guard<
+        boost::asio::io_context::executor_type>>
         work_guard_;
     std::thread thread_;
     std::vector<std::thread> workers_;
-};
-
-// SyncClient: minimal sync facade that hides io_context and exposes a simple
-// blocking connect helper. This class is intentionally small; it uses
-// bidi::Client::connect(...).get() under the hood when available (delegates to
-// existing Async futures).
-class SyncClient {
-  public:
-    explicit SyncClient(std::size_t threads = 1) : runner_(threads) {}
-
-    template <typename... Args> auto connect(Args &&...args) {
-        // Forward to bidi::Client::connect using runner_.get() as io_context.
-        // Return the future/result from co_spawn + use_future pattern.
-        return bidi::Client::connect(runner_.get(),
-                                     std::forward<Args>(args)...);
-    }
-
-    boost::asio::io_context &ioc() { return runner_.get(); }
-
-  private:
-    IoContextRunner runner_;
 };
 
 } // namespace bidi

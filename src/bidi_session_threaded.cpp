@@ -300,12 +300,13 @@ void ThreadedBiDiSession::process_message_on_cpu(const std::string &message) {
                 auto &response = *response_opt;
 
                 // Post back to strand for thread-safe completion.
-                // This is necessary because completion handlers may be invoked from
-                // different threads (e.g., I/O thread, CPU thread). Posting to the strand
-                // ensures that all completion logic is executed serially on the strand,
-                // preventing race conditions when accessing shared state such as the
-                // pending entry pool or session state. Without this, concurrent completion
-                // could lead to data races, inconsistent state, or double completion.
+                // This is necessary because completion handlers may be invoked
+                // from different threads (e.g., I/O thread, CPU thread).
+                // Posting to the strand ensures that all completion logic is
+                // executed serially on the strand, preventing race conditions
+                // when accessing shared state such as the pending entry pool or
+                // session state. Without this, concurrent completion could lead
+                // to data races, inconsistent state, or double completion.
                 threading_->post_ws(
                     [this, self = shared_from_this(), request_id = response.id,
                      success = response.is_success,
