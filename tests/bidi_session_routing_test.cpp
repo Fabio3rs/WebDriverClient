@@ -113,7 +113,7 @@ TEST(BidiSessionRouting, OnErrorClearsPending) {
     int error_cb = 0;
     session->send_command("cmd.err", {}, [&](const ParsedResponse &r) {
         EXPECT_FALSE(r.is_success);
-        EXPECT_EQ(r.error_code, "websocket_error");
+        EXPECT_EQ(r.error_code_raw, "websocket_error");
         error_cb++;
     });
 

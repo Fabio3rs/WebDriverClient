@@ -53,6 +53,6 @@ TEST(BidiMessage, ParseErrorResponse) {
     EXPECT_TRUE(parsed.has_value());
     EXPECT_FALSE(parsed->is_success);
     EXPECT_EQ(parsed->id, 7);
-    EXPECT_EQ(parsed->error_code, "invalid argument");
+    EXPECT_EQ(parsed->error_code_raw, "invalid argument");
     EXPECT_EQ(parsed->error_message, "bad param");
 }

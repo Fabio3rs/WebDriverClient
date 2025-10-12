@@ -20,7 +20,7 @@ ParsedResponse make_error_response(std::string code, std::string message) {
     ParsedResponse r;
     r.id = 2;
     r.is_success = false;
-    r.error_code = std::move(code);
+    r.error_code_raw = std::move(code);
     r.error_message = std::move(message);
     return r;
 }

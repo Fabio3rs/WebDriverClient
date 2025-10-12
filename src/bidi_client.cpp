@@ -53,8 +53,8 @@ auto Client::create_context(commands::browsing_context::CreateType type)
         [result](const core::ParsedResponse &response) mutable {
             if (!response.is_success) {
                 result.fail(std::make_exception_ptr(std::runtime_error(
-                    "browsingContext.create failed: " + response.error_code +
-                    " - " + response.error_message)));
+                    "browsingContext.create failed: " +
+                    response.error_code_raw + " - " + response.error_message)));
                 return;
             }
             const auto *context_it = response.result.find("context");
@@ -80,8 +80,8 @@ auto Client::navigate(std::string_view context, std::string_view url,
         [result, url](const core::ParsedResponse &response) mutable {
             if (!response.is_success) {
                 result.fail(std::make_exception_ptr(std::runtime_error(
-                    "browsingContext.navigate failed: " + response.error_code +
-                    " - " + response.error_message)));
+                    "browsingContext.navigate failed: " +
+                    response.error_code_raw + " - " + response.error_message)));
                 return;
             }
             const auto *url_it = response.result.find("url");
@@ -105,7 +105,7 @@ auto Client::close_context(std::string_view context) -> Task<bool> {
         [result](const core::ParsedResponse &response) mutable {
             if (!response.is_success) {
                 result.fail(std::make_exception_ptr(std::runtime_error(
-                    "browsingContext.close failed: " + response.error_code +
+                    "browsingContext.close failed: " + response.error_code_raw +
                     " - " + response.error_message)));
                 return;
             }
@@ -124,8 +124,8 @@ auto Client::get_context_tree(std::string_view root)
         [result](const core::ParsedResponse &response) mutable {
             if (!response.is_success) {
                 result.fail(std::make_exception_ptr(std::runtime_error(
-                    "browsingContext.getTree failed: " + response.error_code +
-                    " - " + response.error_message)));
+                    "browsingContext.getTree failed: " +
+                    response.error_code_raw + " - " + response.error_message)));
                 return;
             }
             result.fulfill(response.result);
@@ -146,8 +146,8 @@ auto Client::evaluate(std::string_view expression, std::string_view context,
         [result](const core::ParsedResponse &response) mutable {
             if (!response.is_success) {
                 result.fail(std::make_exception_ptr(std::runtime_error(
-                    "script.evaluate failed: " + response.error_code + " - " +
-                    response.error_message)));
+                    "script.evaluate failed: " + response.error_code_raw +
+                    " - " + response.error_message)));
                 return;
             }
             result.fulfill(response.result);
@@ -191,11 +191,11 @@ auto Client::evaluate(std::string_view expression, std::string_view context,
         }
         if (!response.is_success) {
             bidi::logging::log_info(
-                "script.evaluate failed: " + response.error_code + " - " +
+                "script.evaluate failed: " + response.error_code_raw + " - " +
                 response.error_message);
             task.fail(std::make_exception_ptr(std::runtime_error(
-                std::string("script.evaluate failed: ") + response.error_code +
-                " - " + response.error_message)));
+                std::string("script.evaluate failed: ") +
+                response.error_code_raw + " - " + response.error_message)));
             return;
         }
         auto decision = script::apply_policy(response, policy);
@@ -229,7 +229,7 @@ auto Client::call_function(std::string_view function_declaration,
         [result](const core::ParsedResponse &response) mutable {
             if (!response.is_success) {
                 result.fail(std::make_exception_ptr(std::runtime_error(
-                    "script.callFunction failed: " + response.error_code +
+                    "script.callFunction failed: " + response.error_code_raw +
                     " - " + response.error_message)));
                 return;
             }
@@ -276,11 +276,11 @@ auto Client::call_function(
         }
         if (!response.is_success) {
             bidi::logging::log_info(
-                "script.evaluate failed: " + response.error_code + " - " +
+                "script.evaluate failed: " + response.error_code_raw + " - " +
                 response.error_message);
             task.fail(std::make_exception_ptr(std::runtime_error(
-                std::string("script.evaluate failed: ") + response.error_code +
-                " - " + response.error_message)));
+                std::string("script.evaluate failed: ") +
+                response.error_code_raw + " - " + response.error_message)));
             return;
         }
         auto decision = script::apply_policy(response, policy);
@@ -315,8 +315,8 @@ auto Client::subscribe(const std::vector<std::string> &events,
             const core::ParsedResponse &response) mutable {
             if (!response.is_success) {
                 result.fail(std::make_exception_ptr(std::runtime_error(
-                    "session.subscribe failed: " + response.error_code + " - " +
-                    response.error_message)));
+                    "session.subscribe failed: " + response.error_code_raw +
+                    " - " + response.error_message)));
                 return;
             }
             if (auto client = self.lock()) {
@@ -349,7 +349,7 @@ void Client::unsubscribe_events(const std::vector<std::string> &events) {
             if (!response.is_success) {
                 bidi::logging::log_error(
                     std::string("session.unsubscribe failed: ") +
-                    response.error_code + " - " + response.error_message);
+                    response.error_code_raw + " - " + response.error_message);
             }
         });
 }

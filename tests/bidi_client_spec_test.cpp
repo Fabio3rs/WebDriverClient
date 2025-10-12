@@ -54,7 +54,7 @@ TEST(BidiClientSpec, ParseSuccessResponseAccordingToSpec) {
     EXPECT_TRUE(resp->is_success) << "type=success deve marcar is_success=true";
     ASSERT_TRUE(resp->result.contains("value"));
     EXPECT_EQ(resp->result["value"].as_int64(), 123);
-    EXPECT_TRUE(resp->error_code.empty());
+    EXPECT_TRUE(resp->error_code_raw.empty());
 }
 
 TEST(BidiClientSpec, ParseErrorResponseAccordingToSpec) {
@@ -63,7 +63,7 @@ TEST(BidiClientSpec, ParseErrorResponseAccordingToSpec) {
     ASSERT_TRUE(resp.has_value());
     EXPECT_EQ(resp->id, 7U);
     EXPECT_FALSE(resp->is_success) << "type=error deve marcar is_success=false";
-    EXPECT_EQ(resp->error_code, "no such node");
+    EXPECT_EQ(resp->error_code_raw, "no such node");
     EXPECT_EQ(resp->error_message, "not found");
 }
 

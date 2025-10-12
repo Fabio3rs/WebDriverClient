@@ -33,7 +33,7 @@ TEST(BidiParsingNegative, ParseResponseInvalidCases) {
     auto err = parse_response(R"({"id":2,"type":"error"})");
     ASSERT_TRUE(err.has_value());
     EXPECT_FALSE(err->is_success);
-    EXPECT_TRUE(err->error_code.empty());
+    EXPECT_TRUE(err->error_code_raw.empty());
     EXPECT_TRUE(err->error_message.empty());
     // Success without result (allowed: result defaults empty)
     auto ok = parse_response(R"({"id":3,"type":"success"})");

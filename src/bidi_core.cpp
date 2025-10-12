@@ -97,12 +97,16 @@ static void fill_response_error(ParsedResponse &out,
     /// Required field per W3C BiDi Spec: error code string
     const auto *error_it = obj.find("error");
     if (error_it != obj.end() && error_it->value().is_string()) {
-        out.error_code = std::string(error_it->value().as_string().c_str());
+        auto error_str = error_it->value().as_string();
+        out.error_code_raw = std::string(error_str.c_str());
+        // Parse to ErrorCode enum for type safety
+        out.error_code = bidi::types::core::parse_error_code(error_str);
     } else {
         // Maintains backward compatibility with existing tests but logs warning
         bidi::logging::log_warning(
             "Error response missing required 'error' field");
-        out.error_code = std::string{};
+        out.error_code_raw = std::string{};
+        out.error_code = std::nullopt;
     }
 
     /// Required field per W3C BiDi Spec: human-readable error message
@@ -589,7 +593,8 @@ void BiDiSession::send_command(std::string_view method,
         ParsedResponse error_resp;
         error_resp.id = id;
         error_resp.is_success = false;
-        error_resp.error_code = "internal_error";
+        error_resp.error_code = bidi::ErrorCode::UnknownError;
+        error_resp.error_code_raw = "internal_error";
         error_resp.error_message = "Failed to register pending entry";
         error_resp.method = std::string(method);
         error_resp.trace_id = trace_id;
@@ -629,7 +634,8 @@ void BiDiSession::send_command(std::string_view method,
             ParsedResponse timeout_resp;
             timeout_resp.id = id;
             timeout_resp.is_success = false;
-            timeout_resp.error_code = "timeout";
+            timeout_resp.error_code = bidi::ErrorCode::UnknownError;
+            timeout_resp.error_code_raw = "timeout";
             timeout_resp.error_message = "operation timed out";
             timeout_resp.method = it_timeout->second.method;
             timeout_resp.trace_id = it_timeout->second.trace_id;
@@ -658,7 +664,8 @@ void BiDiSession::send_command(std::string_view method,
         ParsedResponse resp;
         resp.id = id;
         resp.is_success = false;
-        resp.error_code = "transport";
+        resp.error_code = bidi::ErrorCode::UnknownError;
+        resp.error_code_raw = "transport";
         resp.error_message = error_code.message();
         resp.method = it_transport->second.method;
         resp.trace_id = it_transport->second.trace_id;
@@ -722,7 +729,8 @@ auto BiDiSession::send_command_awaitable(std::string_view method,
         ParsedResponse resp;
         resp.id = id;
         resp.is_success = false;
-        resp.error_code = "internal";
+        resp.error_code = bidi::ErrorCode::UnknownError;
+        resp.error_code_raw = "internal";
         resp.error_message = "failed to allocate pending entry";
         resp.trace_id = trace_id;
         resp.method = std::string(method);
@@ -757,7 +765,8 @@ auto BiDiSession::send_command_awaitable(std::string_view method,
             ParsedResponse timeout_resp;
             timeout_resp.id = id;
             timeout_resp.is_success = false;
-            timeout_resp.error_code = "timeout";
+            timeout_resp.error_code = bidi::ErrorCode::UnknownError;
+            timeout_resp.error_code_raw = "timeout";
             timeout_resp.error_message = "operation timed out";
             timeout_resp.method = it_timeout->second.method;
             timeout_resp.trace_id = it_timeout->second.trace_id;
@@ -784,7 +793,8 @@ auto BiDiSession::send_command_awaitable(std::string_view method,
             ParsedResponse resp;
             resp.id = id;
             resp.is_success = false;
-            resp.error_code = "transport";
+            resp.error_code = bidi::ErrorCode::UnknownError;
+            resp.error_code_raw = "transport";
             resp.error_message = error_code.message();
             resp.method = it_transport->second.method;
             resp.trace_id = it_transport->second.trace_id;
@@ -1648,7 +1658,8 @@ void BiDiSession::on_error(const boost::system::error_code &error_code) {
         error_response.id = id;
         error_response.is_success = false;
         // Use websocket_error to reflect transport-level websocket failures
-        error_response.error_code = "websocket_error";
+        error_response.error_code = bidi::ErrorCode::UnknownError;
+        error_response.error_code_raw = "websocket_error";
         error_response.error_message = error_code.message();
         error_response.method = entry.method;
         error_response.trace_id = entry.trace_id;
@@ -1685,7 +1696,8 @@ void BiDiSession::disconnect() {
         ParsedResponse resp;
         resp.id = id;
         resp.is_success = false;
-        resp.error_code = "shutdown";
+        resp.error_code = bidi::ErrorCode::UnknownError;
+        resp.error_code_raw = "shutdown";
         resp.error_message = "session disconnecting";
         resp.trace_id = entry.trace_id;
         auto handler = std::move(entry.handler);

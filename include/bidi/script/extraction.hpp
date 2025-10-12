@@ -10,12 +10,12 @@
  * marshalling.hpp for consistent type-safe operations across the codebase.
  */
 
+#include "bidi/script_eval.hpp"
 #include <boost/json.hpp>
 #include <boost/json/value_to.hpp>
 #include <optional>
 #include <stdexcept>
 #include <string>
-#include <string_view>
 #include <typeinfo>
 
 // Forward declarations must be included
@@ -60,23 +60,22 @@ template <typename T>
                 "Missing 'result' field in evaluation response");
         }
 
-        auto result_obj = result.at("result");
+        const auto &result_obj = result.at("result");
         if (!result_obj.is_object()) {
             throw std::runtime_error("'result' field is not an object");
         }
 
-        auto result_inner = result_obj.get_object();
+        const auto &result_inner = result_obj.get_object();
         if (!result_inner.contains("value")) {
             throw std::runtime_error("Missing 'value' field in result object");
         }
 
         // Type-safe conversion using Boost.JSON
         return boost::json::value_to<T>(result_inner.at("value"));
-
     } catch (const std::exception &e) {
-        throw std::runtime_error(std::string("Failed to extract value as ") +
-                                 typeid(T).name() + ": " + e.what() +
-                                 "; Result: " + boost::json::serialize(result));
+        throw std::runtime_error(std::format(
+            "Failed to extract value as {}: {}; Result: {}", typeid(T).name(),
+            e.what(), boost::json::serialize(result)));
     }
 }
 

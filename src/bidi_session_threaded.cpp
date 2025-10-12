@@ -311,10 +311,11 @@ void ThreadedBiDiSession::process_message_on_cpu(const std::string &message) {
                     [this, self = shared_from_this(), request_id = response.id,
                      success = response.is_success,
                      result = std::move(response.result),
-                     error_code = std::move(response.error_code),
+                     error_code_raw = std::move(response.error_code_raw),
                      error_message = std::move(response.error_message)]() {
                         complete_pending_on_strand(request_id, success, result,
-                                                   error_code, error_message);
+                                                   error_code_raw,
+                                                   error_message);
                     });
             }
         } else if (kind == MessageKind::Event) {

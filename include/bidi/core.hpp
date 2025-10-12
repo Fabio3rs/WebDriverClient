@@ -55,6 +55,7 @@
 #include <unordered_map>
 
 #include "asyncx.hpp"
+#include "bidi/types/core.hpp"
 
 namespace bidi::core {
 
@@ -89,7 +90,9 @@ struct ParsedResponse {
     id_type id{};
     bool is_success{};
     boost::json::object result;
-    std::string error_code;
+    std::optional<bidi::ErrorCode>
+        error_code;             // Strong-typed W3C BiDi error code
+    std::string error_code_raw; // Raw error string for unknown/future codes
     std::string error_message;
     std::string stacktrace; // W3C BiDi: optional, execution stack on errors
     // Additional fields for traceability/telemetry
