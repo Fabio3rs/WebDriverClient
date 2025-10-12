@@ -20,12 +20,12 @@ TEST(PipeOperator, MapChain) {
     auto result = make_value(10) | map_p([](int x) { return x + 5; }) |
                   map_p([](int x) { return x * 2; });
     std::optional<int> out;
-    result.finally(
-        [&](std::optional<int> v, std::optional<EC> ec, const std::exception_ptr&) {
-            ASSERT_FALSE(ec);
-            ASSERT_TRUE(v);
-            out = *v;
-        });
+    result.finally([&](std::optional<int> v, std::optional<EC> ec,
+                       const std::exception_ptr &) {
+        ASSERT_FALSE(ec);
+        ASSERT_TRUE(v);
+        out = *v;
+    });
     test_io().poll();
     ASSERT_TRUE(out.has_value());
     EXPECT_EQ(*out, 30); // (10+5)*2
@@ -36,11 +36,11 @@ TEST(PipeOperator, TapSideEffect) {
     auto result = make_value(3) | tap([&](int v) { observed = v; }) |
                   map_p([](int v) { return v * v; });
     std::optional<int> out;
-    result.finally(
-        [&](std::optional<int> v, std::optional<EC> ec, const std::exception_ptr&) {
-            ASSERT_FALSE(ec);
-            out = *v;
-        });
+    result.finally([&](std::optional<int> v, std::optional<EC> ec,
+                       const std::exception_ptr &) {
+        ASSERT_FALSE(ec);
+        out = *v;
+    });
     test_io().poll();
     EXPECT_EQ(observed.load(), 3);
     EXPECT_EQ(*out, 9);
@@ -51,11 +51,11 @@ TEST(PipeOperator, FilterTransformsToOptional) {
         make_value(4) | filter([](int v) { return v % 2 == 0; }) |
         map_p([](std::optional<int> opt) { return opt.value_or(-1); });
     std::optional<int> out;
-    result.finally(
-        [&](std::optional<int> v, std::optional<EC> ec, const std::exception_ptr&) {
-            ASSERT_FALSE(ec);
-            out = *v;
-        });
+    result.finally([&](std::optional<int> v, std::optional<EC> ec,
+                       const std::exception_ptr &) {
+        ASSERT_FALSE(ec);
+        out = *v;
+    });
     test_io().poll();
     EXPECT_EQ(*out, 4);
 }
@@ -64,11 +64,11 @@ TEST(PipeOperator, FilterDropsValue) {
     auto result = make_value(5) | filter([](int v) { return v % 2 == 0; }) |
                   map_p([](std::optional<int> opt) { return opt.has_value(); });
     std::optional<bool> out;
-    result.finally(
-        [&](std::optional<bool> v, std::optional<EC> ec, const std::exception_ptr&) {
-            ASSERT_FALSE(ec);
-            out = *v;
-        });
+    result.finally([&](std::optional<bool> v, std::optional<EC> ec,
+                       const std::exception_ptr &) {
+        ASSERT_FALSE(ec);
+        out = *v;
+    });
     test_io().poll();
     EXPECT_FALSE(*out);
 }
@@ -79,11 +79,11 @@ TEST(PipeOperator, RecoverOnError) {
     faulty.fail(make_error_code(boost::system::errc::operation_canceled));
     auto recovered = faulty | recover_p([](EC) { return 42; });
     std::optional<int> out;
-    recovered.finally(
-        [&](std::optional<int> v, std::optional<EC> ec, const std::exception_ptr&) {
-            ASSERT_FALSE(ec);
-            out = *v;
-        });
+    recovered.finally([&](std::optional<int> v, std::optional<EC> ec,
+                          const std::exception_ptr &) {
+        ASSERT_FALSE(ec);
+        out = *v;
+    });
     test_io().poll();
     EXPECT_EQ(*out, 42);
 }
@@ -95,11 +95,11 @@ TEST(PipeOperator, ZipTwoAsyncs) {
                       return std::get<0>(tup) + std::get<1>(tup);
                   });
     std::optional<int> out;
-    zipped.finally(
-        [&](std::optional<int> v, std::optional<EC> ec, const std::exception_ptr&) {
-            ASSERT_FALSE(ec);
-            out = *v;
-        });
+    zipped.finally([&](std::optional<int> v, std::optional<EC> ec,
+                       const std::exception_ptr &) {
+        ASSERT_FALSE(ec);
+        out = *v;
+    });
     test_io().poll();
     EXPECT_EQ(*out, 7);
 }
@@ -109,11 +109,11 @@ TEST(PipeOperator, AndThenBind) {
     // and_then_p should allow binding to another Async-producing function
     auto chained = a | and_then_p([](int v) { return make_value(v + 1); });
     std::optional<int> out;
-    chained.finally(
-        [&](std::optional<int> v, std::optional<EC> ec, const std::exception_ptr&) {
-            ASSERT_FALSE(ec);
-            out = *v;
-        });
+    chained.finally([&](std::optional<int> v, std::optional<EC> ec,
+                        const std::exception_ptr &) {
+        ASSERT_FALSE(ec);
+        out = *v;
+    });
     test_io().poll();
     EXPECT_EQ(*out, 7);
 }
@@ -125,7 +125,7 @@ TEST(PipeOperator, OnErrorSideEffect) {
     std::atomic<int> observed{0};
     auto result = faulty | on_error_p([&](EC ec) { observed = ec.value(); });
     result.finally([&](std::optional<int> /*v*/, std::optional<EC> ec,
-                       const std::exception_ptr&) {
+                       const std::exception_ptr &) {
         // on_error_p should not swallow the error; original combinator
         // semantics call the handler and propagate the error.
         ASSERT_TRUE(ec);
@@ -141,7 +141,7 @@ TEST(PipeOperator, TimeoutApplies) {
     auto timed = never | timeout_p(std::chrono::milliseconds(1));
     std::optional<EC> observed_ec;
     timed.finally([&](std::optional<int> /*v*/, std::optional<EC> ec,
-                      const std::exception_ptr&) { observed_ec = ec; });
+                      const std::exception_ptr &) { observed_ec = ec; });
     // run the io_context to let the timer fire
     test_io().run_for(std::chrono::milliseconds(50));
     EXPECT_TRUE(observed_ec.has_value());

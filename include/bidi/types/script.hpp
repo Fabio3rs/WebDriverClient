@@ -292,6 +292,25 @@ struct NodeRemoteValue {
 };
 
 /**
+ * @brief Error remote value (JavaScript Error objects)
+ *
+ * Represents JavaScript Error instances (TypeError, ReferenceError, etc.)
+ * when serialized across the WebDriver BiDi protocol.
+ *
+ * @note This represents the Error object itself, NOT exception handling
+ *       metadata. For exception metadata, see
+ * bidi::script::ScriptExceptionDetails or the W3C script.ExceptionDetails type.
+ *
+ * @see https://w3c.github.io/webdriver-bidi/#type-script-ErrorRemoteValue
+ */
+struct ErrorRemoteValue {
+    std::optional<Handle> handle;
+    std::optional<InternalId> internal_id;
+
+    auto operator==(const ErrorRemoteValue &) const -> bool = default;
+};
+
+/**
  * @brief RemoteValue variant (basic set)
  *
  * This is a simplified subset of the full W3C BiDi RemoteValue type system.
@@ -301,7 +320,7 @@ using RemoteValue =
     std::variant<PrimitiveProtocolValue, SymbolRemoteValue, ArrayRemoteValue,
                  ObjectRemoteValue, FunctionRemoteValue, RegExpRemoteValue,
                  DateRemoteValue, MapRemoteValue, SetRemoteValue,
-                 NodeRemoteValue>;
+                 NodeRemoteValue, ErrorRemoteValue>;
 
 // ==================== LocalValue (for sending to browser) ====================
 

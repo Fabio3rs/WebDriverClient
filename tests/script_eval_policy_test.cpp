@@ -16,7 +16,8 @@ auto make_success_response(boost::json::object result_obj) -> ParsedResponse {
     return r;
 }
 
-auto make_error_response(std::string code, std::string message) -> ParsedResponse {
+auto make_error_response(std::string code, std::string message)
+    -> ParsedResponse {
     ParsedResponse r;
     r.id = 2;
     r.is_success = false;

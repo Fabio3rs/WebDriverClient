@@ -558,6 +558,44 @@ TEST(BidiTypesScript, NodeRemoteValueOptionalFields) {
     EXPECT_TRUE(node.local_name.has_value());
 }
 
+// ==================== ErrorRemoteValue Tests ====================
+
+TEST(BidiTypesScript, ErrorRemoteValueEquality) {
+    ErrorRemoteValue err1;
+    err1.handle = "handle-123";
+    err1.internal_id = "internal-456";
+
+    ErrorRemoteValue err2;
+    err2.handle = "handle-123";
+    err2.internal_id = "internal-456";
+
+    ErrorRemoteValue err3;
+    err3.handle = "handle-789";
+
+    EXPECT_EQ(err1, err2);
+    EXPECT_NE(err1, err3);
+}
+
+TEST(BidiTypesScript, ErrorRemoteValueOptionalFields) {
+    ErrorRemoteValue err;
+
+    EXPECT_FALSE(err.handle.has_value());
+    EXPECT_FALSE(err.internal_id.has_value());
+
+    err.handle = "handle-123";
+    err.internal_id = "internal-456";
+
+    EXPECT_TRUE(err.handle.has_value());
+    EXPECT_TRUE(err.internal_id.has_value());
+}
+
+TEST(BidiTypesScript, ErrorRemoteValueDefaultConstruction) {
+    ErrorRemoteValue err;
+
+    EXPECT_FALSE(err.handle.has_value());
+    EXPECT_FALSE(err.internal_id.has_value());
+}
+
 // ==================== RemoteValue Variant Tests ====================
 
 TEST(BidiTypesScript, RemoteValueVariantConstruction) {
@@ -595,6 +633,9 @@ TEST(BidiTypesScript, RemoteValueVariantConstruction) {
 
     RemoteValue val10 = NodeRemoteValue{};
     EXPECT_TRUE(std::holds_alternative<NodeRemoteValue>(val10));
+
+    RemoteValue val11 = ErrorRemoteValue{};
+    EXPECT_TRUE(std::holds_alternative<ErrorRemoteValue>(val11));
 }
 
 TEST(BidiTypesScript, RemoteValueVariantVisitor) {
@@ -622,6 +663,8 @@ TEST(BidiTypesScript, RemoteValueVariantVisitor) {
                     return "set";
                 } else if constexpr (std::is_same_v<T, NodeRemoteValue>) {
                     return "node";
+                } else if constexpr (std::is_same_v<T, ErrorRemoteValue>) {
+                    return "error";
                 }
                 return "unknown";
             },
@@ -645,6 +688,7 @@ TEST(BidiTypesScript, RemoteValueVariantVisitor) {
     EXPECT_EQ(get_type_name(MapRemoteValue{}), "map");
     EXPECT_EQ(get_type_name(SetRemoteValue{}), "set");
     EXPECT_EQ(get_type_name(NodeRemoteValue{}), "node");
+    EXPECT_EQ(get_type_name(ErrorRemoteValue{}), "error");
 }
 
 TEST(BidiTypesScript, RemoteValueVariantIndexTest) {
@@ -682,6 +726,9 @@ TEST(BidiTypesScript, RemoteValueVariantIndexTest) {
 
     RemoteValue val9 = NodeRemoteValue{};
     EXPECT_EQ(val9.index(), 9U);
+
+    RemoteValue val10 = ErrorRemoteValue{};
+    EXPECT_EQ(val10.index(), 10U);
 }
 
 // ==================== LocalValue Tests ====================
@@ -769,6 +816,9 @@ TEST(BidiTypesScript, StructDefaultConstruction) {
 
     NodeRemoteValue node;
     EXPECT_FALSE(node.shared_id.has_value());
+
+    ErrorRemoteValue err;
+    EXPECT_FALSE(err.handle.has_value());
 
     LocalValue local;
     EXPECT_TRUE(local.type.empty());

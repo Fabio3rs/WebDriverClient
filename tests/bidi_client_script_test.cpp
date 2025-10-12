@@ -92,12 +92,13 @@ class BiDiClientScriptTest : public ::testing::Test {
     }
 
     template <class T>
-    auto run_task(const bidi::Task<T>& task, std::chrono::milliseconds timeout = 10s) -> T {
+    auto run_task(const bidi::Task<T> &task,
+                  std::chrono::milliseconds timeout = 10s) -> T {
         auto prom_ptr = std::make_shared<std::promise<T>>();
         auto fut = prom_ptr->get_future();
         task.finally([prom_ptr](std::optional<T> value_opt,
                                 std::optional<boost::system::error_code> ec_opt,
-                                const std::exception_ptr& eptr) mutable {
+                                const std::exception_ptr &eptr) mutable {
             try {
                 if (value_opt) {
                     prom_ptr->set_value(std::move(*value_opt));
