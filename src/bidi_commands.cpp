@@ -48,8 +48,8 @@ auto status() -> boost::json::object {
 
 namespace browsing_context {
 
-auto create(CreateType type,
-            std::string_view reference_context) -> boost::json::object {
+auto create(CreateType type, std::string_view reference_context)
+    -> boost::json::object {
     boost::json::object params;
     params["type"] = to_string(type);
 
@@ -89,8 +89,8 @@ auto get_tree(std::string_view root, int max_depth) -> boost::json::object {
     return params;
 }
 
-auto reload(std::string_view context, bool ignore_cache,
-            ReadinessState wait) -> boost::json::object {
+auto reload(std::string_view context, bool ignore_cache, ReadinessState wait)
+    -> boost::json::object {
     boost::json::object params;
     params["context"] = context;
     params["ignoreCache"] = ignore_cache;
@@ -105,8 +105,8 @@ auto reload(std::string_view context, bool ignore_cache,
 namespace script {
 
 auto evaluate(std::string_view expression, const Target &target,
-              bool await_promise,
-              ResultOwnership ownership) -> boost::json::object {
+              bool await_promise, ResultOwnership ownership)
+    -> boost::json::object {
     boost::json::object params;
     params["expression"] = expression;
     params["awaitPromise"] = await_promise;
@@ -146,8 +146,8 @@ auto call_function(std::string_view function_declaration, const Target &target,
     return params;
 }
 
-auto disown(const boost::json::array &handles,
-            const Target &target) -> boost::json::object {
+auto disown(const boost::json::array &handles, const Target &target)
+    -> boost::json::object {
     boost::json::object params;
     params["handles"] = handles;
 
@@ -170,8 +170,8 @@ namespace network {
 
 auto continue_request(std::string_view request_id, std::string_view url,
                       std::string_view method,
-                      const boost::json::object &headers,
-                      std::string_view body) -> boost::json::object {
+                      const boost::json::object &headers, std::string_view body)
+    -> boost::json::object {
     boost::json::object params;
     params["request"] = request_id;
 

@@ -57,8 +57,8 @@ class curlCallBack {
      *
      * @return Size written in bytes
      */
-    static auto cb(void *data, size_t size, size_t nmemb,
-                   curlCallBack *userp) -> size_t {
+    static auto cb(void *data, size_t size, size_t nmemb, curlCallBack *userp)
+        -> size_t {
         size_t realsize = size * nmemb;
 
         try {
@@ -126,8 +126,8 @@ class CurlRAII {
      */
     static auto instance() -> CurlRAII &;
 
-    static auto postJson(const std::string &url,
-                         const std::string &json) -> curlCallBack;
+    static auto postJson(const std::string &url, const std::string &json)
+        -> curlCallBack;
 
     static auto request(const std::string &httpVerb, const std::string &url,
                         const std::string &body = "") -> curlCallBack;

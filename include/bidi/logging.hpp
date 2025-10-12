@@ -42,8 +42,8 @@ inline auto make_trace_id() -> std::string {
     return ss.str();
 }
 
-inline auto
-error_to_json(const std::error_code &err_code) -> boost::json::object {
+inline auto error_to_json(const std::error_code &err_code)
+    -> boost::json::object {
     boost::json::object obj;
     obj["domain"] = err_code.category().name();
     obj["value"] = err_code.value();
@@ -51,8 +51,8 @@ error_to_json(const std::error_code &err_code) -> boost::json::object {
     return obj;
 }
 
-inline auto
-exception_to_json(const std::exception_ptr &ex_ptr) -> boost::json::object {
+inline auto exception_to_json(const std::exception_ptr &ex_ptr)
+    -> boost::json::object {
     boost::json::object obj;
     if (!ex_ptr) {
         return obj;
@@ -70,8 +70,8 @@ exception_to_json(const std::exception_ptr &ex_ptr) -> boost::json::object {
 }
 
 // Convert source_location to JSON
-inline auto
-location_to_json(const std::source_location &loc) -> boost::json::object {
+inline auto location_to_json(const std::source_location &loc)
+    -> boost::json::object {
     boost::json::object obj;
     if (loc.line() != 0) { // default-constructed indicates "unspecified"
         obj["file"] = loc.file_name();
@@ -83,12 +83,13 @@ location_to_json(const std::source_location &loc) -> boost::json::object {
 }
 
 // Structured log entry builder
-inline auto build_log(const std::string &level, const std::string &message,
-                      const std::error_code &err_code = {},
-                      const std::exception_ptr &ex_ptr = nullptr,
-                      const std::string &trace_id = {},
-                      const std::source_location &loc =
-                          std::source_location::current()) -> std::string {
+inline auto
+build_log(const std::string &level, const std::string &message,
+          const std::error_code &err_code = {},
+          const std::exception_ptr &ex_ptr = nullptr,
+          const std::string &trace_id = {},
+          const std::source_location &loc = std::source_location::current())
+    -> std::string {
     boost::json::object root;
     root["ts"] = now_iso8601();
     root["level"] = level;

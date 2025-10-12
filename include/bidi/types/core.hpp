@@ -108,8 +108,8 @@ enum class ErrorCode : std::uint8_t {
  * @note noexcept guarantees no exceptions (lookup table)
  * @note [[nodiscard]] prevents ignoring return value
  */
-[[nodiscard]] constexpr auto
-to_string(ErrorCode code) noexcept -> std::string_view {
+[[nodiscard]] constexpr auto to_string(ErrorCode code) noexcept
+    -> std::string_view {
     using enum ErrorCode;
     switch (code) {
     case InvalidArgument:
@@ -234,105 +234,152 @@ to_string(ErrorCode code) noexcept -> std::string_view {
  * }
  * @endcode
  */
-[[nodiscard]] constexpr auto
-parse_error_code(std::string_view text) noexcept -> std::optional<ErrorCode> {
+[[nodiscard]] constexpr auto parse_error_code(std::string_view text) noexcept
+    -> std::optional<ErrorCode> {
     using enum ErrorCode;
 
     // Sorted alphabetically for binary search optimization
-    if (text == "invalid argument")
+    if (text == "invalid argument") {
         return InvalidArgument;
-    if (text == "invalid argument cookie")
+    }
+    if (text == "invalid argument cookie") {
         return InvalidArgumentCookie;
-    if (text == "invalid argument file input")
+    }
+    if (text == "invalid argument file input") {
         return InvalidArgumentFileInput;
-    if (text == "invalid argument header")
+    }
+    if (text == "invalid argument header") {
         return InvalidArgumentHeader;
-    if (text == "invalid argument permission")
+    }
+    if (text == "invalid argument permission") {
         return InvalidArgumentPermission;
-    if (text == "invalid argument realm")
+    }
+    if (text == "invalid argument realm") {
         return InvalidArgumentRealm;
-    if (text == "invalid argument remote value")
+    }
+    if (text == "invalid argument remote value") {
         return InvalidArgumentRemoteValue;
-    if (text == "invalid argument script")
+    }
+    if (text == "invalid argument script") {
         return InvalidArgumentScript;
-    if (text == "invalid argument target")
+    }
+    if (text == "invalid argument target") {
         return InvalidArgumentTarget;
-    if (text == "invalid argument user prompt")
+    }
+    if (text == "invalid argument user prompt") {
         return InvalidArgumentUserPrompt;
-    if (text == "invalid selector")
+    }
+    if (text == "invalid selector") {
         return InvalidSelector;
-    if (text == "invalid session id")
+    }
+    if (text == "invalid session id") {
         return InvalidSessionId;
-    if (text == "invalid state")
+    }
+    if (text == "invalid state") {
         return InvalidStateError;
-    if (text == "invalid web extension")
+    }
+    if (text == "invalid web extension") {
         return InvalidWebExtension;
-    if (text == "move target out of bounds")
+    }
+    if (text == "move target out of bounds") {
         return MoveTargetOutOfBounds;
-    if (text == "no such alert")
+    }
+    if (text == "no such alert") {
         return NoSuchAlert;
-    if (text == "no such channel")
+    }
+    if (text == "no such channel") {
         return NoSuchChannel;
-    if (text == "no such cookie")
+    }
+    if (text == "no such cookie") {
         return NoSuchCookie;
-    if (text == "no such download item")
+    }
+    if (text == "no such download item") {
         return NoSuchDownloadItem;
-    if (text == "no such element")
+    }
+    if (text == "no such element") {
         return NoSuchElement;
-    if (text == "no such frame")
+    }
+    if (text == "no such frame") {
         return NoSuchFrame;
-    if (text == "no such handle")
+    }
+    if (text == "no such handle") {
         return NoSuchHandle;
-    if (text == "no such history entry")
+    }
+    if (text == "no such history entry") {
         return NoSuchHistoryEntry;
-    if (text == "no such intercept")
+    }
+    if (text == "no such intercept") {
         return NoSuchIntercept;
-    if (text == "no such network collector")
+    }
+    if (text == "no such network collector") {
         return NoSuchNetworkCollector;
-    if (text == "no such network data")
+    }
+    if (text == "no such network data") {
         return NoSuchNetworkData;
-    if (text == "no such node")
+    }
+    if (text == "no such node") {
         return NoSuchNode;
-    if (text == "no such permission")
+    }
+    if (text == "no such permission") {
         return NoSuchPermission;
-    if (text == "no such request")
+    }
+    if (text == "no such request") {
         return NoSuchRequest;
-    if (text == "no such request collector")
+    }
+    if (text == "no such request collector") {
         return NoSuchRequestCollector;
-    if (text == "no such script")
+    }
+    if (text == "no such script") {
         return NoSuchScript;
-    if (text == "no such storage partition")
+    }
+    if (text == "no such storage partition") {
         return NoSuchStoragePartition;
-    if (text == "no such user context")
+    }
+    if (text == "no such user context") {
         return NoSuchUserContext;
-    if (text == "no such web extension")
+    }
+    if (text == "no such web extension") {
         return NoSuchWebExtension;
-    if (text == "no such window")
+    }
+    if (text == "no such window") {
         return NoSuchWindow;
-    if (text == "session not created")
+    }
+    if (text == "session not created") {
         return SessionNotCreated;
-    if (text == "unable to capture screen")
+    }
+    if (text == "unable to capture screen") {
         return UnableToCaptureScreen;
-    if (text == "unable to close browser")
+    }
+    if (text == "unable to close browser") {
         return UnableToCloseBrowser;
-    if (text == "unable to intercept request")
+    }
+    if (text == "unable to intercept request") {
         return UnableToInterceptRequest;
-    if (text == "unable to set cookie")
+    }
+    if (text == "unable to set cookie") {
         return UnableToSetCookie;
-    if (text == "unable to set file input")
+    }
+    if (text == "unable to set file input") {
         return UnableToSetFileInput;
-    if (text == "unavailable network data")
+    }
+    if (text == "unavailable network data") {
         return UnavailableNetworkData;
-    if (text == "underspecified storage partition")
+    }
+    if (text == "underspecified storage partition") {
         return UnderspecifiedStoragePartition;
-    if (text == "unknown command")
+    }
+    if (text == "unknown command") {
         return UnknownCommand;
-    if (text == "unknown error")
+    }
+    if (text == "unknown error") {
         return UnknownError;
-    if (text == "unsupported command")
+    }
+    if (text == "unsupported command") {
         return UnsupportedCommandError;
-    if (text == "unsupported operation")
+    }
+    if (text == "unsupported operation") {
         return UnsupportedOperation;
+    }
 
     return std::nullopt; // Unknown error code (forward compat)
 }
@@ -374,8 +421,8 @@ parse_error_code(std::string_view text) noexcept -> std::optional<ErrorCode> {
 /**
  * @brief Check if error code represents an "invalid X" category
  */
-[[nodiscard]] constexpr auto
-is_invalid_argument_error(ErrorCode code) noexcept -> bool {
+[[nodiscard]] constexpr auto is_invalid_argument_error(ErrorCode code) noexcept
+    -> bool {
     using enum ErrorCode;
     switch (code) {
     case InvalidArgument:
@@ -414,8 +461,8 @@ enum class MessageType : std::uint8_t { Success, Error, Event };
 /**
  * @brief Convert MessageType to string
  */
-[[nodiscard]] constexpr auto
-to_string(MessageType type) noexcept -> std::string_view {
+[[nodiscard]] constexpr auto to_string(MessageType type) noexcept
+    -> std::string_view {
     using enum MessageType;
     switch (type) {
     case Success:
@@ -443,13 +490,13 @@ using CommandId = types::core::CommandId;
 namespace boost::json {
 
 // ErrorCode serialization (C++ → JSON)
-inline void tag_invoke(value_from_tag, value &jv,
+inline void tag_invoke(value_from_tag /*unused*/, value &jv,
                        bidi::types::core::ErrorCode code) {
     jv = bidi::types::core::to_string(code);
 }
 
 // ErrorCode deserialization (JSON → C++)
-inline auto tag_invoke(value_to_tag<bidi::types::core::ErrorCode>,
+inline auto tag_invoke(value_to_tag<bidi::types::core::ErrorCode> /*unused*/,
                        const value &jv) -> bidi::types::core::ErrorCode {
     auto text = value_to<std::string_view>(jv);
     auto code = bidi::types::core::parse_error_code(text);
@@ -461,7 +508,7 @@ inline auto tag_invoke(value_to_tag<bidi::types::core::ErrorCode>,
 }
 
 // MessageType serialization
-inline void tag_invoke(value_from_tag, value &jv,
+inline void tag_invoke(value_from_tag /*unused*/, value &jv,
                        bidi::types::core::MessageType type) {
     jv = bidi::types::core::to_string(type);
 }

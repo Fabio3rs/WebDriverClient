@@ -80,28 +80,29 @@ class Client : public std::enable_shared_from_this<Client> {
     [[nodiscard]] auto close_context(std::string_view context) -> Task<bool>;
 
     // Get browsing context tree
-    [[nodiscard]] auto
-    get_context_tree(std::string_view root = {}) -> Task<boost::json::object>;
+    [[nodiscard]] auto get_context_tree(std::string_view root = {})
+        -> Task<boost::json::object>;
 
     // ======================== Script API ========================
 
     // Evaluate JavaScript expression
-    [[nodiscard]] auto
-    evaluate(std::string_view expression, std::string_view context,
-             bool await_promise = true) -> Task<boost::json::object>;
+    [[nodiscard]] auto evaluate(std::string_view expression,
+                                std::string_view context,
+                                bool await_promise = true)
+        -> Task<boost::json::object>;
 
     // Evaluate JavaScript expression with script evaluation policy
     [[nodiscard]] auto
     evaluate(std::string_view expression, std::string_view context,
-             script::script_eval_policy policy,
-             bool await_promise = true) -> Task<script::ScriptEvalOutcome>;
+             script::script_eval_policy policy, bool await_promise = true)
+        -> Task<script::ScriptEvalOutcome>;
 
     // Call JavaScript function
-    [[nodiscard]] auto
-    call_function(std::string_view function_declaration,
-                  std::string_view context,
-                  const boost::json::array &arguments = {},
-                  bool await_promise = true) -> Task<boost::json::object>;
+    [[nodiscard]] auto call_function(std::string_view function_declaration,
+                                     std::string_view context,
+                                     const boost::json::array &arguments = {},
+                                     bool await_promise = true)
+        -> Task<boost::json::object>;
 
     // Call JavaScript function
     [[nodiscard]] auto

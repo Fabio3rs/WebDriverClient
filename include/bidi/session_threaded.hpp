@@ -120,20 +120,20 @@ class ThreadedBiDiSession
 
     // Non-copyable, non-movable
     ThreadedBiDiSession(const ThreadedBiDiSession &) = delete;
-    auto
-    operator=(const ThreadedBiDiSession &) -> ThreadedBiDiSession & = delete;
+    auto operator=(const ThreadedBiDiSession &)
+        -> ThreadedBiDiSession & = delete;
     ThreadedBiDiSession(ThreadedBiDiSession &&) = delete;
     auto operator=(ThreadedBiDiSession &&) -> ThreadedBiDiSession & = delete;
 
     // Connect with native async (no polling)
-    [[nodiscard]] auto
-    async_connect(const std::string &ws_url) -> std::future<bool>;
+    [[nodiscard]] auto async_connect(const std::string &ws_url)
+        -> std::future<bool>;
 
     // Send command with native await (thread suspends until response)
     [[nodiscard]] auto send_command_await(
         const std::string &method, const boost::json::object &params = {},
-        std::chrono::milliseconds timeout = std::chrono::milliseconds{
-            30000}) -> boost::json::object;
+        std::chrono::milliseconds timeout = std::chrono::milliseconds{30000})
+        -> boost::json::object;
 
     // Awaitable version for coroutines
     [[nodiscard]] auto send_command_awaitable(std::string method,

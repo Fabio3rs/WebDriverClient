@@ -44,8 +44,8 @@ enum class UserPromptType : std::uint8_t {
     Prompt
 };
 
-[[nodiscard]] constexpr auto
-to_string(UserPromptType type) noexcept -> std::string_view {
+[[nodiscard]] constexpr auto to_string(UserPromptType type) noexcept
+    -> std::string_view {
     using enum UserPromptType;
     switch (type) {
     case Alert:
@@ -66,8 +66,8 @@ to_string(UserPromptType type) noexcept -> std::string_view {
  */
 enum class LocateMatchType : std::uint8_t { Full, Partial };
 
-[[nodiscard]] constexpr auto
-to_string(LocateMatchType type) noexcept -> std::string_view {
+[[nodiscard]] constexpr auto to_string(LocateMatchType type) noexcept
+    -> std::string_view {
     using enum LocateMatchType;
     switch (type) {
     case Full:
@@ -84,8 +84,8 @@ to_string(LocateMatchType type) noexcept -> std::string_view {
  */
 enum class CreateType : std::uint8_t { Tab, Window };
 
-[[nodiscard]] constexpr auto
-to_string(CreateType type) noexcept -> std::string_view {
+[[nodiscard]] constexpr auto to_string(CreateType type) noexcept
+    -> std::string_view {
     using enum CreateType;
     switch (type) {
     case Tab:
@@ -102,8 +102,8 @@ to_string(CreateType type) noexcept -> std::string_view {
  */
 enum class ReadinessState : std::uint8_t { None, Interactive, Complete };
 
-[[nodiscard]] constexpr auto
-to_string(ReadinessState state) noexcept -> std::string_view {
+[[nodiscard]] constexpr auto to_string(ReadinessState state) noexcept
+    -> std::string_view {
     using enum ReadinessState;
     switch (state) {
     case None:
@@ -242,25 +242,25 @@ using NavigationId = types::browsing_context::NavigationId;
 namespace boost::json {
 
 // LocateMatchType serialization
-inline void tag_invoke(value_from_tag, value &jv,
+inline void tag_invoke(value_from_tag /*unused*/, value &jv,
                        bidi::types::browsing_context::LocateMatchType type) {
     jv = bidi::types::browsing_context::to_string(type);
 }
 
 // CreateType serialization
-inline void tag_invoke(value_from_tag, value &jv,
+inline void tag_invoke(value_from_tag /*unused*/, value &jv,
                        bidi::types::browsing_context::CreateType type) {
     jv = bidi::types::browsing_context::to_string(type);
 }
 
 // ReadinessState serialization
-inline void tag_invoke(value_from_tag, value &jv,
+inline void tag_invoke(value_from_tag /*unused*/, value &jv,
                        bidi::types::browsing_context::ReadinessState state) {
     jv = bidi::types::browsing_context::to_string(state);
 }
 
 // UserPromptType serialization
-inline void tag_invoke(value_from_tag, value &jv,
+inline void tag_invoke(value_from_tag /*unused*/, value &jv,
                        bidi::types::browsing_context::UserPromptType type) {
     jv = bidi::types::browsing_context::to_string(type);
 }

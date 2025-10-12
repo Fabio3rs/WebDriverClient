@@ -28,8 +28,8 @@ static auto make_response_body_from(const std::string &body,
     /* NOLINT(bugprone-easily-swappable-parameters) */;
 
 // Helper: parse headers from a stream and return Content-Length if present.
-static auto
-extract_content_length_from_stream(std::istringstream &stream) -> size_t {
+static auto extract_content_length_from_stream(std::istringstream &stream)
+    -> size_t {
     size_t content_length = 0;
     std::string line;
     while (std::getline(stream, line)) {

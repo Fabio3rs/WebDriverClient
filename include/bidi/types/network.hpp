@@ -55,8 +55,8 @@ using BytesValue = std::variant<StringBytes, Base64Bytes>;
  */
 enum class SameSite : std::uint8_t { None, Lax, Strict };
 
-[[nodiscard]] constexpr auto
-to_string(SameSite value) noexcept -> std::string_view {
+[[nodiscard]] constexpr auto to_string(SameSite value) noexcept
+    -> std::string_view {
     using enum SameSite;
     switch (value) {
     case None:
@@ -70,15 +70,18 @@ to_string(SameSite value) noexcept -> std::string_view {
     }
 }
 
-[[nodiscard]] constexpr auto
-parse_same_site(std::string_view text) noexcept -> std::optional<SameSite> {
+[[nodiscard]] constexpr auto parse_same_site(std::string_view text) noexcept
+    -> std::optional<SameSite> {
     using enum SameSite;
-    if (text == "none")
+    if (text == "none") {
         return None;
-    if (text == "lax")
+    }
+    if (text == "lax") {
         return Lax;
-    if (text == "strict")
+    }
+    if (text == "strict") {
         return Strict;
+    }
     return std::nullopt;
 }
 
@@ -176,12 +179,12 @@ struct RequestData {
 namespace boost::json {
 
 // SameSite serialization
-inline void tag_invoke(value_from_tag, value &jv,
+inline void tag_invoke(value_from_tag /*unused*/, value &jv,
                        bidi::types::network::SameSite same_site) {
     jv = bidi::types::network::to_string(same_site);
 }
 
-inline auto tag_invoke(value_to_tag<bidi::types::network::SameSite>,
+inline auto tag_invoke(value_to_tag<bidi::types::network::SameSite> /*unused*/,
                        const value &jv) -> bidi::types::network::SameSite {
     auto text = value_to<std::string_view>(jv);
     auto same_site = bidi::types::network::parse_same_site(text);

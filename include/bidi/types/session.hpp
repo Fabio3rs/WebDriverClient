@@ -36,8 +36,8 @@ struct SocksProxyConfiguration {
  */
 enum class ProxyType : std::uint8_t { Autodetect, Direct, Manual, Pac, System };
 
-[[nodiscard]] constexpr auto
-to_string(ProxyType type) noexcept -> std::string_view {
+[[nodiscard]] constexpr auto to_string(ProxyType type) noexcept
+    -> std::string_view {
     using enum ProxyType;
     switch (type) {
     case Autodetect:
@@ -55,19 +55,24 @@ to_string(ProxyType type) noexcept -> std::string_view {
     }
 }
 
-[[nodiscard]] constexpr auto
-parse_proxy_type(std::string_view text) noexcept -> std::optional<ProxyType> {
+[[nodiscard]] constexpr auto parse_proxy_type(std::string_view text) noexcept
+    -> std::optional<ProxyType> {
     using enum ProxyType;
-    if (text == "autodetect")
+    if (text == "autodetect") {
         return Autodetect;
-    if (text == "direct")
+    }
+    if (text == "direct") {
         return Direct;
-    if (text == "manual")
+    }
+    if (text == "manual") {
         return Manual;
-    if (text == "pac")
+    }
+    if (text == "pac") {
         return Pac;
-    if (text == "system")
+    }
+    if (text == "system") {
         return System;
+    }
     return std::nullopt;
 }
 
@@ -92,8 +97,8 @@ struct ProxyConfiguration {
  */
 enum class UserPromptAction : std::uint8_t { Accept, Dismiss, Ignore };
 
-[[nodiscard]] constexpr auto
-to_string(UserPromptAction action) noexcept -> std::string_view {
+[[nodiscard]] constexpr auto to_string(UserPromptAction action) noexcept
+    -> std::string_view {
     using enum UserPromptAction;
     switch (action) {
     case Accept:
@@ -107,15 +112,19 @@ to_string(UserPromptAction action) noexcept -> std::string_view {
     }
 }
 
-[[nodiscard]] constexpr auto parse_user_prompt_action(
-    std::string_view text) noexcept -> std::optional<UserPromptAction> {
+[[nodiscard]] constexpr auto
+parse_user_prompt_action(std::string_view text) noexcept
+    -> std::optional<UserPromptAction> {
     using enum UserPromptAction;
-    if (text == "accept")
+    if (text == "accept") {
         return Accept;
-    if (text == "dismiss")
+    }
+    if (text == "dismiss") {
         return Dismiss;
-    if (text == "ignore")
+    }
+    if (text == "ignore") {
         return Ignore;
+    }
     return std::nullopt;
 }
 
@@ -206,12 +215,12 @@ struct UnsubscribeByFilterRequest {
 namespace boost::json {
 
 // ProxyType serialization
-inline void tag_invoke(value_from_tag, value &jv,
+inline void tag_invoke(value_from_tag /*unused*/, value &jv,
                        bidi::types::session::ProxyType type) {
     jv = bidi::types::session::to_string(type);
 }
 
-inline auto tag_invoke(value_to_tag<bidi::types::session::ProxyType>,
+inline auto tag_invoke(value_to_tag<bidi::types::session::ProxyType> /*unused*/,
                        const value &jv) -> bidi::types::session::ProxyType {
     auto text = value_to<std::string_view>(jv);
     auto type = bidi::types::session::parse_proxy_type(text);
@@ -222,13 +231,13 @@ inline auto tag_invoke(value_to_tag<bidi::types::session::ProxyType>,
 }
 
 // UserPromptAction serialization
-inline void tag_invoke(value_from_tag, value &jv,
+inline void tag_invoke(value_from_tag /*unused*/, value &jv,
                        bidi::types::session::UserPromptAction action) {
     jv = bidi::types::session::to_string(action);
 }
 
 inline auto
-tag_invoke(value_to_tag<bidi::types::session::UserPromptAction>,
+tag_invoke(value_to_tag<bidi::types::session::UserPromptAction> /*unused*/,
            const value &jv) -> bidi::types::session::UserPromptAction {
     auto text = value_to<std::string_view>(jv);
     auto action = bidi::types::session::parse_user_prompt_action(text);

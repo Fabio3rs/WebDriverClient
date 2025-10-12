@@ -21,18 +21,19 @@ namespace bidi::commands::network {
  * @param body Optional modified body
  * @return Params object for network.continueRequest command
  */
-[[nodiscard]] auto
-continue_request(std::string_view request_id, std::string_view url = {},
-                 std::string_view method = {},
-                 const boost::json::object &headers = {},
-                 std::string_view body = {}) -> boost::json::object;
+[[nodiscard]] auto continue_request(std::string_view request_id,
+                                    std::string_view url = {},
+                                    std::string_view method = {},
+                                    const boost::json::object &headers = {},
+                                    std::string_view body = {})
+    -> boost::json::object;
 
 /**
  * @brief Build network.failRequest params
  * @param request_id Request ID to fail
  * @return Params object for network.failRequest command
  */
-[[nodiscard]] auto
-fail_request(std::string_view request_id) -> boost::json::object;
+[[nodiscard]] auto fail_request(std::string_view request_id)
+    -> boost::json::object;
 
 } // namespace bidi::commands::network

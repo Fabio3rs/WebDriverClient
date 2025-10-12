@@ -156,8 +156,8 @@ auto Client::evaluate(std::string_view expression, std::string_view context,
 }
 
 auto Client::evaluate(std::string_view expression, std::string_view context,
-                      script::script_eval_policy policy,
-                      bool await_promise) -> Task<script::ScriptEvalOutcome> {
+                      script::script_eval_policy policy, bool await_promise)
+    -> Task<script::ScriptEvalOutcome> {
     auto ex = get_executor();
     auto task = Task<script::ScriptEvalOutcome>::make(ex);
     commands::script::Target target{.context = context, .sandbox = {}};
@@ -238,10 +238,12 @@ auto Client::call_function(std::string_view function_declaration,
     return result;
 }
 
-auto Client::call_function(
-    std::string_view function_declaration, std::string_view context,
-    const boost::json::array &arguments, script::script_eval_policy policy,
-    bool await_promise) -> Task<script::ScriptEvalOutcome> {
+auto Client::call_function(std::string_view function_declaration,
+                           std::string_view context,
+                           const boost::json::array &arguments,
+                           script::script_eval_policy policy,
+                           bool await_promise)
+    -> Task<script::ScriptEvalOutcome> {
     auto ex = get_executor();
     auto task = Task<script::ScriptEvalOutcome>::make(ex);
     commands::script::Target target{.context = context, .sandbox = {}};

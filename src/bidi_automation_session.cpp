@@ -16,8 +16,8 @@ AutomationSession::AutomationSession(
       client_(std::move(client)), context_id_(std::move(context_id)) {}
 
 // Static factory (blocking)
-auto AutomationSession::start(std::string_view webdriver_url,
-                              bool headless) -> AutomationSession {
+auto AutomationSession::start(std::string_view webdriver_url, bool headless)
+    -> AutomationSession {
 
     // Phase 1: Start background io_context thread
     auto runner = std::make_unique<IoContextRunner>();
