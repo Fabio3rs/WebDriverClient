@@ -225,9 +225,9 @@ TEST(BidiTypesLog, ConsoleLogEntryWithArgs) {
     entry.level = Level::Info;
     entry.text = "Values: 123, hello";
 
-    entry.args.push_back(boost::json::value(123));
-    entry.args.push_back(boost::json::value("hello"));
-    entry.args.push_back(boost::json::value(true));
+    entry.args.emplace_back(123);
+    entry.args.emplace_back("hello");
+    entry.args.emplace_back(true);
 
     EXPECT_EQ(entry.args.size(), 3U);
     EXPECT_EQ(entry.args[0].as_int64(), 123);
@@ -379,8 +379,8 @@ TEST(BidiTypesStorageLog, CompleteConsoleLogEntry) {
     entry.text = "Application started successfully";
     entry.timestamp_ms = 1704067200000; // 2024-01-01T00:00:00.000Z
 
-    entry.args.push_back(boost::json::value("arg1"));
-    entry.args.push_back(boost::json::value(42));
+    entry.args.emplace_back("arg1");
+    entry.args.emplace_back(42);
 
     bidi::types::script::RealmInfo realm;
     realm.realm = "main-realm";

@@ -115,9 +115,9 @@ TEST(BidiTypesSession, UserPromptActionBoostJson) {
 // ==================== Struct Tests ====================
 
 TEST(BidiTypesSession, SocksProxyConfigurationEquality) {
-    SocksProxyConfiguration cfg1{"localhost", 8080, 5};
-    SocksProxyConfiguration cfg2{"localhost", 8080, 5};
-    SocksProxyConfiguration cfg3{"remotehost", 9090, 4};
+    SocksProxyConfiguration cfg1{.host="localhost", .port=8080, .version=5};
+    SocksProxyConfiguration cfg2{.host="localhost", .port=8080, .version=5};
+    SocksProxyConfiguration cfg3{.host="remotehost", .port=9090, .version=4};
 
     EXPECT_EQ(cfg1, cfg2);
     EXPECT_NE(cfg1, cfg3);

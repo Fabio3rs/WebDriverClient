@@ -360,9 +360,9 @@ TEST(BidiTypesScript, ArrayRemoteValueWithElements) {
     arr.handle = "handle-123";
 
     std::vector<boost::json::value> elements;
-    elements.push_back(boost::json::value(1));
-    elements.push_back(boost::json::value("two"));
-    elements.push_back(boost::json::value(true));
+    elements.emplace_back(1);
+    elements.emplace_back("two");
+    elements.emplace_back(true);
     arr.value = elements;
 
     EXPECT_TRUE(arr.value.has_value());

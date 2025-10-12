@@ -6,7 +6,7 @@
 using namespace asyncx;
 namespace chrono = std::chrono;
 
-static net::io_context &asyncx_test_io() {
+static auto asyncx_test_io() -> net::io_context & {
     static net::io_context io; // shared IO for tests
     return io;
 }
@@ -18,7 +18,7 @@ TEST(Asyncx, MapTransformsValue) {
     auto mapped = a.map([](int x) { return x * 2; });
     std::optional<int> out;
     mapped.finally(
-        [&](std::optional<int> v, std::optional<EC> ec, std::exception_ptr) {
+        [&](std::optional<int> v, std::optional<EC> ec, const std::exception_ptr&) {
             ASSERT_FALSE(ec);
             out = *v;
         });
@@ -33,14 +33,14 @@ TEST(Asyncx, AndThenChainsAsync) {
     auto chained = a.and_then([](int x) {
         auto inner = Async<std::string>::make(ex());
         // fulfill asynchronously via posting to executor
-        inner.finally([](auto, auto, auto) {}); // ensure continuation attached
+        inner.finally([](const auto&, auto, const auto&) {}); // ensure continuation attached
         // immediate fulfill for test simplicity
         inner.fulfill(std::string{"value_"} + std::to_string(x));
         return inner;
     });
     std::optional<std::string> out;
     chained.finally([&](std::optional<std::string> v, std::optional<EC> ec,
-                        std::exception_ptr) {
+                        const std::exception_ptr&) {
         ASSERT_FALSE(ec);
         out = *v;
     });
@@ -54,7 +54,7 @@ TEST(Asyncx, OnErrorExecutesOnFailure) {
     auto a = Async<int>::make(ex());
     bool called = false;
     auto handled = a.on_error([&](EC) { called = true; });
-    handled.finally([&](auto, auto, auto) {}); // attach
+    handled.finally([&](auto, auto, const auto&) {}); // attach
     a.fail(make_error_code(boost::system::errc::operation_canceled));
     asyncx_test_io().poll();
     EXPECT_TRUE(called);
@@ -67,11 +67,12 @@ TEST(Asyncx, PipeOperatorComposesOperations) {
     std::optional<int> out;
     std::optional<EC> err;
     composed.finally(
-        [&](std::optional<int> v, std::optional<EC> ec, std::exception_ptr) {
-            if (v)
+        [&](std::optional<int> v, std::optional<EC> ec, const std::exception_ptr&) {
+            if (v) {
                 out = *v;
-            else
+            } else {
                 err = ec;
+}
         });
     base.fulfill(10);
     asyncx_test_io().run_for(chrono::milliseconds(10));
@@ -99,7 +100,7 @@ TEST(Asyncx, AttachOrRunExecutesInlineIfDone) {
     a.fulfill(42);
     bool inline_exec = false;
     a.finally(
-        [&](std::optional<int> v, std::optional<EC> ec, std::exception_ptr) {
+        [&](std::optional<int> v, std::optional<EC> ec, const std::exception_ptr&) {
             ASSERT_FALSE(ec);
             inline_exec = true;
             ASSERT_TRUE(v);

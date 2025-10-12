@@ -352,9 +352,9 @@ TEST(BidiTypesBrowsingContext, ElementClipRectangleEquality) {
 }
 
 TEST(BidiTypesBrowsingContext, BoxClipRectangleEquality) {
-    BoxClipRectangle box1{10.0, 20.0, 100.0, 200.0};
-    BoxClipRectangle box2{10.0, 20.0, 100.0, 200.0};
-    BoxClipRectangle box3{0.0, 0.0, 50.0, 50.0};
+    BoxClipRectangle box1{.x=10.0, .y=20.0, .width=100.0, .height=200.0};
+    BoxClipRectangle box2{.x=10.0, .y=20.0, .width=100.0, .height=200.0};
+    BoxClipRectangle box3{.x=0.0, .y=0.0, .width=50.0, .height=50.0};
 
     EXPECT_EQ(box1, box2);
     EXPECT_NE(box1, box3);
@@ -374,7 +374,7 @@ TEST(BidiTypesBrowsingContext, ClipRectangleVariantConstruction) {
     ClipRectangle clip1 = ElementClipRectangle{"ref-123"};
     EXPECT_TRUE(std::holds_alternative<ElementClipRectangle>(clip1));
 
-    ClipRectangle clip2 = BoxClipRectangle{10.0, 20.0, 100.0, 200.0};
+    ClipRectangle clip2 = BoxClipRectangle{.x=10.0, .y=20.0, .width=100.0, .height=200.0};
     EXPECT_TRUE(std::holds_alternative<BoxClipRectangle>(clip2));
 }
 
@@ -398,7 +398,7 @@ TEST(BidiTypesBrowsingContext, ClipRectangleVariantVisitor) {
 }
 
 TEST(BidiTypesBrowsingContext, ClipRectangleVariantAccess) {
-    ClipRectangle clip = BoxClipRectangle{10.0, 20.0, 100.0, 200.0};
+    ClipRectangle clip = BoxClipRectangle{.x=10.0, .y=20.0, .width=100.0, .height=200.0};
 
     // std::get (throws if wrong type)
     const auto &box = std::get<BoxClipRectangle>(clip);

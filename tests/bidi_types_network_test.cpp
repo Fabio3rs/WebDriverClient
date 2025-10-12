@@ -285,9 +285,9 @@ TEST(BidiTypesNetwork, ResponseContentDefaultValue) {
 // ==================== AuthChallenge Tests ====================
 
 TEST(BidiTypesNetwork, AuthChallengeEquality) {
-    AuthChallenge challenge1{"Basic", "Protected Area"};
-    AuthChallenge challenge2{"Basic", "Protected Area"};
-    AuthChallenge challenge3{"Digest", "Secure Zone"};
+    AuthChallenge challenge1{.scheme="Basic", .realm="Protected Area"};
+    AuthChallenge challenge2{.scheme="Basic", .realm="Protected Area"};
+    AuthChallenge challenge3{.scheme="Digest", .realm="Secure Zone"};
 
     EXPECT_EQ(challenge1, challenge2);
     EXPECT_NE(challenge1, challenge3);
@@ -389,8 +389,8 @@ TEST(BidiTypesNetwork, ResponseDataWithAuthChallenges) {
     resp.url = "https://example.com";
 
     std::vector<AuthChallenge> challenges;
-    challenges.push_back(AuthChallenge{"Basic", "Realm 1"});
-    challenges.push_back(AuthChallenge{"Digest", "Realm 2"});
+    challenges.push_back(AuthChallenge{.scheme="Basic", .realm="Realm 1"});
+    challenges.push_back(AuthChallenge{.scheme="Digest", .realm="Realm 2"});
 
     resp.auth_challenges = challenges;
 
@@ -551,7 +551,7 @@ TEST(BidiTypesNetwork, ComplexStructWithAllFields) {
     resp.headers.push_back(h);
 
     std::vector<AuthChallenge> challenges;
-    challenges.push_back(AuthChallenge{"Bearer", "API"});
+    challenges.push_back(AuthChallenge{.scheme="Bearer", .realm="API"});
     resp.auth_challenges = challenges;
 
     // Verify all fields are set correctly

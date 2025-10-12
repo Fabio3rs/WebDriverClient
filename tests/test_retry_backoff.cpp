@@ -102,10 +102,9 @@ TEST(RetryBackoff, SucceedsAfterRetries) {
         std::make_shared<decltype(composed_raw)>(std::move(composed_raw));
 
     // debug: std::cerr << "[TEST] starting SucceedsAfterRetries" << '\n';
-    auto composed_copy1 = composed; // garante lifetime
     auto fut = boost::asio::co_spawn(
         ex,
-        [composed_copy1]() -> boost::asio::awaitable<void> {
+        [composed_copy1 = composed]() -> boost::asio::awaitable<void> {
             // debug: std::cerr << "[TEST] inside coroutine awaiting composed"
             // << '\n';
             co_await asyncx::as_awaitable(*composed_copy1);
@@ -137,10 +136,9 @@ TEST(RetryBackoff, CancelsDuringWait) {
 
     // debug: std::cerr << "[TEST] starting CancelsDuringWait" << '\n';
 
-    auto composed_copy2 = composed;
     auto fut = boost::asio::co_spawn(
         ex,
-        [composed_copy2]() -> boost::asio::awaitable<void> {
+        [composed_copy2 = composed]() -> boost::asio::awaitable<void> {
             // debug: std::cerr << "[TEST] inside coroutine awaiting composed
             // (cancel)" << '\n';
             co_await asyncx::as_awaitable(*composed_copy2);
@@ -188,10 +186,9 @@ TEST(RetryBackoff, OnRetryHookCalled) {
 
     // debug: std::cerr << "[TEST] starting OnRetryHookCalled" << '\n';
 
-    auto composed_copy3 = composed;
     auto fut = boost::asio::co_spawn(
         ex,
-        [composed_copy3]() -> boost::asio::awaitable<void> {
+        [composed_copy3 = composed]() -> boost::asio::awaitable<void> {
             // debug: std::cerr << "[TEST] inside coroutine awaiting composed
             // (hook)" << '\n';
             co_await asyncx::as_awaitable(*composed_copy3);

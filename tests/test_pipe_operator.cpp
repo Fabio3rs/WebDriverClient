@@ -4,13 +4,13 @@
 
 using namespace asyncx;
 
-static net::io_context &test_io() {
+static auto test_io() -> net::io_context & {
     static net::io_context io;
     return io;
 }
 
 // Helper para criar Async<int> imediato
-static Async<int> make_value(int v) {
+static auto make_value(int v) -> Async<int> {
     auto a = Async<int>::make(test_io().get_executor());
     a.fulfill(v);
     return a;
@@ -21,7 +21,7 @@ TEST(PipeOperator, MapChain) {
                   map_p([](int x) { return x * 2; });
     std::optional<int> out;
     result.finally(
-        [&](std::optional<int> v, std::optional<EC> ec, std::exception_ptr) {
+        [&](std::optional<int> v, std::optional<EC> ec, const std::exception_ptr&) {
             ASSERT_FALSE(ec);
             ASSERT_TRUE(v);
             out = *v;
@@ -37,7 +37,7 @@ TEST(PipeOperator, TapSideEffect) {
                   map_p([](int v) { return v * v; });
     std::optional<int> out;
     result.finally(
-        [&](std::optional<int> v, std::optional<EC> ec, std::exception_ptr) {
+        [&](std::optional<int> v, std::optional<EC> ec, const std::exception_ptr&) {
             ASSERT_FALSE(ec);
             out = *v;
         });
@@ -52,7 +52,7 @@ TEST(PipeOperator, FilterTransformsToOptional) {
         map_p([](std::optional<int> opt) { return opt.value_or(-1); });
     std::optional<int> out;
     result.finally(
-        [&](std::optional<int> v, std::optional<EC> ec, std::exception_ptr) {
+        [&](std::optional<int> v, std::optional<EC> ec, const std::exception_ptr&) {
             ASSERT_FALSE(ec);
             out = *v;
         });
@@ -65,7 +65,7 @@ TEST(PipeOperator, FilterDropsValue) {
                   map_p([](std::optional<int> opt) { return opt.has_value(); });
     std::optional<bool> out;
     result.finally(
-        [&](std::optional<bool> v, std::optional<EC> ec, std::exception_ptr) {
+        [&](std::optional<bool> v, std::optional<EC> ec, const std::exception_ptr&) {
             ASSERT_FALSE(ec);
             out = *v;
         });
@@ -80,7 +80,7 @@ TEST(PipeOperator, RecoverOnError) {
     auto recovered = faulty | recover_p([](EC) { return 42; });
     std::optional<int> out;
     recovered.finally(
-        [&](std::optional<int> v, std::optional<EC> ec, std::exception_ptr) {
+        [&](std::optional<int> v, std::optional<EC> ec, const std::exception_ptr&) {
             ASSERT_FALSE(ec);
             out = *v;
         });
@@ -96,7 +96,7 @@ TEST(PipeOperator, ZipTwoAsyncs) {
                   });
     std::optional<int> out;
     zipped.finally(
-        [&](std::optional<int> v, std::optional<EC> ec, std::exception_ptr) {
+        [&](std::optional<int> v, std::optional<EC> ec, const std::exception_ptr&) {
             ASSERT_FALSE(ec);
             out = *v;
         });
@@ -110,7 +110,7 @@ TEST(PipeOperator, AndThenBind) {
     auto chained = a | and_then_p([](int v) { return make_value(v + 1); });
     std::optional<int> out;
     chained.finally(
-        [&](std::optional<int> v, std::optional<EC> ec, std::exception_ptr) {
+        [&](std::optional<int> v, std::optional<EC> ec, const std::exception_ptr&) {
             ASSERT_FALSE(ec);
             out = *v;
         });
@@ -125,7 +125,7 @@ TEST(PipeOperator, OnErrorSideEffect) {
     std::atomic<int> observed{0};
     auto result = faulty | on_error_p([&](EC ec) { observed = ec.value(); });
     result.finally([&](std::optional<int> /*v*/, std::optional<EC> ec,
-                       std::exception_ptr) {
+                       const std::exception_ptr&) {
         // on_error_p should not swallow the error; original combinator
         // semantics call the handler and propagate the error.
         ASSERT_TRUE(ec);
@@ -141,7 +141,7 @@ TEST(PipeOperator, TimeoutApplies) {
     auto timed = never | timeout_p(std::chrono::milliseconds(1));
     std::optional<EC> observed_ec;
     timed.finally([&](std::optional<int> /*v*/, std::optional<EC> ec,
-                      std::exception_ptr) { observed_ec = ec; });
+                      const std::exception_ptr&) { observed_ec = ec; });
     // run the io_context to let the timer fire
     test_io().run_for(std::chrono::milliseconds(50));
     EXPECT_TRUE(observed_ec.has_value());

@@ -8,7 +8,7 @@ using namespace bidi::script;
 using bidi::core::ParsedResponse;
 
 namespace {
-ParsedResponse make_success_response(boost::json::object result_obj) {
+auto make_success_response(boost::json::object result_obj) -> ParsedResponse {
     ParsedResponse r;
     r.id = 1;
     r.is_success = true;
@@ -16,7 +16,7 @@ ParsedResponse make_success_response(boost::json::object result_obj) {
     return r;
 }
 
-ParsedResponse make_error_response(std::string code, std::string message) {
+auto make_error_response(std::string code, std::string message) -> ParsedResponse {
     ParsedResponse r;
     r.id = 2;
     r.is_success = false;

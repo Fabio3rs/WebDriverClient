@@ -53,6 +53,6 @@ TEST(ScriptEvalParsingTest, ParsesFullExceptionDetails) {
     EXPECT_EQ(parsed.name, "ReferenceError");
     ASSERT_TRUE(parsed.line_number.has_value());
     EXPECT_EQ(*parsed.line_number, 10);
-    ASSERT_EQ(parsed.stack_frames.size(), 1u);
+    ASSERT_EQ(parsed.stack_frames.size(), 1U);
     EXPECT_EQ(parsed.stack_frames[0].function_name, "init");
 }

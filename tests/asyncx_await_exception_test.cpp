@@ -3,7 +3,7 @@
 
 using namespace asyncx;
 
-static net::io_context &test_io() {
+static auto test_io() -> net::io_context & {
     static net::io_context io;
     return io;
 }
