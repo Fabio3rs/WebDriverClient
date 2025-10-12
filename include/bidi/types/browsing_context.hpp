@@ -10,6 +10,7 @@
  */
 
 #include "bidi/types/core.hpp"
+#include "bidi/types/session.hpp"
 #include <boost/json.hpp>
 #include <cstdint>
 #include <optional>
@@ -189,6 +190,47 @@ struct NavigationInfo {
     std::string url;
 
     auto operator==(const NavigationInfo &) const -> bool = default;
+};
+
+// ==================== User Prompt Handling ====================
+
+/**
+ * @brief User prompt opened event parameters
+ * @see
+ * https://w3c.github.io/webdriver-bidi/#event-browsingContext-userPromptOpened
+ */
+struct UserPromptOpenedParameters {
+    BrowsingContextId context;
+    types::session::UserPromptAction handler;
+    std::string message;
+    UserPromptType type;
+    std::optional<std::string> default_value;
+
+    auto operator==(const UserPromptOpenedParameters &) const -> bool = default;
+};
+
+/**
+ * @brief User prompt closed event parameters
+ * @see
+ * https://w3c.github.io/webdriver-bidi/#event-browsingContext-userPromptClosed
+ */
+struct UserPromptClosedParameters {
+    BrowsingContextId context;
+    bool accepted{false};
+    UserPromptType type;
+    std::optional<std::string> user_text;
+
+    auto operator==(const UserPromptClosedParameters &) const -> bool = default;
+};
+
+/**
+ * @brief Resolution to send with browsingContext.handleUserPrompt
+ */
+struct UserPromptResolution {
+    bool accept{true};
+    std::optional<std::string> user_text;
+
+    auto operator==(const UserPromptResolution &) const -> bool = default;
 };
 
 // ==================== Screenshot/Capture ====================

@@ -83,6 +83,11 @@ class Client : public std::enable_shared_from_this<Client> {
     [[nodiscard]] auto get_context_tree(std::string_view root = {})
         -> Task<boost::json::object>;
 
+    // Handle user prompt
+    [[nodiscard]] auto handle_user_prompt(
+        std::string_view context, std::optional<bool> accept = std::nullopt,
+        std::optional<std::string_view> user_text = std::nullopt) -> Task<void>;
+
     // ======================== Script API ========================
 
     // Evaluate JavaScript expression

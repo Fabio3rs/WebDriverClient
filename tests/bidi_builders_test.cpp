@@ -53,6 +53,25 @@ TEST(BidiBuilders, BrowsingContextCommands) {
     EXPECT_EQ(reload_params["context"].as_string(), "CTX");
     EXPECT_TRUE(reload_params["ignoreCache"].as_bool());
     EXPECT_EQ(reload_params["wait"].as_string(), "none");
+
+    // Test handle_user_prompt with all parameters
+    auto prompt_full =
+        browsing_context::handle_user_prompt("CTX", true, "test input");
+    EXPECT_EQ(prompt_full["context"].as_string(), "CTX");
+    EXPECT_TRUE(prompt_full["accept"].as_bool());
+    EXPECT_EQ(prompt_full["userText"].as_string(), "test input");
+
+    // Test handle_user_prompt with minimal parameters (only context)
+    auto prompt_minimal = browsing_context::handle_user_prompt("CTX");
+    EXPECT_EQ(prompt_minimal["context"].as_string(), "CTX");
+    EXPECT_FALSE(prompt_minimal.if_contains("accept"));
+    EXPECT_FALSE(prompt_minimal.if_contains("userText"));
+
+    // Test handle_user_prompt with accept=false
+    auto prompt_dismiss = browsing_context::handle_user_prompt("CTX", false);
+    EXPECT_EQ(prompt_dismiss["context"].as_string(), "CTX");
+    EXPECT_FALSE(prompt_dismiss["accept"].as_bool());
+    EXPECT_FALSE(prompt_dismiss.if_contains("userText"));
 }
 
 TEST(BidiBuilders, ScriptCommands) {

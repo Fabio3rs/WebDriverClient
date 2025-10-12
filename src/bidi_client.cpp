@@ -133,6 +133,28 @@ auto Client::get_context_tree(std::string_view root)
     return result;
 }
 
+auto Client::handle_user_prompt(std::string_view context,
+                                std::optional<bool> accept,
+                                std::optional<std::string_view> user_text)
+    -> Task<void> {
+    auto ex = get_executor();
+    auto result = Task<void>::make(ex);
+    auto params = commands::browsing_context::handle_user_prompt(
+        context, accept, user_text);
+    session_->send_command(
+        std::string(bidi::ids::methods::bc_handleUserPrompt), params,
+        [result](const core::ParsedResponse &response) mutable {
+            if (!response.is_success) {
+                result.fail(std::make_exception_ptr(std::runtime_error(
+                    "browsingContext.handleUserPrompt failed: " +
+                    response.error_code_raw + " - " + response.error_message)));
+                return;
+            }
+            result.fulfill();
+        });
+    return result;
+}
+
 // ======================== Script API ========================
 
 auto Client::evaluate(std::string_view expression, std::string_view context,

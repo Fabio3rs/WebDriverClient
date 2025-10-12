@@ -98,6 +98,23 @@ auto reload(std::string_view context, bool ignore_cache, ReadinessState wait)
     return params;
 }
 
+auto handle_user_prompt(std::string_view context, std::optional<bool> accept,
+                        std::optional<std::string_view> user_text)
+    -> boost::json::object {
+    boost::json::object params;
+    params["context"] = context;
+
+    if (accept.has_value()) {
+        params["accept"] = *accept;
+    }
+
+    if (user_text.has_value()) {
+        params["userText"] = *user_text;
+    }
+
+    return params;
+}
+
 } // namespace browsing_context
 
 // ======================== Script Commands ========================

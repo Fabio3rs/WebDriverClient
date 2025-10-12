@@ -71,4 +71,19 @@ enum class ReadinessState { none, interactive, complete };
                           ReadinessState wait = ReadinessState::complete)
     -> boost::json::object;
 
+/**
+ * @brief Build browsingContext.handleUserPrompt params
+ * @param context Browsing context ID
+ * @param accept Whether to accept the prompt (default: true)
+ * @param user_text Text to provide for prompt dialogs (default: empty)
+ * @return Params object for browsingContext.handleUserPrompt command
+ * @see
+ * https://w3c.github.io/webdriver-bidi/#command-browsingContext-handleUserPrompt
+ */
+[[nodiscard]] auto
+handle_user_prompt(std::string_view context,
+                   std::optional<bool> accept = std::nullopt,
+                   std::optional<std::string_view> user_text = std::nullopt)
+    -> boost::json::object;
+
 } // namespace bidi::commands::browsing_context
