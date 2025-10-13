@@ -152,9 +152,15 @@ class Client : public std::enable_shared_from_this<Client> {
         -> Task<Subscription>;
 
     // Set event handler for specific method
-    auto set_event_handler(std::string method,
+    auto set_event_handler(std::string_view method,
                            std::function<void(boost::json::object)> handler)
         -> boost::asio::awaitable<void>;
+
+    auto set_event_handler_subscription(
+        std::string_view method,
+        std::function<void(boost::json::object)> handler)
+        -> asyncx::Async<
+            std::shared_ptr<bidi::core::BiDiSession::Subscription>>;
 
     // ======================== Utility ========================
 

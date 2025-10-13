@@ -6,6 +6,7 @@
 #include "bidi/core.hpp"
 #include "bidi/logging.hpp"
 #include <algorithm>
+#include <boost/json/serialize.hpp>
 #include <charconv>
 #include <format>
 #include <memory>
@@ -556,18 +557,34 @@ void BiDiSession::send_command(std::string_view method,
                                const boost::json::object &params,
                                ResponseHandler handler,
                                std::chrono::milliseconds timeout) {
+    if (!ws_) {
+        // WebSocket not connected, invoke handler with transport error
+        ParsedResponse error_resp;
+        error_resp.id = 0; // ID unknown since command not sent
+        error_resp.is_success = false;
+        error_resp.error_code = bidi::ErrorCode::UnknownError;
+        error_resp.error_code_raw = "transport";
+        error_resp.error_message = "WebSocket not connected";
+        error_resp.method = std::string(method);
+        error_resp.trace_id = bidi::logging::make_trace_id();
+        error_resp.timeout_expired = false;
+        handler(std::move(error_resp));
+        return;
+    }
+
     auto id = next_id_.fetch_add(1, std::memory_order_relaxed);
     auto start_tp = std::chrono::steady_clock::now();
     /// Generate trace_id for distributed tracing and log correlation
     auto trace_id = bidi::logging::make_trace_id();
     // Create the pending entry WITHOUT moving handler yet
     // This allows us to notify caller if emplace() fails (defense-in-depth)
-    PendingEntry entry{ResponseHandler{}, // empty handler placeholder
-                       std::string(method),
-                       trace_id,
-                       net::steady_timer(ws_->get_executor()),
-                       /*timer_generation=*/0,
-                       start_tp};
+    PendingEntry entry{.handler =
+                           ResponseHandler{}, // empty handler placeholder
+                       .method = std::string(method),
+                       .trace_id = trace_id,
+                       .timer = net::steady_timer(ws_->get_executor()),
+                       /*timer_generation=*/.timer_generation = 0,
+                       .start = start_tp};
 
     // CRITICAL: Emplace BEFORE arming timer to avoid race window where timer
     // fires before entry exists in map
@@ -650,6 +667,10 @@ void BiDiSession::send_command(std::string_view method,
         });
 
     auto message = build_command(id, method, params);
+    logging::log_debug(std::format("Sending BiDi command: id={}, method={}, "
+                                   "trace_id={}, params={}",
+                                   id, method, trace_id,
+                                   boost::json::serialize(params)));
     auto logTransportErr = [self = shared_from_this(),
                             id](const boost::system::error_code &error_code) {
         if (!error_code) {
@@ -1484,7 +1505,9 @@ auto BiDiSession::Subscription::operator=(Subscription &&other) noexcept
 }
 
 BiDiSession::Subscription::Subscription(Subscription &&other) noexcept {
-    *this = std::move(other);
+    if (this != &other) {
+        *this = std::move(other);
+    }
 }
 
 BiDiSession::Subscription::~Subscription() noexcept {
@@ -1567,8 +1590,8 @@ void process_response_message(
             auto handler = std::move(it->second.handler);
             pending_responses.erase(it);
             bidi::logging::log_info(
-                std::format("[OK] Response processed: id={} method={}",
-                            response->id, response->method));
+                std::format("[OK] Response processed: id={} method={}; {}",
+                            response->id, response->method, payload));
             handler(*response);
         }
     }

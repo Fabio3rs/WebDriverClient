@@ -74,14 +74,12 @@ TEST(AsyncxCancel, TimeoutCancelsOperation) {
         boost::asio::use_future);
 
     // The operation should time out; we expect an exception or error handling
-    try {
+    EXPECT_ANY_THROW({
         auto r = fut.get();
         // if get returns, it's an unexpected success
         (void)r;
         FAIL() << "Expected timeout to fail";
-    } catch (...) {
-        // expected
-    }
+    });
 
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     EXPECT_TRUE(flag->load());

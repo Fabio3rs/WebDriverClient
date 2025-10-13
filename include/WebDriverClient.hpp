@@ -96,6 +96,11 @@ chrome=129.0.6668.70)", "stacktrace": "#0 0x5dd8a5bff10a \u003Cunknown>\n#1
             alwaysMatch[key] = browserOptions;
         }
 
+        {
+            //  {"unhandledPromptBehavior", "ignore"}
+            alwaysMatch["unhandledPromptBehavior"] = "ignore";
+        }
+
         capabilities["alwaysMatch"] = alwaysMatch;
         obj["capabilities"] = capabilities;
 

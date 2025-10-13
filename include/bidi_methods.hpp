@@ -116,6 +116,10 @@ inline constexpr std::string_view bc_navigationCommitted =
     "browsingContext.navigationCommitted";
 inline constexpr std::string_view bc_navigationFailed =
     "browsingContext.navigationFailed";
+inline constexpr std::string_view bc_userPromptOpened =
+    "browsingContext.userPromptOpened";
+inline constexpr std::string_view bc_userPromptClosed =
+    "browsingContext.userPromptClosed";
 // log
 inline constexpr std::string_view log_entryAdded = "log.entryAdded";
 // script

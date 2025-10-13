@@ -62,6 +62,25 @@ enum class UserPromptType : std::uint8_t {
     }
 }
 
+[[nodiscard]] constexpr auto
+parse_user_prompt_type(std::string_view text) noexcept
+    -> std::optional<UserPromptType> {
+    using enum UserPromptType;
+    if (text == "alert") {
+        return Alert;
+    }
+    if (text == "beforeUnload") {
+        return BeforeUnload;
+    }
+    if (text == "confirm") {
+        return Confirm;
+    }
+    if (text == "prompt") {
+        return Prompt;
+    }
+    return std::nullopt;
+}
+
 /**
  * @brief Locator match type
  */
@@ -305,6 +324,17 @@ inline void tag_invoke(value_from_tag /*unused*/, value &jv,
 inline void tag_invoke(value_from_tag /*unused*/, value &jv,
                        bidi::types::browsing_context::UserPromptType type) {
     jv = bidi::types::browsing_context::to_string(type);
+}
+
+inline auto tag_invoke(
+    value_to_tag<bidi::types::browsing_context::UserPromptType> /*unused*/,
+    const value &jv) -> bidi::types::browsing_context::UserPromptType {
+    auto text = value_to<std::string_view>(jv);
+    auto type = bidi::types::browsing_context::parse_user_prompt_type(text);
+    if (!type) {
+        throw std::runtime_error("Invalid user prompt type");
+    }
+    return *type;
 }
 
 } // namespace boost::json

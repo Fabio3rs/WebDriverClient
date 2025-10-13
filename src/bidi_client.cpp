@@ -1,4 +1,5 @@
 // src/bidi_client.cpp — High-level BiDi Client implementation
+#include <format>
 #include <memory>
 
 #include "bidi/client.hpp"
@@ -142,7 +143,7 @@ auto Client::handle_user_prompt(std::string_view context,
     auto params = commands::browsing_context::handle_user_prompt(
         context, accept, user_text);
     session_->send_command(
-        std::string(bidi::ids::methods::bc_handleUserPrompt), params,
+        bidi::ids::methods::bc_handleUserPrompt, params,
         [result](const core::ParsedResponse &response) mutable {
             if (!response.is_success) {
                 result.fail(std::make_exception_ptr(std::runtime_error(
@@ -334,7 +335,7 @@ auto Client::subscribe(const std::vector<std::string> &events,
     auto result = Task<Subscription>::make(ex);
     auto params = commands::session::subscribe(events, contexts);
     session_->send_command(
-        std::string(bidi::ids::methods::session_subscribe), params,
+        bidi::ids::methods::session_subscribe, params,
         [result, events, self = weak_from_this()](
             const core::ParsedResponse &response) mutable {
             if (!response.is_success) {
@@ -353,7 +354,7 @@ auto Client::subscribe(const std::vector<std::string> &events,
     return result;
 }
 
-auto Client::set_event_handler(std::string method,
+auto Client::set_event_handler(std::string_view method,
                                std::function<void(boost::json::object)> handler)
     -> boost::asio::awaitable<void> {
     auto sub_async = session_->subscribe_event(
@@ -365,7 +366,18 @@ auto Client::set_event_handler(std::string method,
     co_return;
 }
 
+auto Client::set_event_handler_subscription(
+    std::string_view method, std::function<void(boost::json::object)> handler)
+    -> asyncx::Async<std::shared_ptr<bidi::core::BiDiSession::Subscription>> {
+    return session_->subscribe_event(
+        method, [handler = std::move(handler)](const core::ParsedEvent &event) {
+            handler(event.params);
+        });
+}
+
 void Client::unsubscribe_events(const std::vector<std::string> &events) {
+    logging::log_debug(
+        std::format("Client: Unsubscribing from events {}", events.size()));
     auto params = commands::session::unsubscribe(events);
     session_->send_command(
         std::string(bidi::ids::methods::session_unsubscribe), params,

@@ -6,6 +6,7 @@
 #include "bidi/commands.hpp"
 #include "bidi/guards.hpp"
 #include "bidi/logging.hpp"
+#include "bidi/user_prompt_handler.hpp"
 #include <boost/asio.hpp>
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
@@ -68,6 +69,9 @@ class ProductionFlowExample {
             bidi::ClientGuard client_guard(client_ptr);
             auto context_id = co_await client_guard.client()->create_context(
                 CreateType::window)();
+            auto prompt_handler = co_await bidi::UserPromptHandler::create(
+                client_ptr, bidi::UserPromptHandlerConfig::accept_all())();
+
             (void)co_await client_guard.client()->navigate(
                 context_id, "https://example.com")();
             (void)co_await client_guard.client()->evaluate("document.title",
@@ -75,6 +79,9 @@ class ProductionFlowExample {
 
             auto elementTest = co_await client_guard.client()->evaluate(
                 "document.documentElement", context_id)();
+
+            auto evaluateAlert = co_await client_guard.client()->evaluate(
+                "confirm('Test Alert')", context_id)();
 
             bidi::logging::log_info(std::string("  elementTest: ") +
                                     boost::json::serialize(elementTest));

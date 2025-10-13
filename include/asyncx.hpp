@@ -574,10 +574,13 @@ template <class T = void> class Async {
 
     // --- map / and_then / recover / finally ---
     template <class F>
-    auto map(F f) -> Async<std::invoke_result_t<F, const T &>> {
+    auto map(F f,
+             const std::source_location &loc = std::source_location::current())
+        -> Async<std::invoke_result_t<F, const T &>> {
         using U = std::invoke_result_t<F, const T &>;
         auto next = Async<U>::make(st_->ex);
-        auto cont = [st = st_, next, f = std::move(f)]() mutable {
+        auto cont = [st = st_, next, f = std::move(f), loc]() mutable {
+            (void)loc; // suppress unused warning
             if (auto p = std::get_if<T>(&st->result)) {
                 try {
                     next.fulfill(std::invoke(f, *p));
@@ -602,15 +605,19 @@ template <class T = void> class Async {
     }
 
     template <class F>
-    auto and_then(F f) -> decltype(std::invoke(f, std::declval<const T &>())) {
-        using R = decltype(std::invoke(f, std::declval<const T &>()));
+    auto
+    and_then(F f,
+             const std::source_location &loc = std::source_location::current())
+        -> decltype(std::invoke(f, std::declval<T &&>())) {
+        using R = decltype(std::invoke(f, std::declval<T &&>()));
         using U = typename R::value_type;
 
         auto next = R::make(st_->ex);
-        auto cont = [st = st_, next, f = std::move(f)]() mutable {
+        auto cont = [st = st_, next, f = std::move(f), loc]() mutable {
+            (void)loc; // suppress unused warning
             if (auto p = std::get_if<T>(&st->result)) {
                 try {
-                    auto nxt = std::invoke(f, *p);
+                    auto nxt = std::invoke(f, std::move(*p));
                     if constexpr (std::is_void_v<U>) {
                         nxt.finally([next](std::optional<EC> ec,
                                            std::exception_ptr ep) {
@@ -655,9 +662,14 @@ template <class T = void> class Async {
         return next;
     }
 
-    template <class F> auto recover(F f) -> Async<T> {
+    template <class F>
+    auto
+    recover(F f,
+            const std::source_location &loc = std::source_location::current())
+        -> Async<T> {
         auto next = Async<T>::make(st_->ex);
-        auto cont = [st = st_, next, f = std::move(f)]() mutable {
+        auto cont = [st = st_, next, f = std::move(f), loc]() mutable {
+            (void)loc; // suppress unused warning
             if (auto p = std::get_if<T>(&st->result)) {
                 next.fulfill(std::move(*p));
                 return;
@@ -683,14 +695,65 @@ template <class T = void> class Async {
         return next;
     }
 
-    template <class F> void finally(F f) const {
-        auto cont = [st = st_, f = std::move(f)]() mutable {
+    template <class F>
+    void finally(F f, const std::source_location &loc =
+                          std::source_location::current()) const {
+        auto cont = [st = st_, f = std::move(f), loc]() mutable {
+            (void)loc; // suppress unused warning
             std::optional<T> v;
             std::optional<EC> ec;
             std::exception_ptr ep;
 
             if (auto pv = std::get_if<T>(&st->result)) {
-                v = *pv;
+                v = std::move(*pv); // Move for move-only types
+            } else if (auto pe = std::get_if<EC>(&st->result)) {
+                ec = *pe;
+            } else {
+                ep = std::get<std::exception_ptr>(st->result);
+            }
+
+            std::invoke(f, std::move(v), std::move(ec), ep);
+        };
+        attach_or_run(std::move(cont));
+    }
+
+    void
+    await(const std::source_location &loc = std::source_location::current()) {
+        attach_or_run([loc]() {
+            (void)loc; // suppress unused warning
+        });
+    }
+
+    template <class F>
+    void await_error(F f, const std::source_location &loc =
+                              std::source_location::current()) const {
+        auto cont = [st = st_, f = std::move(f), loc]() mutable {
+            (void)loc; // suppress unused warning
+            std::optional<EC> ec;
+            std::exception_ptr ep;
+            if (auto pe = std::get_if<EC>(&st->result)) {
+                ec = *pe;
+            } else {
+                ep = std::get<std::exception_ptr>(st->result);
+            }
+            if (ec) {
+                std::invoke(f, *ec);
+            }
+        };
+        attach_or_run(std::move(cont));
+    }
+
+    template <class F>
+    void await(F f, const std::source_location &loc =
+                        std::source_location::current()) const {
+        auto cont = [st = st_, f = std::move(f), loc]() mutable {
+            (void)loc; // suppress unused warning
+            std::optional<T &> v;
+            std::optional<EC> ec;
+            std::exception_ptr ep;
+
+            if (auto pv = std::get_if<T>(&st->result)) {
+                v.emplace(*pv);
             } else if (auto pe = std::get_if<EC>(&st->result)) {
                 ec = *pe;
             } else {
@@ -1331,11 +1394,7 @@ auto all(net::any_io_executor ex, std::vector<Async<T>> vs)
                         }
                     });
             // hold reg until out completes
-            out.finally([reg](std::optional<std::vector<T>> /*v*/,
-                              std::optional<EC> /*ec*/,
-                              const std::exception_ptr & /*ep*/) {
-                // reg goes out of scope and is destroyed here
-            });
+            out.await();
         }
     }
 
@@ -1718,7 +1777,7 @@ auto zip(Async<T> first_async, Async<U> second_async)
                             // intentionally ignored
                         }
                     });
-            out.finally([reg](auto..., auto..., auto...) { /* keep alive */ });
+            out.await(); // keep reg alive until out completes
         }
     }
     first_async.finally([out, state, second_async](auto value_opt,

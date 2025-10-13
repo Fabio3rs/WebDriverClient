@@ -99,14 +99,12 @@ class EndToEndFlowDemo {
         }
 
         auto sub_async = session->subscribe_event(
-            std::string(ids::events::bc_contextCreated),
-            [](const ParsedEvent &event) {
+            ids::events::bc_contextCreated, [](const ParsedEvent &event) {
                 bidi::logging::log_info(std::string("Event received: ") +
                                         event.method);
             });
         auto sub2_async = session->subscribe_event(
-            std::string(ids::events::log_entryAdded),
-            [](const ParsedEvent &event) {
+            ids::events::log_entryAdded, [](const ParsedEvent &event) {
                 bidi::logging::log_info(std::string("Log event: ") +
                                         event.method);
             });
