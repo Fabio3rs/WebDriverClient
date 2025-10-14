@@ -49,6 +49,7 @@
 #include <future>
 #include <memory>
 #include <optional>
+#include <source_location>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -99,6 +100,7 @@ struct ParsedResponse {
     std::string method;   // original command method
     std::string trace_id; // locally generated trace id for correlation
     std::string raw_json; // raw received payload
+    std::source_location trace_location; // where send_command was called
     std::chrono::steady_clock::duration
         latency{};               // duration between send and response
     bool timeout_expired{false}; // true if locally constructed due to timeout
@@ -237,6 +239,15 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
             return subscription_id_;
         }
 
+        [[nodiscard]] auto get_source_location() const noexcept
+            -> const std::source_location & {
+            return loc_;
+        }
+
+        void set_source_location(const std::source_location &loc) noexcept {
+            loc_ = loc;
+        }
+
       private:
         friend class BiDiSession;
         std::weak_ptr<BiDiSession> session_;
@@ -246,6 +257,7 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
         // identify specific handler to remove
         std::shared_ptr<EventHandler> handler_ptr_;
         std::string subscription_id_;
+        std::source_location loc_{std::source_location::current()};
         bool active_{false};
     };
 
@@ -254,17 +266,20 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
     BiDiSession() = default;
 
     // Send command and register response handler
-    void
-    send_command(std::string_view method, const boost::json::object &params,
-                 ResponseHandler handler,
-                 std::chrono::milliseconds timeout = std::chrono::milliseconds{
-                     kDefaultTimeout});
+    void send_command(
+        std::string_view method, const boost::json::object &params,
+        ResponseHandler handler,
+        std::chrono::milliseconds timeout =
+            std::chrono::milliseconds{kDefaultTimeout},
+        const std::source_location &loc = std::source_location::current());
 
     // Awaitable version for coroutines
     [[nodiscard]] auto send_command_awaitable(
         std::string_view method, boost::json::object params,
-        std::chrono::milliseconds timeout = std::chrono::milliseconds{
-            kDefaultTimeout}) -> boost::asio::awaitable<ParsedResponse>;
+        std::chrono::milliseconds timeout =
+            std::chrono::milliseconds{kDefaultTimeout},
+        std::source_location loc = std::source_location::current())
+        -> boost::asio::awaitable<ParsedResponse>;
 
     // default timeout used across BiDi core for request operations
     static constexpr std::chrono::milliseconds kDefaultTimeout{5000};
@@ -282,24 +297,32 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
     }
 
     // Subscribe to events (global scope). Returns RAII handle.
-    [[nodiscard]] auto subscribe_event(std::string_view event_method,
-                                       EventHandler handler)
+    [[nodiscard]] auto
+    subscribe_event(std::string_view event_method, EventHandler handler,
+                    std::source_location loc = std::source_location::current())
         -> asyncx::Async<std::shared_ptr<Subscription>>;
-    [[nodiscard]] auto subscribe_event_awaitable(std::string event_method,
-                                                 EventHandler handler)
+    [[nodiscard]] auto subscribe_event_awaitable(
+        std::string event_method, EventHandler handler,
+        std::source_location loc = std::source_location::current())
         -> boost::asio::awaitable<Subscription>;
-    [[nodiscard]] auto subscribe_event_async(std::string event_method,
-                                             EventHandler handler)
+    [[nodiscard]] auto subscribe_event_async(
+        std::string event_method, EventHandler handler,
+        std::source_location loc = std::source_location::current())
         -> asyncx::Async<std::shared_ptr<Subscription>>;
-    void unsubscribe_event(const std::string &event_method);
+    void unsubscribe_event(
+        const std::string &event_method,
+        std::source_location loc = std::source_location::current());
 
     // Subscribe to events scoped by contexts (deduped by refcount per context)
-    [[nodiscard]] auto
-    subscribe_event_scoped(const std::string &event_method,
-                           const std::vector<std::string> &contexts,
-                           EventHandler handler) -> Subscription;
-    void unsubscribe_event_scoped(const std::string &event_method,
-                                  const std::vector<std::string> &contexts);
+    [[nodiscard]] auto subscribe_event_scoped(
+        const std::string &event_method,
+        const std::vector<std::string> &contexts, EventHandler handler,
+        std::source_location loc = std::source_location::current())
+        -> Subscription;
+    void unsubscribe_event_scoped(
+        const std::string &event_method,
+        const std::vector<std::string> &contexts,
+        std::source_location loc = std::source_location::current());
 
     // Get executor for async operations
     auto get_executor() const -> net::any_io_executor;
@@ -324,6 +347,7 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
         std::string method;
         std::string trace_id; // propagated for logging correlation
         net::steady_timer timer;
+        std::source_location trace_location; // where send_command was called
 
         /// Generation counter for timer lifecycle (prevents stale timer
         /// callbacks)

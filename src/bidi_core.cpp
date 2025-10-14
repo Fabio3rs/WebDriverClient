@@ -556,7 +556,8 @@ BiDiSession::BiDiSession(std::shared_ptr<WebSocketClient> websocket)
 void BiDiSession::send_command(std::string_view method,
                                const boost::json::object &params,
                                ResponseHandler handler,
-                               std::chrono::milliseconds timeout) {
+                               std::chrono::milliseconds timeout,
+                               const std::source_location &loc) {
     if (!ws_) {
         // WebSocket not connected, invoke handler with transport error
         ParsedResponse error_resp;
@@ -567,6 +568,7 @@ void BiDiSession::send_command(std::string_view method,
         error_resp.error_message = "WebSocket not connected";
         error_resp.method = std::string(method);
         error_resp.trace_id = bidi::logging::make_trace_id();
+        error_resp.trace_location = loc;
         error_resp.timeout_expired = false;
         handler(std::move(error_resp));
         return;
@@ -583,6 +585,7 @@ void BiDiSession::send_command(std::string_view method,
                        .method = std::string(method),
                        .trace_id = trace_id,
                        .timer = net::steady_timer(ws_->get_executor()),
+                       .trace_location = loc,
                        /*timer_generation=*/.timer_generation = 0,
                        .start = start_tp};
 
@@ -615,6 +618,7 @@ void BiDiSession::send_command(std::string_view method,
         error_resp.error_message = "Failed to register pending entry";
         error_resp.method = std::string(method);
         error_resp.trace_id = trace_id;
+        error_resp.trace_location = loc;
         error_resp.timeout_expired = false;
 
         // Invoke handler with error (handler is still valid, not moved)
@@ -635,8 +639,8 @@ void BiDiSession::send_command(std::string_view method,
     const auto captured_gen = it->second.timer_generation;
     it->second.timer.expires_after(timeout);
     it->second.timer.async_wait(
-        [self = shared_from_this(), id,
-         captured_gen](const boost::system::error_code &error_code) {
+        [self = shared_from_this(), id, captured_gen,
+         loc](const boost::system::error_code &error_code) {
             if (error_code) {
                 return;
             } // timer cancelled
@@ -656,6 +660,7 @@ void BiDiSession::send_command(std::string_view method,
             timeout_resp.error_message = "operation timed out";
             timeout_resp.method = it_timeout->second.method;
             timeout_resp.trace_id = it_timeout->second.trace_id;
+            timeout_resp.trace_location = loc;
             timeout_resp.timeout_expired = true;
             timeout_resp.latency =
                 std::chrono::steady_clock::now() - it_timeout->second.start;
@@ -667,12 +672,8 @@ void BiDiSession::send_command(std::string_view method,
         });
 
     auto message = build_command(id, method, params);
-    logging::log_debug(std::format("Sending BiDi command: id={}, method={}, "
-                                   "trace_id={}, params={}",
-                                   id, method, trace_id,
-                                   boost::json::serialize(params)));
-    auto logTransportErr = [self = shared_from_this(),
-                            id](const boost::system::error_code &error_code) {
+    auto logTransportErr = [self = shared_from_this(), id,
+                            loc](const boost::system::error_code &error_code) {
         if (!error_code) {
             return;
         }
@@ -690,6 +691,7 @@ void BiDiSession::send_command(std::string_view method,
         resp.error_message = error_code.message();
         resp.method = it_transport->second.method;
         resp.trace_id = it_transport->second.trace_id;
+        resp.trace_location = loc;
         resp.latency =
             std::chrono::steady_clock::now() - it_transport->second.start;
         // Log transport send failure with trace_id
@@ -714,7 +716,8 @@ void BiDiSession::send_command(std::string_view method,
 /// boundaries
 auto BiDiSession::send_command_awaitable(std::string_view method,
                                          boost::json::object params,
-                                         std::chrono::milliseconds timeout)
+                                         std::chrono::milliseconds timeout,
+                                         std::source_location loc)
     -> boost::asio::awaitable<ParsedResponse> {
     auto id = next_id_.fetch_add(1, std::memory_order_relaxed);
     auto start_tp = std::chrono::steady_clock::now();
@@ -726,14 +729,16 @@ auto BiDiSession::send_command_awaitable(std::string_view method,
 
     // Create the pending entry with generation 0 (consistent with header
     // default)
-    PendingEntry entry{[response_async](const ParsedResponse &resp) {
-                           response_async.fulfill(resp);
-                       },
-                       std::string(method),
-                       trace_id,
-                       net::steady_timer(ws_->get_executor()),
-                       /*timer_generation=*/0,
-                       start_tp};
+    PendingEntry entry{.handler =
+                           [response_async](const ParsedResponse &resp) {
+                               response_async.fulfill(resp);
+                           },
+                       .method = std::string(method),
+                       .trace_id = trace_id,
+                       .timer = net::steady_timer(ws_->get_executor()),
+                       .trace_location = loc,
+                       /*timer_generation=*/.timer_generation = 0,
+                       .start = start_tp};
 
     // CRITICAL: Emplace BEFORE arming timer to avoid race window
     auto [it2, inserted2] = pending_responses_.emplace(id, std::move(entry));
@@ -754,6 +759,7 @@ auto BiDiSession::send_command_awaitable(std::string_view method,
         resp.error_code_raw = "internal";
         resp.error_message = "failed to allocate pending entry";
         resp.trace_id = trace_id;
+        resp.trace_location = loc;
         resp.method = std::string(method);
         resp.latency = std::chrono::steady_clock::now() - start_tp;
 
@@ -771,8 +777,8 @@ auto BiDiSession::send_command_awaitable(std::string_view method,
     const auto captured_gen2 = it2->second.timer_generation;
     it2->second.timer.expires_after(timeout);
     it2->second.timer.async_wait(
-        [self = shared_from_this(), id,
-         captured_gen2](const boost::system::error_code &error_code) {
+        [self = shared_from_this(), id, captured_gen2,
+         loc](const boost::system::error_code &error_code) {
             if (error_code) {
                 return; // timer cancelled
             }
@@ -791,6 +797,7 @@ auto BiDiSession::send_command_awaitable(std::string_view method,
             timeout_resp.error_message = "operation timed out";
             timeout_resp.method = it_timeout->second.method;
             timeout_resp.trace_id = it_timeout->second.trace_id;
+            timeout_resp.trace_location = loc;
             timeout_resp.timeout_expired = true;
             timeout_resp.latency =
                 std::chrono::steady_clock::now() - it_timeout->second.start;
@@ -802,8 +809,8 @@ auto BiDiSession::send_command_awaitable(std::string_view method,
 
     auto message = build_command(id, method, params);
     ws_->async_send(
-        std::move(message), [self = shared_from_this(),
-                             id](const boost::system::error_code &error_code) {
+        std::move(message), [self = shared_from_this(), id,
+                             loc](const boost::system::error_code &error_code) {
             if (!error_code) {
                 return;
             }
@@ -819,6 +826,7 @@ auto BiDiSession::send_command_awaitable(std::string_view method,
             resp.error_message = error_code.message();
             resp.method = it_transport->second.method;
             resp.trace_id = it_transport->second.trace_id;
+            resp.trace_location = loc;
             resp.latency =
                 std::chrono::steady_clock::now() - it_transport->second.start;
             bidi::logging::log_error("BiDi send transport error", error_code,
@@ -841,7 +849,8 @@ auto BiDiSession::send_command_awaitable(std::string_view method,
 /// @note Thread-safe: all operations serialized via strand
 /// @see Guia.md: Lazy evaluation pattern for composed async operations
 auto BiDiSession::subscribe_event(std::string_view event_method,
-                                  EventHandler handler)
+                                  EventHandler handler,
+                                  std::source_location loc)
     -> asyncx::Async<std::shared_ptr<BiDiSession::Subscription>> {
     auto sub = std::make_shared<Subscription>();
     sub->session_ = weak_from_this();
@@ -849,6 +858,7 @@ auto BiDiSession::subscribe_event(std::string_view event_method,
     sub->contexts_ = std::nullopt;
     sub->handler_ptr_ = std::make_shared<EventHandler>(std::move(handler));
     sub->active_ = true;
+    sub->set_source_location(loc);
 
     /// Register handler locally before sending wire protocol message
     event_handlers_[sub->method_].push_back(sub->handler_ptr_);
@@ -867,15 +877,17 @@ auto BiDiSession::subscribe_event(std::string_view event_method,
             asyncx::Async<ParsedResponse>::make(get_executor());
 
         // Send command with callback
-        send_command("session.subscribe", params,
-                     [response_async](const ParsedResponse &resp) {
-                         if (resp.is_success) {
-                             response_async.fulfill(resp);
-                         } else {
-                             // For failure, fail the async
-                             response_async.fail(boost::system::error_code{});
-                         }
-                     });
+        send_command(
+            "session.subscribe", params,
+            [response_async](const ParsedResponse &resp) {
+                if (resp.is_success) {
+                    response_async.fulfill(resp);
+                } else {
+                    // For failure, fail the async
+                    response_async.fail(boost::system::error_code{});
+                }
+            },
+            kDefaultTimeout, loc);
 
         // Use and_then for composition
         return response_async.and_then(
@@ -952,7 +964,8 @@ auto BiDiSession::subscribe_event(std::string_view event_method,
 /// @note RAII: Subscription destructor auto-unsubscribes and removes handler
 /// @throws std::runtime_error if session.subscribe command fails
 auto BiDiSession::subscribe_event_awaitable(std::string event_method,
-                                            EventHandler handler)
+                                            EventHandler handler,
+                                            std::source_location loc)
     -> boost::asio::awaitable<BiDiSession::Subscription> {
     Subscription sub;
     sub.session_ = weak_from_this();
@@ -960,6 +973,7 @@ auto BiDiSession::subscribe_event_awaitable(std::string event_method,
     sub.contexts_ = std::nullopt;
     sub.handler_ptr_ = std::make_shared<EventHandler>(std::move(handler));
     sub.active_ = true;
+    sub.set_source_location(loc);
 
     /// Register handler locally before sending wire protocol message
     event_handlers_[event_method].push_back(sub.handler_ptr_);
@@ -974,8 +988,8 @@ auto BiDiSession::subscribe_event_awaitable(std::string event_method,
         params["events"] = boost::json::array({event_method});
 
         // Send command and co_await the response
-        auto response =
-            co_await send_command_awaitable("session.subscribe", params);
+        auto response = co_await send_command_awaitable(
+            "session.subscribe", params, kDefaultTimeout, loc);
 
         if (!response.is_success) {
             // Revert refcount on failure
@@ -1022,7 +1036,8 @@ auto BiDiSession::subscribe_event_awaitable(std::string event_method,
 }
 
 auto BiDiSession::subscribe_event_async(std::string event_method,
-                                        EventHandler handler)
+                                        EventHandler handler,
+                                        std::source_location loc)
     -> asyncx::Async<std::shared_ptr<BiDiSession::Subscription>> {
     auto sub_ptr = std::make_shared<Subscription>();
     sub_ptr->session_ = weak_from_this();
@@ -1030,6 +1045,7 @@ auto BiDiSession::subscribe_event_async(std::string event_method,
     sub_ptr->contexts_ = std::nullopt;
     sub_ptr->handler_ptr_ = std::make_shared<EventHandler>(std::move(handler));
     sub_ptr->active_ = true;
+    sub_ptr->set_source_location(loc);
 
     // Register locally
     event_handlers_[event_method].push_back(sub_ptr->handler_ptr_);
@@ -1048,15 +1064,17 @@ auto BiDiSession::subscribe_event_async(std::string event_method,
             asyncx::Async<ParsedResponse>::make(get_executor());
 
         // Send command with callback
-        send_command("session.subscribe", params,
-                     [response_async](const ParsedResponse &resp) {
-                         if (resp.is_success) {
-                             response_async.fulfill(resp);
-                         } else {
-                             // For failure, fail the async
-                             response_async.fail(boost::system::error_code{});
-                         }
-                     });
+        send_command(
+            "session.subscribe", params,
+            [response_async](const ParsedResponse &resp) {
+                if (resp.is_success) {
+                    response_async.fulfill(resp);
+                } else {
+                    // For failure, fail the async
+                    response_async.fail(boost::system::error_code{});
+                }
+            },
+            kDefaultTimeout, loc);
 
         // Use and_then for composition
         return response_async.and_then(
@@ -1124,7 +1142,8 @@ auto BiDiSession::subscribe_event_async(std::string event_method,
     return result_async;
 }
 
-void BiDiSession::unsubscribe_event(const std::string &event_method) {
+void BiDiSession::unsubscribe_event(const std::string &event_method,
+                                    std::source_location loc) {
     // Decrease refcount and only send session.unsubscribe at last drop
     auto it = event_refcount_.find(event_method);
     if (it == event_refcount_.end()) {
@@ -1157,24 +1176,28 @@ void BiDiSession::unsubscribe_event(const std::string &event_method) {
     event_refcount_.erase(it);
     boost::json::object params;
     params["events"] = boost::json::array({event_method});
-    send_command("session.unsubscribe", params, [](const ParsedResponse &resp) {
-        if (!resp.is_success) {
-            bidi::logging::log_error(std::format(
-                "session.unsubscribe failed: {}", resp.error_message));
-        }
-    });
+    send_command(
+        "session.unsubscribe", params,
+        [](const ParsedResponse &resp) {
+            if (!resp.is_success) {
+                bidi::logging::log_error(std::format(
+                    "session.unsubscribe failed: {}", resp.error_message));
+            }
+        },
+        kDefaultTimeout, loc);
     event_handlers_.erase(event_method);
 }
 
 auto BiDiSession::subscribe_event_scoped(
     const std::string &event_method, const std::vector<std::string> &contexts,
-    EventHandler handler) -> Subscription {
+    EventHandler handler, std::source_location loc) -> Subscription {
     Subscription sub;
     sub.session_ = weak_from_this();
     sub.method_ = event_method;
     sub.contexts_ = contexts;
     sub.handler_ptr_ = std::make_shared<EventHandler>(std::move(handler));
     sub.active_ = true;
+    sub.set_source_location(loc);
 
     // Register local handler
     event_handlers_[event_method].push_back(sub.handler_ptr_);
@@ -1256,13 +1279,15 @@ auto BiDiSession::subscribe_event_scoped(
             }
         }
     };
-    send_command("session.subscribe", params, eventSubscriptionHandler);
+    send_command("session.subscribe", params, eventSubscriptionHandler,
+                 kDefaultTimeout, loc);
 
     return sub;
 }
 
 void BiDiSession::unsubscribe_event_scoped(
-    const std::string &event_method, const std::vector<std::string> &contexts) {
+    const std::string &event_method, const std::vector<std::string> &contexts,
+    std::source_location loc) {
     /// Pre-allocate to avoid reallocations during loop
     std::vector<std::string> need_wire_contexts;
     need_wire_contexts.reserve(contexts.size());
@@ -1299,12 +1324,16 @@ void BiDiSession::unsubscribe_event_scoped(
         ctxs.emplace_back(ctx);
     }
     params["contexts"] = std::move(ctxs);
-    send_command("session.unsubscribe", params, [](const ParsedResponse &resp) {
-        if (!resp.is_success) {
-            bidi::logging::log_error(std::format(
-                "session.unsubscribe (scoped) failed: {}", resp.error_message));
-        }
-    });
+    send_command(
+        "session.unsubscribe", params,
+        [](const ParsedResponse &resp) {
+            if (!resp.is_success) {
+                bidi::logging::log_error(
+                    std::format("session.unsubscribe (scoped) failed: {}",
+                                resp.error_message));
+            }
+        },
+        kDefaultTimeout, loc);
 }
 
 // Helper implementations
@@ -1582,6 +1611,7 @@ void process_response_message(
         if (it != pending_responses.end()) {
             response->method = it->second.method;
             response->trace_id = it->second.trace_id;
+            response->trace_location = it->second.trace_location;
             response->raw_json = std::string(payload);
             response->latency =
                 std::chrono::steady_clock::now() - it->second.start;
@@ -1686,6 +1716,7 @@ void BiDiSession::on_error(const boost::system::error_code &error_code) {
         error_response.error_message = error_code.message();
         error_response.method = entry.method;
         error_response.trace_id = entry.trace_id;
+        error_response.trace_location = entry.trace_location;
         // move handler out before erase
         auto handler = std::move(entry.handler);
         it = pending_responses_.erase(it);
@@ -1723,6 +1754,7 @@ void BiDiSession::disconnect() {
         resp.error_code_raw = "shutdown";
         resp.error_message = "session disconnecting";
         resp.trace_id = entry.trace_id;
+        resp.trace_location = entry.trace_location;
         auto handler = std::move(entry.handler);
         it = pending_responses_.erase(it);
         if (handler) {

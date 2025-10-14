@@ -63,60 +63,77 @@ class Client : public std::enable_shared_from_this<Client> {
 
     // ======================== BrowsingContext API ========================
 
+    [[nodiscard]] auto create_user_context(
+        const boost::json::object &params = {},
+        const std::source_location &loc = std::source_location::current())
+        -> Task<std::string>;
+
     // Create new browsing context (tab/window)
-    [[nodiscard]] auto
-    create_context(commands::browsing_context::CreateType type =
-                       commands::browsing_context::CreateType::window)
+    [[nodiscard]] auto create_context(
+        commands::browsing_context::CreateType type =
+            commands::browsing_context::CreateType::window,
+        const std::source_location &loc = std::source_location::current())
         -> Task<std::string>;
 
     // Navigate to URL
     [[nodiscard]] auto
     navigate(std::string_view context, std::string_view url,
              commands::browsing_context::ReadinessState wait =
-                 commands::browsing_context::ReadinessState::complete)
+                 commands::browsing_context::ReadinessState::complete,
+             const std::source_location &loc = std::source_location::current())
         -> Task<std::string>;
 
     // Close browsing context
-    [[nodiscard]] auto close_context(std::string_view context) -> Task<bool>;
+    [[nodiscard]] auto close_context(
+        std::string_view context,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<bool>;
 
     // Get browsing context tree
-    [[nodiscard]] auto get_context_tree(std::string_view root = {})
+    [[nodiscard]] auto get_context_tree(
+        std::string_view root = {},
+        const std::source_location &loc = std::source_location::current())
         -> Task<boost::json::object>;
 
     // Handle user prompt
     [[nodiscard]] auto handle_user_prompt(
         std::string_view context, std::optional<bool> accept = std::nullopt,
-        std::optional<std::string_view> user_text = std::nullopt) -> Task<void>;
+        std::optional<std::string_view> user_text = std::nullopt,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<void>;
 
     // ======================== Script API ========================
 
     // Evaluate JavaScript expression
-    [[nodiscard]] auto evaluate(std::string_view expression,
-                                std::string_view context,
-                                bool await_promise = true)
+    [[nodiscard]] auto
+    evaluate(std::string_view expression, std::string_view context,
+             bool await_promise = true,
+             const std::source_location &loc = std::source_location::current())
         -> Task<boost::json::object>;
 
     // Evaluate JavaScript expression with script evaluation policy
     [[nodiscard]] auto
     evaluate(std::string_view expression, std::string_view context,
-             script::script_eval_policy policy, bool await_promise = true)
+             script::script_eval_policy policy, bool await_promise = true,
+             const std::source_location &loc = std::source_location::current())
         -> Task<script::ScriptEvalOutcome>;
 
     // Call JavaScript function
-    [[nodiscard]] auto call_function(std::string_view function_declaration,
-                                     std::string_view context,
-                                     const boost::json::array &arguments = {},
-                                     bool await_promise = true)
+    [[nodiscard]] auto call_function(
+        std::string_view function_declaration, std::string_view context,
+        const boost::json::array &arguments = {}, bool await_promise = true,
+        const std::source_location &loc = std::source_location::current())
         -> Task<boost::json::object>;
 
     // Call JavaScript function
-    [[nodiscard]] auto
-    call_function(std::string_view function_declaration,
-                  std::string_view context,
-                  const boost::json::array &arguments = {},
-                  script::script_eval_policy policy =
-                      script::script_eval_policy::return_outcome,
-                  bool await_promise = true) -> Task<script::ScriptEvalOutcome>;
+    [[nodiscard]] auto call_function(
+        std::string_view function_declaration, std::string_view context,
+        const boost::json::array &arguments = {},
+        script::script_eval_policy policy =
+            script::script_eval_policy::return_outcome,
+        bool await_promise = true,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<script::ScriptEvalOutcome>;
 
     // ======================== Session API ========================
 
@@ -147,18 +164,23 @@ class Client : public std::enable_shared_from_this<Client> {
     };
 
     // Subscribe to events with RAII cleanup
-    [[nodiscard]] auto subscribe(const std::vector<std::string> &events,
-                                 const std::vector<std::string> &contexts = {})
+    [[nodiscard]] auto
+    subscribe(const std::vector<std::string> &events,
+              const std::vector<std::string> &contexts = {},
+              const std::source_location &loc = std::source_location::current())
         -> Task<Subscription>;
 
     // Set event handler for specific method
-    auto set_event_handler(std::string_view method,
-                           std::function<void(boost::json::object)> handler)
+    auto set_event_handler(
+        std::string_view method,
+        std::function<void(boost::json::object)> handler,
+        const std::source_location &loc = std::source_location::current())
         -> boost::asio::awaitable<void>;
 
     auto set_event_handler_subscription(
         std::string_view method,
-        std::function<void(boost::json::object)> handler)
+        std::function<void(boost::json::object)> handler,
+        const std::source_location &loc = std::source_location::current())
         -> asyncx::Async<
             std::shared_ptr<bidi::core::BiDiSession::Subscription>>;
 
@@ -183,7 +205,9 @@ class Client : public std::enable_shared_from_this<Client> {
     std::shared_ptr<core::BiDiSession> session_;
 
     // Internal: unsubscribe events
-    void unsubscribe_events(const std::vector<std::string> &events);
+    void unsubscribe_events(
+        const std::vector<std::string> &events,
+        const std::source_location &loc = std::source_location::current());
 };
 
 // Inline template implementation

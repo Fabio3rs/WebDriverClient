@@ -3,6 +3,7 @@
 #include <memory>
 
 #include "bidi/client.hpp"
+#include "bidi/core.hpp"
 #include "bidi/ids.hpp"
 #include "bidi/logging.hpp"
 #include "bidi/script_eval.hpp"
@@ -44,13 +45,41 @@ auto Client::get_executor() const -> boost::asio::any_io_executor {
 
 // ======================== BrowsingContext API ========================
 
-auto Client::create_context(commands::browsing_context::CreateType type)
+auto Client::create_user_context(const boost::json::object &params,
+                                 const std::source_location &loc)
+    -> Task<std::string> {
+    auto ex = get_executor();
+    auto result = Task<std::string>::make(ex);
+    session_->send_command(
+        bidi::ids::methods::browser_createUserContext, params,
+        [result](const core::ParsedResponse &response) mutable {
+            if (!response.is_success) {
+                result.fail(std::make_exception_ptr(std::runtime_error(
+                    "browser.createUserContext failed: " +
+                    response.error_code_raw + " - " + response.error_message)));
+                return;
+            }
+            const auto *context_it = response.result.find("userContext");
+            if (context_it != response.result.end() &&
+                context_it->value().is_string()) {
+                result.fulfill(context_it->value().as_string().c_str());
+            } else {
+                result.fail(std::make_exception_ptr(std::runtime_error(
+                    "Invalid browser.createUserContext response")));
+            }
+        },
+        core::BiDiSession::kDefaultTimeout, loc);
+    return result;
+}
+
+auto Client::create_context(commands::browsing_context::CreateType type,
+                            const std::source_location &loc)
     -> Task<std::string> {
     auto ex = get_executor();
     auto result = Task<std::string>::make(ex);
     auto params = commands::browsing_context::create(type);
     session_->send_command(
-        std::string(bidi::ids::methods::bc_create), params,
+        bidi::ids::methods::bc_create, params,
         [result](const core::ParsedResponse &response) mutable {
             if (!response.is_success) {
                 result.fail(std::make_exception_ptr(std::runtime_error(
@@ -66,13 +95,14 @@ auto Client::create_context(commands::browsing_context::CreateType type)
                 result.fail(std::make_exception_ptr(std::runtime_error(
                     "Invalid browsingContext.create response")));
             }
-        });
+        },
+        core::BiDiSession::kDefaultTimeout, loc);
     return result;
 }
 
 auto Client::navigate(std::string_view context, std::string_view url,
-                      commands::browsing_context::ReadinessState wait)
-    -> Task<std::string> {
+                      commands::browsing_context::ReadinessState wait,
+                      const std::source_location &loc) -> Task<std::string> {
     auto ex = get_executor();
     auto result = Task<std::string>::make(ex);
     auto params = commands::browsing_context::navigate(context, url, wait);
@@ -93,11 +123,13 @@ auto Client::navigate(std::string_view context, std::string_view url,
                 // convert string_view to std::string for Task fulfillment
                 result.fulfill(std::string(url));
             }
-        });
+        },
+        core::BiDiSession::kDefaultTimeout, loc);
     return result;
 }
 
-auto Client::close_context(std::string_view context) -> Task<bool> {
+auto Client::close_context(std::string_view context,
+                           const std::source_location &loc) -> Task<bool> {
     auto ex = get_executor();
     auto result = Task<bool>::make(ex);
     auto params = commands::browsing_context::close(context);
@@ -111,11 +143,13 @@ auto Client::close_context(std::string_view context) -> Task<bool> {
                 return;
             }
             result.fulfill(true);
-        });
+        },
+        core::BiDiSession::kDefaultTimeout, loc);
     return result;
 }
 
-auto Client::get_context_tree(std::string_view root)
+auto Client::get_context_tree(std::string_view root,
+                              const std::source_location &loc)
     -> Task<boost::json::object> {
     auto ex = get_executor();
     auto result = Task<boost::json::object>::make(ex);
@@ -130,14 +164,15 @@ auto Client::get_context_tree(std::string_view root)
                 return;
             }
             result.fulfill(response.result);
-        });
+        },
+        core::BiDiSession::kDefaultTimeout, loc);
     return result;
 }
 
 auto Client::handle_user_prompt(std::string_view context,
                                 std::optional<bool> accept,
-                                std::optional<std::string_view> user_text)
-    -> Task<void> {
+                                std::optional<std::string_view> user_text,
+                                const std::source_location &loc) -> Task<void> {
     auto ex = get_executor();
     auto result = Task<void>::make(ex);
     auto params = commands::browsing_context::handle_user_prompt(
@@ -152,14 +187,16 @@ auto Client::handle_user_prompt(std::string_view context,
                 return;
             }
             result.fulfill();
-        });
+        },
+        core::BiDiSession::kDefaultTimeout, loc);
     return result;
 }
 
 // ======================== Script API ========================
 
 auto Client::evaluate(std::string_view expression, std::string_view context,
-                      bool await_promise) -> Task<boost::json::object> {
+                      bool await_promise, const std::source_location &loc)
+    -> Task<boost::json::object> {
     auto ex = get_executor();
     auto result = Task<boost::json::object>::make(ex);
     commands::script::Target target{.context = context, .sandbox = {}};
@@ -174,12 +211,14 @@ auto Client::evaluate(std::string_view expression, std::string_view context,
                 return;
             }
             result.fulfill(response.result);
-        });
+        },
+        core::BiDiSession::kDefaultTimeout, loc);
     return result;
 }
 
 auto Client::evaluate(std::string_view expression, std::string_view context,
-                      script::script_eval_policy policy, bool await_promise)
+                      script::script_eval_policy policy, bool await_promise,
+                      const std::source_location &loc)
     -> Task<script::ScriptEvalOutcome> {
     auto ex = get_executor();
     auto task = Task<script::ScriptEvalOutcome>::make(ex);
@@ -234,14 +273,16 @@ auto Client::evaluate(std::string_view expression, std::string_view context,
         task.fulfill(std::move(decision.outcome));
     };
     session_->send_command(bidi::ids::methods::script_evaluate, params,
-                           responseHandler);
+                           responseHandler, core::BiDiSession::kDefaultTimeout,
+                           loc);
     return task;
 }
 
 auto Client::call_function(std::string_view function_declaration,
                            std::string_view context,
                            const boost::json::array &arguments,
-                           bool await_promise) -> Task<boost::json::object> {
+                           bool await_promise, const std::source_location &loc)
+    -> Task<boost::json::object> {
     auto ex = get_executor();
     auto result = Task<boost::json::object>::make(ex);
     commands::script::Target target{.context = context, .sandbox = {}};
@@ -257,7 +298,8 @@ auto Client::call_function(std::string_view function_declaration,
                 return;
             }
             result.fulfill(response.result);
-        });
+        },
+        core::BiDiSession::kDefaultTimeout, loc);
     return result;
 }
 
@@ -265,7 +307,7 @@ auto Client::call_function(std::string_view function_declaration,
                            std::string_view context,
                            const boost::json::array &arguments,
                            script::script_eval_policy policy,
-                           bool await_promise)
+                           bool await_promise, const std::source_location &loc)
     -> Task<script::ScriptEvalOutcome> {
     auto ex = get_executor();
     auto task = Task<script::ScriptEvalOutcome>::make(ex);
@@ -321,7 +363,8 @@ auto Client::call_function(std::string_view function_declaration,
         task.fulfill(std::move(decision.outcome));
     };
     session_->send_command(bidi::ids::methods::script_callFunction, params,
-                           responseHandler);
+                           responseHandler, core::BiDiSession::kDefaultTimeout,
+                           loc);
 
     return task;
 }
@@ -329,7 +372,8 @@ auto Client::call_function(std::string_view function_declaration,
 // ======================== Session API ========================
 
 auto Client::subscribe(const std::vector<std::string> &events,
-                       const std::vector<std::string> &contexts)
+                       const std::vector<std::string> &contexts,
+                       const std::source_location &loc)
     -> Task<Client::Subscription> {
     auto ex = get_executor();
     auto result = Task<Subscription>::make(ex);
@@ -350,12 +394,14 @@ auto Client::subscribe(const std::vector<std::string> &events,
                 result.fail(std::make_exception_ptr(std::runtime_error(
                     "Client was destroyed during subscription")));
             }
-        });
+        },
+        core::BiDiSession::kDefaultTimeout, loc);
     return result;
 }
 
 auto Client::set_event_handler(std::string_view method,
-                               std::function<void(boost::json::object)> handler)
+                               std::function<void(boost::json::object)> handler,
+                               const std::source_location &loc)
     -> boost::asio::awaitable<void> {
     auto sub_async = session_->subscribe_event(
         method, [handler = std::move(handler)](const core::ParsedEvent &event) {
@@ -367,15 +413,19 @@ auto Client::set_event_handler(std::string_view method,
 }
 
 auto Client::set_event_handler_subscription(
-    std::string_view method, std::function<void(boost::json::object)> handler)
+    std::string_view method, std::function<void(boost::json::object)> handler,
+    const std::source_location &loc)
     -> asyncx::Async<std::shared_ptr<bidi::core::BiDiSession::Subscription>> {
     return session_->subscribe_event(
-        method, [handler = std::move(handler)](const core::ParsedEvent &event) {
+        method,
+        [handler = std::move(handler)](const core::ParsedEvent &event) {
             handler(event.params);
-        });
+        },
+        loc);
 }
 
-void Client::unsubscribe_events(const std::vector<std::string> &events) {
+void Client::unsubscribe_events(const std::vector<std::string> &events,
+                                const std::source_location &loc) {
     logging::log_debug(
         std::format("Client: Unsubscribing from events {}", events.size()));
     auto params = commands::session::unsubscribe(events);
@@ -387,7 +437,8 @@ void Client::unsubscribe_events(const std::vector<std::string> &events) {
                     std::string("session.unsubscribe failed: ") +
                     response.error_code_raw + " - " + response.error_message);
             }
-        });
+        },
+        core::BiDiSession::kDefaultTimeout, loc);
 }
 
 // ======================== Subscription Implementation ========================
