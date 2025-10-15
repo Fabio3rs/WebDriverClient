@@ -1,6 +1,7 @@
 // src/bidi_client.cpp — High-level BiDi Client implementation
 #include <format>
 #include <memory>
+#include <utility>
 
 #include "bidi/client.hpp"
 #include "bidi/core.hpp"
@@ -280,24 +281,24 @@ auto Client::evaluate(std::string_view expression, std::string_view context,
 
 auto Client::call_function(std::string_view function_declaration,
                            std::string_view context,
-                           const boost::json::array &arguments,
-                           bool await_promise, const std::source_location &loc)
+                           boost::json::array arguments, bool await_promise,
+                           const std::source_location &loc)
     -> Task<boost::json::object> {
     auto ex = get_executor();
     auto result = Task<boost::json::object>::make(ex);
     commands::script::Target target{.context = context, .sandbox = {}};
-    auto params = commands::script::call_function(function_declaration, target,
-                                                  arguments, await_promise);
+    auto params = commands::script::call_function(
+        function_declaration, target, std::move(arguments), await_promise);
     session_->send_command(
         std::string(bidi::ids::methods::script_callFunction), params,
-        [result](const core::ParsedResponse &response) mutable {
+        [result](core::ParsedResponse response) mutable {
             if (!response.is_success) {
                 result.fail(std::make_exception_ptr(std::runtime_error(
                     "script.callFunction failed: " + response.error_code_raw +
                     " - " + response.error_message)));
                 return;
             }
-            result.fulfill(response.result);
+            result.fulfill(std::move(response.result));
         },
         core::BiDiSession::kDefaultTimeout, loc);
     return result;
@@ -305,15 +306,15 @@ auto Client::call_function(std::string_view function_declaration,
 
 auto Client::call_function(std::string_view function_declaration,
                            std::string_view context,
-                           const boost::json::array &arguments,
+                           boost::json::array arguments,
                            script::script_eval_policy policy,
                            bool await_promise, const std::source_location &loc)
     -> Task<script::ScriptEvalOutcome> {
     auto ex = get_executor();
     auto task = Task<script::ScriptEvalOutcome>::make(ex);
     commands::script::Target target{.context = context, .sandbox = {}};
-    auto params = commands::script::call_function(function_declaration, target,
-                                                  arguments, await_promise);
+    auto params = commands::script::call_function(
+        function_declaration, target, std::move(arguments), await_promise);
     auto responseHandler = [task, policy](
                                const core::ParsedResponse &response) mutable {
         // Diagnóstico temporário: logar estado bruto antes da aplicação da
@@ -401,7 +402,7 @@ auto Client::subscribe(const std::vector<std::string> &events,
 
 auto Client::set_event_handler(std::string_view method,
                                std::function<void(boost::json::object)> handler,
-                               const std::source_location &loc)
+                               std::source_location loc)
     -> boost::asio::awaitable<void> {
     auto sub_async = session_->subscribe_event(
         method, [handler = std::move(handler)](const core::ParsedEvent &event) {

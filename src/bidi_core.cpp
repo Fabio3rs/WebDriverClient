@@ -1620,8 +1620,12 @@ void process_response_message(
             auto handler = std::move(it->second.handler);
             pending_responses.erase(it);
             bidi::logging::log_info(
-                std::format("[OK] Response processed: id={} method={}; {}",
-                            response->id, response->method, payload));
+                std::format("[OK] Response processed: id={} method={}; {}; "
+                            "Origin loc: {}:{}:{}",
+                            response->id, response->method, payload,
+                            response->trace_location.file_name(),
+                            response->trace_location.line(),
+                            response->trace_location.column()));
             handler(*response);
         }
     }

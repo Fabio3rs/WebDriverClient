@@ -49,7 +49,7 @@ struct Target {
  */
 [[nodiscard]] auto call_function(
     std::string_view function_declaration, const Target &target,
-    const boost::json::array &arguments = {}, bool await_promise = true,
+    boost::json::array arguments = {}, bool await_promise = true,
     ResultOwnership ownership = ResultOwnership::root) -> boost::json::object;
 
 /**

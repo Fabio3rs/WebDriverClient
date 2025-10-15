@@ -62,6 +62,7 @@
 #include <functional>
 #include <mutex>
 #include <optional>
+#include <source_location>
 #include <stop_token>
 #include <type_traits>
 #include <utility>
@@ -110,12 +111,15 @@ template <class T> struct State {
     std::variant<T, EC, std::exception_ptr> result; ///< Result value or error
     std::vector<std::function<void()>> conts;       ///< Pending continuations
     std::stop_source stop_src; ///< Cooperative cancellation source
+    std::source_location loc;  ///< Source location for diagnostics
 
     /**
      * @brief Construct shared state with executor
      * @param e Executor for posting continuations when operation completes
      */
-    explicit State(net::any_io_executor e) : ex(std::move(e)) {}
+    explicit State(net::any_io_executor exec) : ex(std::move(exec)) {}
+    explicit State(net::any_io_executor exec, std::source_location where)
+        : ex(std::move(exec)), loc(where) {}
 };
 
 /**
@@ -134,12 +138,15 @@ template <> struct State<void> {
         result;                               ///< Error or monostate (success)
     std::vector<std::function<void()>> conts; ///< Pending continuations
     std::stop_source stop_src; ///< Cooperative cancellation source
+    std::source_location loc;  ///< Source location for diagnostics
 
     /**
      * @brief Construct shared state with executor
      * @param e Executor for posting continuations when operation completes
      */
     explicit State(net::any_io_executor e) : ex(std::move(e)) {}
+    explicit State(net::any_io_executor e, std::source_location where)
+        : ex(std::move(e)), loc(where) {}
 };
 
 // Generic awaiter for Async<T> (defined in namespace scope to allow
@@ -305,8 +312,10 @@ template <class T = void> class Async {
      * @param ex Executor for posting continuations when operation completes
      * @return New Async<T> with shared state allocated on heap
      */
-    static auto make(net::any_io_executor ex) -> Async<T> {
-        return Async<T>(std::make_shared<State<T>>(ex));
+    static auto make(net::any_io_executor ex,
+                     std::source_location loc = std::source_location::current())
+        -> Async<T> {
+        return Async<T>(std::make_shared<State<T>>(ex, loc));
     }
 
     [[nodiscard]] auto get_executor() const -> net::any_io_executor {
@@ -479,15 +488,19 @@ template <class T = void> class Async {
         }
     }
 
-    template <class Fn> auto on_error(Fn fn) -> Async<T> {
+    template <class Fn>
+    auto on_error(Fn fn,
+                  std::source_location loc = std::source_location::current())
+        -> Async<T> {
         auto &a = *this;
         // Capture the executor from this Async. The executor is used to
         // create downstream Async objects and to post continuations.
         auto ex = a.get_executor();
-        auto out = Async<T>::make(ex);
+        auto out = Async<T>::make(ex, loc);
 
-        a.finally([out, fn](std::optional<T> v, std::optional<EC> ec,
-                            std::exception_ptr ep) mutable {
+        a.finally([out, fn, loc](std::optional<T> v, std::optional<EC> ec,
+                                 std::exception_ptr ep) mutable {
+            (void)loc; // suppress unused warning
             if (v) {
                 out.fulfill(std::move(*v));
                 return;
@@ -499,7 +512,7 @@ template <class T = void> class Async {
                 } else {
                     // fn(EC{});
                 }
-            } catch (...) {
+            } catch (...) { // NOLINT
                 // Never let exceptions escape the handler; swallow to avoid
                 // terminating the process from user-provided handlers.
             }
@@ -578,7 +591,7 @@ template <class T = void> class Async {
              const std::source_location &loc = std::source_location::current())
         -> Async<std::invoke_result_t<F, const T &>> {
         using U = std::invoke_result_t<F, const T &>;
-        auto next = Async<U>::make(st_->ex);
+        auto next = Async<U>::make(st_->ex, loc);
         auto cont = [st = st_, next, f = std::move(f), loc]() mutable {
             (void)loc; // suppress unused warning
             if (auto p = std::get_if<T>(&st->result)) {
@@ -663,11 +676,10 @@ template <class T = void> class Async {
     }
 
     template <class F>
-    auto
-    recover(F f,
-            const std::source_location &loc = std::source_location::current())
+    auto recover(F f,
+                 std::source_location loc = std::source_location::current())
         -> Async<T> {
-        auto next = Async<T>::make(st_->ex);
+        auto next = Async<T>::make(st_->ex, loc);
         auto cont = [st = st_, next, f = std::move(f), loc]() mutable {
             (void)loc; // suppress unused warning
             if (auto p = std::get_if<T>(&st->result)) {
@@ -717,11 +729,14 @@ template <class T = void> class Async {
         attach_or_run(std::move(cont));
     }
 
-    void
-    await(const std::source_location &loc = std::source_location::current()) {
+    auto
+    await(const std::source_location &loc = std::source_location::current())
+        -> auto & {
         attach_or_run([loc]() {
             (void)loc; // suppress unused warning
         });
+
+        return *this;
     }
 
     template <class F>
@@ -1012,8 +1027,10 @@ template <> class Async<void> {
   public:
     using value_type = void;
 
-    static auto make(const net::any_io_executor &ex) -> Async<void> {
-        return Async<void>(std::make_shared<State<void>>(ex));
+    static auto make(const net::any_io_executor &ex,
+                     std::source_location loc = std::source_location::current())
+        -> Async<void> {
+        return Async<void>(std::make_shared<State<void>>(ex, loc));
     }
 
     [[nodiscard]] auto get_executor() const -> net::any_io_executor {
@@ -1171,19 +1188,23 @@ template <> class Async<void> {
     }
 
     // Adapt Async<void> into a boost::asio::awaitable<void>
-    auto operator()() -> boost::asio::awaitable<void> {
-        auto asyncHandler = [this](auto &&handler) mutable {
+    auto operator()(std::source_location loc = std::source_location::current())
+        -> boost::asio::awaitable<void> {
+        auto asyncHandler = [this, loc](auto &&handler) mutable {
             using handler_t = std::decay_t<decltype(handler)>;
             auto sp = std::make_shared<handler_t>(
                 std::forward<decltype(handler)>(handler));
-            this->finally([sp](std::optional<asyncx::EC> erc,
-                               const std::exception_ptr & /*ep*/) mutable {
-                if (!erc) {
-                    (*sp)(boost::system::error_code{});
-                } else {
-                    (*sp)(*erc);
-                }
-            });
+            this->finally(
+                [sp, loc](std::optional<asyncx::EC> erc,
+                          const std::exception_ptr & /*ep*/) mutable {
+                    (void)loc; // suppress unused warning
+                    if (!erc) {
+                        (*sp)(boost::system::error_code{});
+                    } else {
+                        (*sp)(*erc);
+                    }
+                },
+                loc);
         };
 
         co_await boost::asio::async_initiate<
@@ -1193,10 +1214,13 @@ template <> class Async<void> {
         co_return;
     }
 
-    template <class F> auto map(F f) -> Async<std::invoke_result_t<F>> {
+    template <class F>
+    auto map(F f, std::source_location loc = std::source_location::current())
+        -> Async<std::invoke_result_t<F>> {
         using U = std::invoke_result_t<F>;
-        auto next = Async<U>::make(st_->ex);
-        auto cont = [st = st_, next, f = std::move(f)]() mutable {
+        auto next = Async<U>::make(st_->ex, loc);
+        auto cont = [st = st_, next, f = std::move(f), loc]() mutable {
+            (void)loc; // suppress unused warning
             if (std::holds_alternative<std::monostate>(st->result)) {
                 try {
                     next.fulfill(std::invoke(f));
@@ -1220,18 +1244,22 @@ template <> class Async<void> {
         return next;
     }
 
-    template <class F> auto and_then(F f) -> decltype(std::invoke(f)) {
+    template <class F>
+    auto and_then(F f,
+                  std::source_location loc = std::source_location::current())
+        -> decltype(std::invoke(f)) {
         using R = decltype(std::invoke(f));
         using U = typename R::value_type;
 
-        auto next = R::make(st_->ex);
-        auto cont = [st = st_, next, f = std::move(f)]() mutable {
+        auto next = R::make(st_->ex, loc);
+        auto cont = [st = st_, next, f = std::move(f), loc]() mutable {
             if (std::holds_alternative<std::monostate>(st->result)) {
                 try {
                     auto nxt = std::invoke(f);
                     if constexpr (std::is_void_v<U>) {
-                        nxt.finally([next](std::optional<EC> ec,
-                                           std::exception_ptr ep) {
+                        nxt.finally([next, loc](std::optional<EC> ec,
+                                                std::exception_ptr ep) {
+                            (void)loc; // suppress unused warning
                             if (!ec && !ep) {
                                 next.fulfill();
                             } else if (ec) {
@@ -1241,9 +1269,10 @@ template <> class Async<void> {
                             }
                         });
                     } else {
-                        nxt.finally([next](std::optional<U> v,
-                                           std::optional<EC> ec,
-                                           std::exception_ptr ep) {
+                        nxt.finally([next, loc](std::optional<U> v,
+                                                std::optional<EC> ec,
+                                                std::exception_ptr ep) {
+                            (void)loc; // suppress unused warning
                             if (v) {
                                 next.fulfill(*v);
                             } else if (ec) {
@@ -1273,9 +1302,13 @@ template <> class Async<void> {
         return next;
     }
 
-    template <class F> auto recover(F f) -> Async<void> {
-        auto next = Async<void>::make(st_->ex);
-        auto cont = [st = st_, next, f = std::move(f)]() mutable {
+    template <class F>
+    auto recover(F f,
+                 std::source_location loc = std::source_location::current())
+        -> Async<void> {
+        auto next = Async<void>::make(st_->ex, loc);
+        auto cont = [st = st_, next, f = std::move(f), loc]() mutable {
+            (void)loc; // suppress unused warning
             if (std::holds_alternative<std::monostate>(st->result)) {
                 next.fulfill();
                 return;
@@ -1298,8 +1331,12 @@ template <> class Async<void> {
         return next;
     }
 
-    template <class F> void finally(F f) const {
-        auto cont = [st = st_, f = std::move(f)]() mutable {
+    template <class F>
+    void
+    finally(F f,
+            std::source_location loc = std::source_location::current()) const {
+        auto cont = [st = st_, f = std::move(f), loc]() mutable {
+            (void)loc; // suppress unused warning
             std::optional<EC> ec;
             std::exception_ptr ep;
 
@@ -1494,8 +1531,10 @@ auto race(net::any_io_executor ex, std::vector<Async<T>> vs) -> Async<T> {
 
 template <class T, class Rep, class Per>
 auto timeout(Async<T> inA, net::any_io_executor ex,
-             std::chrono::duration<Rep, Per> d) -> Async<T> {
-    auto out = Async<T>::make(ex);
+             std::chrono::duration<Rep, Per> d,
+             std::source_location loc = std::source_location::current())
+    -> Async<T> {
+    auto out = Async<T>::make(ex, loc);
     auto done = std::make_shared<std::atomic_bool>(false);
     auto timer = std::make_shared<net::steady_timer>(ex);
     timer->expires_after(d);
@@ -1511,11 +1550,11 @@ auto timeout(Async<T> inA, net::any_io_executor ex,
             token, [weak_in, timer]() mutable {
                 try {
                     weak_in.try_request_stop();
-                } catch (...) {
+                } catch (...) { // NOLINT
                 }
                 try {
                     timer->cancel();
-                } catch (...) {
+                } catch (...) { // NOLINT
                 }
             });
         out.finally([reg, timer](std::optional<T> /*v*/,
@@ -1526,7 +1565,8 @@ auto timeout(Async<T> inA, net::any_io_executor ex,
         });
     }
 
-    timer->async_wait([weak_out, weak_in, done, timer](EC ec) mutable {
+    timer->async_wait([weak_out, weak_in, done, timer, loc](EC ec) mutable {
+        (void)loc; // suppress unused warning
         if (done->exchange(true)) {
             return;
         }

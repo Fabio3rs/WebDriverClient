@@ -141,7 +141,7 @@ auto evaluate(std::string_view expression, const Target &target,
 }
 
 auto call_function(std::string_view function_declaration, const Target &target,
-                   const boost::json::array &arguments, bool await_promise,
+                   boost::json::array arguments, bool await_promise,
                    ResultOwnership ownership) -> boost::json::object {
     boost::json::object params;
     params["functionDeclaration"] = function_declaration;
@@ -149,7 +149,7 @@ auto call_function(std::string_view function_declaration, const Target &target,
     params["resultOwnership"] = to_string(ownership);
 
     if (!arguments.empty()) {
-        params["arguments"] = arguments;
+        params["arguments"] = std::move(arguments);
     }
 
     // Build target object

@@ -10,6 +10,7 @@
 #include <boost/asio/detached.hpp>
 #include <boost/json/object.hpp>
 #include <memory>
+#include <source_location>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -81,7 +82,10 @@ class AutomationSession {
      * auto nav_id = co_await session.navigate("https://example.com")();
      * @endcode
      */
-    [[nodiscard]] auto navigate(std::string_view url) -> Task<std::string>;
+    [[nodiscard]] auto
+    navigate(std::string_view url,
+             const std::source_location &loc = std::source_location::current())
+        -> Task<std::string>;
 
     /**
      * @brief Evaluate JavaScript expression in the default context (ASYNC)
@@ -96,7 +100,9 @@ class AutomationSession {
      * auto title = result.at("value").as_string();
      * @endcode
      */
-    [[nodiscard]] auto evaluate(std::string_view expression)
+    [[nodiscard]] auto
+    evaluate(std::string_view expression,
+             const std::source_location &loc = std::source_location::current())
         -> Task<boost::json::object>;
 
     /**
@@ -148,8 +154,11 @@ class AutomationSession {
      * @endcode
      */
     template <typename T>
-    [[nodiscard]] auto evaluate_as(std::string_view expression) -> Task<T> {
-        return evaluate(expression)
+    [[nodiscard]] auto evaluate_as(
+        std::string_view expression,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<T> {
+        return evaluate(expression, loc)
             .map([expr = std::string(expression)](
                      boost::json::object result) -> T {
                 try {
@@ -179,9 +188,11 @@ class AutomationSession {
      * @endcode
      */
     template <typename T>
-    [[nodiscard]] auto evaluate_as_or(std::string_view expression, T fallback)
+    [[nodiscard]] auto evaluate_as_or(
+        std::string_view expression, T fallback,
+        const std::source_location &loc = std::source_location::current())
         -> Task<T> {
-        return evaluate(expression)
+        return evaluate(expression, loc)
             .map([fallback =
                       std::move(fallback)](boost::json::object result) -> T {
                 return bidi::script::extract_value_or(result, fallback);
@@ -215,12 +226,13 @@ class AutomationSession {
      * }
      * @endcode
      */
-    [[nodiscard]] auto
-    evaluate_outcome(std::string_view expression,
-                     script::script_eval_policy policy =
-                         script::script_eval_policy::return_outcome)
+    [[nodiscard]] auto evaluate_outcome(
+        std::string_view expression,
+        script::script_eval_policy policy =
+            script::script_eval_policy::return_outcome,
+        const std::source_location &loc = std::source_location::current())
         -> Task<script::ScriptEvalOutcome> {
-        return client_->evaluate(expression, context_id_, policy);
+        return client_->evaluate(expression, context_id_, policy, true, loc);
     }
 
     /**
@@ -251,12 +263,13 @@ class AutomationSession {
      * @endcode
      */
     template <typename T>
-    [[nodiscard]] auto
-    evaluate_as_outcome(std::string_view expression,
-                        script::script_eval_policy policy =
-                            script::script_eval_policy::return_outcome)
+    [[nodiscard]] auto evaluate_as_outcome(
+        std::string_view expression,
+        script::script_eval_policy policy =
+            script::script_eval_policy::return_outcome,
+        const std::source_location &loc = std::source_location::current())
         -> Task<T> {
-        return evaluate_outcome(expression, policy)
+        return evaluate_outcome(expression, policy, loc)
             .map([expr = std::string(expression)](
                      script::ScriptEvalOutcome outcome) -> T {
                 try {

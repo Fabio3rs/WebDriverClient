@@ -121,14 +121,14 @@ class Client : public std::enable_shared_from_this<Client> {
     // Call JavaScript function
     [[nodiscard]] auto call_function(
         std::string_view function_declaration, std::string_view context,
-        const boost::json::array &arguments = {}, bool await_promise = true,
+        boost::json::array arguments = {}, bool await_promise = true,
         const std::source_location &loc = std::source_location::current())
         -> Task<boost::json::object>;
 
     // Call JavaScript function
     [[nodiscard]] auto call_function(
         std::string_view function_declaration, std::string_view context,
-        const boost::json::array &arguments = {},
+        boost::json::array arguments = {},
         script::script_eval_policy policy =
             script::script_eval_policy::return_outcome,
         bool await_promise = true,
@@ -174,7 +174,7 @@ class Client : public std::enable_shared_from_this<Client> {
     auto set_event_handler(
         std::string_view method,
         std::function<void(boost::json::object)> handler,
-        const std::source_location &loc = std::source_location::current())
+        std::source_location loc = std::source_location::current())
         -> boost::asio::awaitable<void>;
 
     auto set_event_handler_subscription(

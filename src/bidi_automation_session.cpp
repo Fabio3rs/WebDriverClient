@@ -62,14 +62,19 @@ auto AutomationSession::start(std::string_view webdriver_url, bool headless)
 }
 
 // Navigate (async, returns lazy Task)
-auto AutomationSession::navigate(std::string_view url) -> Task<std::string> {
-    return client_->navigate(context_id_, url);
+auto AutomationSession::navigate(std::string_view url,
+                                 const std::source_location &loc)
+    -> Task<std::string> {
+    return client_->navigate(
+        context_id_, url, commands::browsing_context::ReadinessState::complete,
+        loc);
 }
 
 // Evaluate (async, returns lazy Task)
-auto AutomationSession::evaluate(std::string_view expression)
+auto AutomationSession::evaluate(std::string_view expression,
+                                 const std::source_location &loc)
     -> Task<boost::json::object> {
-    return client_->evaluate(expression, context_id_);
+    return client_->evaluate(expression, context_id_, true, loc);
 }
 
 // Get page title (convenience wrapper)

@@ -13,6 +13,7 @@
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/use_future.hpp>
+#include <chrono>
 #include <memory>
 #include <string>
 
@@ -178,7 +179,7 @@ class EndToEndFlowDemo {
         if (!initialize_session()) {
             return 1;
         }
-        constexpr int kWatchdogSeconds = 30;
+        constexpr std::chrono::seconds kWatchdogSeconds{30};
         finished.store(false);
         auto fut =
             asio::co_spawn(io_context_, run_bidi_flow(), asio::use_future);
