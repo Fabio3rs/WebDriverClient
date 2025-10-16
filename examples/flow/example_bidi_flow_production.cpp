@@ -68,7 +68,7 @@ class ProductionFlowExample {
             }
             bidi::ClientGuard client_guard(client_ptr);
             auto context_id = co_await client_guard.client()->create_context(
-                CreateType::window)();
+                CreateType::window);
             auto prompt_handler = co_await bidi::UserPromptHandler::create(
                 client_ptr, bidi::UserPromptHandlerConfig::accept_all());
 

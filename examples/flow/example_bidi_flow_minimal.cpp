@@ -36,19 +36,19 @@ auto minimal_flow(net::io_context *ioc_ptr) -> net::awaitable<int> {
         auto client_ptr = co_await bidi::connect_to("http://localhost:9515")
                               .headless()
                               .no_sandbox()
-                              .connect(*ioc_ptr)();
+                              .connect(*ioc_ptr);
         bidi::ClientGuard client_guard(client_ptr);
-        auto context_id = co_await client_guard.client()->create_context()();
+        auto context_id = co_await client_guard.client()->create_context();
         bidi::logging::log_info(std::string("Context: ") + context_id);
         auto nav_url = co_await client_guard.client()->navigate(
-            context_id, "https://example.com")();
+            context_id, "https://example.com");
         bidi::logging::log_info(std::string("Navigated to: ") + nav_url);
         // Evaluate readyState and title using awaitable + generic async_send
         net::co_spawn(*ioc_ptr,
                       example_coroutine_flow(client_guard.client(), context_id),
                       net::detached);
         auto ready_obj = co_await client_guard.client()->evaluate(
-            "document.readyState", context_id)();
+            "document.readyState", context_id);
         bidi::logging::log_info(std::string("readyState: ") +
                                 boost::json::serialize(ready_obj));
         co_return 0;
