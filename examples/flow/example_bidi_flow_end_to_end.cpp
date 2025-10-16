@@ -136,25 +136,25 @@ class EndToEndFlowDemo {
         using namespace bidi::commands::browsing_context;
         log_info("Connecting BiDi Client (await)");
         auto client_opt =
-            co_await bidi::Client::connect(io_context_, websocket_url_)();
+            co_await bidi::Client::connect(io_context_, websocket_url_);
         if (!client_opt) {
             log_info("BiDi connect returned null");
             co_return 1;
         }
         bidi::ClientGuard client_guard(client_opt);
-        auto context_id = co_await client_guard.client()->create_context(
-            CreateType::window)();
+        auto context_id =
+            co_await client_guard.client()->create_context(CreateType::window);
         log_info(std::string("Context: ") + context_id);
         auto nav_url = co_await client_guard.client()->navigate(
-            context_id, "https://example.com")();
+            context_id, "https://example.com");
         log_info(std::string("Navigation OK: ") + nav_url);
         auto title_obj = co_await client_guard.client()->evaluate(
-            "document.title", context_id)();
+            "document.title", context_id);
         log_info(std::string("Title: ") + boost::json::serialize(title_obj));
         co_await client_guard.client()->evaluate(
-            "console.log('Hello from EndToEndFlowDemo')", context_id)();
+            "console.log('Hello from EndToEndFlowDemo')", context_id);
         auto loc_obj = co_await client_guard.client()->evaluate(
-            "window.location.href", context_id)();
+            "window.location.href", context_id);
         log_info(std::string("Location: ") + boost::json::serialize(loc_obj));
         // ClientGuard handles disconnect automatically
         asio::post(io_context_.get_executor(), [this]() {

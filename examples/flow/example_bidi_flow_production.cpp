@@ -62,7 +62,7 @@ class ProductionFlowExample {
         using namespace bidi::commands::browsing_context;
         try {
             auto client_ptr =
-                co_await bidi::Client::connect(io_context_, websocket_url)();
+                co_await bidi::Client::connect(io_context_, websocket_url);
             if (!client_ptr) {
                 co_return 1;
             }
@@ -70,18 +70,18 @@ class ProductionFlowExample {
             auto context_id = co_await client_guard.client()->create_context(
                 CreateType::window)();
             auto prompt_handler = co_await bidi::UserPromptHandler::create(
-                client_ptr, bidi::UserPromptHandlerConfig::accept_all())();
+                client_ptr, bidi::UserPromptHandlerConfig::accept_all());
 
             (void)co_await client_guard.client()->navigate(
-                context_id, "https://example.com")();
+                context_id, "https://example.com");
             (void)co_await client_guard.client()->evaluate("document.title",
-                                                           context_id)();
+                                                           context_id);
 
             auto elementTest = co_await client_guard.client()->evaluate(
-                "document.documentElement", context_id)();
+                "document.documentElement", context_id);
 
             auto evaluateAlert = co_await client_guard.client()->evaluate(
-                "confirm('Test Alert')", context_id)();
+                "confirm('Test Alert')", context_id);
 
             bidi::logging::log_info(std::string("  elementTest: ") +
                                     boost::json::serialize(elementTest));

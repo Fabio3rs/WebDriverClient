@@ -369,15 +369,17 @@ template <class T = void> class Async {
 
     auto get() { return as_boost_future().get(); }
 
-    // ============================
-    // CompletionToken support (refactored for reduced complexity)
-    // ============================
-    template <class CompletionToken> auto operator()(CompletionToken &&token) {
+    using signature_t =
+        std::conditional_t<std::is_void_v<T>, void(boost::system::error_code),
+                           void(boost::system::error_code, T)>;
+
+#if defined(BOOST_ASIO_HAS_CONCEPTS)
+    template <boost::asio::completion_token_for<signature_t> CompletionToken>
+#else
+    template <BOOST_ASIO_COMPLETION_TOKEN_FOR(signature_t) CompletionToken>
+#endif
+    auto operator()(CompletionToken token) const {
         // Signature depends on T: void(error_code) or void(error_code, T)
-        using signature_t =
-            std::conditional_t<std::is_void_v<T>,
-                               void(boost::system::error_code),
-                               void(boost::system::error_code, T)>;
 
         auto initiation = [self = *this]<class Handler>(Handler &&handler) {
             using handler_t = std::decay_t<Handler>;
@@ -407,7 +409,7 @@ template <class T = void> class Async {
         };
 
         return boost::asio::async_initiate<CompletionToken, signature_t>(
-            initiation, std::forward<CompletionToken>(token));
+            initiation, token);
     }
 
     /**
@@ -780,8 +782,6 @@ template <class T = void> class Async {
         attach_or_run(std::move(cont));
     }
 
-    // awaiter opcional (usa async_awaiter definido no namespace)
-    auto operator co_await() const { return async_awaiter<T>{st_}; }
     // Lightweight non-owning handle to the shared state. Use this in
     // callbacks (e.g. stop callbacks) to avoid creating ownership cycles.
     struct Weak {
@@ -1349,8 +1349,6 @@ template <> class Async<void> {
         };
         attach_or_run(std::move(cont));
     }
-
-    auto operator co_await() const { return async_awaiter<void>{st_}; }
 
   private:
     void attach_or_run(std::function<void()> c) const {
