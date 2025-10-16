@@ -110,7 +110,7 @@ class BiDiWorker {
                     "Processing task {}: {}", task->task_id, task->expression));
 
                 auto result =
-                    co_await client_->evaluate(task->expression, context_id_)();
+                    co_await client_->evaluate(task->expression, context_id_);
 
                 tasks_processed_.fetch_add(1);
                 bidi::logging::log_info(
@@ -176,15 +176,15 @@ class ProductionBiDiApp {
         try {
             bidi::logging::log_info("Initializing BiDi client");
 
-            client_ = co_await bidi::Client::connect(ioc_, websocket_url)();
+            client_ = co_await bidi::Client::connect(ioc_, websocket_url);
             if (!client_) {
                 bidi::logging::log_error("Failed to connect client");
                 co_return false;
             }
 
-            auto ctx = co_await client_->create_context()();
+            auto ctx = co_await client_->create_context();
             context_id_ = ctx; // guardar para shutdown explícito
-            co_await client_->navigate(ctx, "https://example.com")();
+            co_await client_->navigate(ctx, "https://example.com");
 
             // Create worker
             worker_ =
@@ -262,7 +262,7 @@ class ProductionBiDiApp {
         // close_context
         if (client_ && !context_id_.empty()) {
             try {
-                co_await client_->close_context(context_id_)();
+                co_await client_->close_context(context_id_);
             } catch (const std::exception &e) {
                 bidi::logging::log_error(
                     std::format("close_context falhou: {}", e.what()));

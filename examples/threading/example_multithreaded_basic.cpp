@@ -58,7 +58,7 @@ auto execute_concurrent_commands(std::shared_ptr<bidi::Client> client,
     // Wait for all commands to complete
     // Note: These run concurrently but access to WebSocket is serialized
     for (auto &task : tasks) {
-        auto result = co_await std::move(task)();
+        auto result = co_await std::move(task);
         log_thread(std::format("Command completed: {}",
                                boost::json::serialize(result)));
     }
@@ -76,7 +76,7 @@ auto run_multithreaded_demo(asio::io_context *ioc_ptr,
         log_thread("Connecting BiDi client");
         // io_context acessado via ponteiro (lifetime gerenciado por main)
         auto &ioc = *ioc_ptr;
-        auto client = co_await bidi::Client::connect(ioc, websocket_url)();
+        auto client = co_await bidi::Client::connect(ioc, websocket_url);
 
         if (!client) {
             bidi::logging::log_error("Failed to connect");
@@ -84,11 +84,11 @@ auto run_multithreaded_demo(asio::io_context *ioc_ptr,
         }
 
         log_thread("Creating browsing context");
-        auto ctx = co_await client->create_context()();
+        auto ctx = co_await client->create_context();
         log_thread(std::format("Created context: {}", ctx));
 
         log_thread("Navigating to example.com");
-        co_await client->navigate(ctx, "https://example.com")();
+        co_await client->navigate(ctx, "https://example.com");
 
         // Execute 10 concurrent commands
         // These will be processed across multiple threads
@@ -99,7 +99,7 @@ auto run_multithreaded_demo(asio::io_context *ioc_ptr,
         // Fechar contexto explicitamente para permitir que o servidor limpe
         // estado
         try {
-            co_await client->close_context(ctx)();
+            co_await client->close_context(ctx);
             log_thread("Closed browsing context");
         } catch (const std::exception &e) {
             bidi::logging::log_error(

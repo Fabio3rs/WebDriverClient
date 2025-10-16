@@ -53,14 +53,14 @@ class BiDiClientScriptTest : public ::testing::Test {
             io_context_,
             [this]() -> boost::asio::awaitable<void> {
                 auto client_ptr = co_await bidi::Client::connect(
-                    io_context_, websocket_url_)();
+                    io_context_, websocket_url_);
                 if (!client_ptr) {
                     throw std::runtime_error(
                         "Client::connect returned nullptr");
                 }
                 bidi_client_ = client_ptr;
                 context_id_ = co_await bidi_client_->create_context(
-                    bidi::commands::browsing_context::CreateType::window)();
+                    bidi::commands::browsing_context::CreateType::window);
                 if (context_id_.empty()) {
                     throw std::runtime_error(
                         "create_context returned empty context_id");

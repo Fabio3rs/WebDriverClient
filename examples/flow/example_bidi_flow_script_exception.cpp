@@ -61,8 +61,8 @@ auto run_script_exception_flow_with_client(
     std::shared_ptr<bidi::Client> client_ptr) -> asio::awaitable<int> {
     try {
         bidi::ClientGuard guard(client_ptr);
-        auto ctx = co_await guard.client()->create_context()();
-        (void)co_await guard.client()->navigate(ctx, "https://example.com")();
+        auto ctx = co_await guard.client()->create_context();
+        (void)co_await guard.client()->navigate(ctx, "https://example.com");
 
         try {
             co_await run_script_test(guard, ctx);
@@ -130,13 +130,13 @@ auto main() -> int {
                 // auto client_ptr = co_await
                 // bidi::connect_to("http://localhost:9515")
                 //                           .use_existing_websocket("ws://host:port/session/...")
-                //                           .connect(*ioc_ptr)();
+                //                           .connect(*ioc_ptr);
 
                 auto client_ptr =
                     co_await bidi::connect_to("http://localhost:9515")
                         .headless()
                         .no_sandbox()
-                        .connect(*ioc_ptr)();
+                        .connect(*ioc_ptr);
                 co_return co_await run_script_exception_flow_with_client(
                     client_ptr);
             } catch (const std::exception &ex) {

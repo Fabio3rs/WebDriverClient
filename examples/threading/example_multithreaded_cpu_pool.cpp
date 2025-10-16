@@ -63,7 +63,7 @@ auto process_with_cpu_offload(std::shared_ptr<bidi::Client> client,
         co_await client->evaluate("({data: Array(100).fill(0).map((_, i) => "
                                   "({id: i, value: Math.random() "
                                   "* 1000}))})",
-                                  context_id)();
+                                  context_id);
 
     bidi::logging::log_info(
         std::format("I/O thread {}: Got result, offloading to CPU pool",
@@ -96,14 +96,14 @@ auto run_cpu_pool_demo(std::string websocket_url,
         bidi::logging::log_info(
             std::format("Connecting on I/O thread {}", get_thread_info()));
 
-        auto client = co_await bidi::Client::connect(ioc, websocket_url)();
+        auto client = co_await bidi::Client::connect(ioc, websocket_url);
         if (!client) {
             bidi::logging::log_error("Failed to connect");
             co_return 1;
         }
 
-        auto ctx = co_await client->create_context()();
-        co_await client->navigate(ctx, "https://example.com")();
+        auto ctx = co_await client->create_context();
+        co_await client->navigate(ctx, "https://example.com");
 
         // Launch multiple concurrent operations
         // Each will offload CPU work to the thread pool
@@ -122,7 +122,7 @@ auto run_cpu_pool_demo(std::string websocket_url,
 
         // Cleanup: close context and disconnect
         try {
-            co_await client->close_context(ctx)();
+            co_await client->close_context(ctx);
             bidi::logging::log_info("Closed browsing context");
         } catch (const std::exception &e) {
             bidi::logging::log_error(

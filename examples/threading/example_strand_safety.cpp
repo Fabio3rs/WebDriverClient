@@ -63,7 +63,7 @@ class StrandSafetyDemo {
                         command_id);
 
         try {
-            auto result = co_await client_->evaluate(expr, context_id_)();
+            auto result = co_await client_->evaluate(expr, context_id_);
 
             int completed = operations_completed_.fetch_add(1) + 1;
             safe_log(std::format(
@@ -143,7 +143,7 @@ auto run_strand_safety_demo(std::string websocket_url) -> asio::awaitable<int> {
         auto &ioc = static_cast<asio::io_context &>(executor.context());
 
         safe_log("Connecting BiDi client");
-        auto client = co_await bidi::Client::connect(ioc, websocket_url)();
+        auto client = co_await bidi::Client::connect(ioc, websocket_url);
 
         if (!client) {
             safe_log("Failed to connect");
@@ -151,10 +151,10 @@ auto run_strand_safety_demo(std::string websocket_url) -> asio::awaitable<int> {
         }
 
         safe_log("Creating browsing context");
-        auto ctx = co_await client->create_context()();
+        auto ctx = co_await client->create_context();
 
         safe_log("Navigating to example.com");
-        co_await client->navigate(ctx, "https://example.com")();
+        co_await client->navigate(ctx, "https://example.com");
 
         safe_log("\n=== Starting concurrent access test ===\n");
 

@@ -61,18 +61,18 @@ class ProductionFlowExample {
         using namespace bidi::commands::browsing_context;
         try {
             auto client_ptr =
-                co_await bidi::Client::connect(io_context_, websocket_url)();
+                co_await bidi::Client::connect(io_context_, websocket_url);
             if (!client_ptr) {
                 co_return 1;
             }
             bidi::ClientGuard client_guard(client_ptr);
             auto context_id = co_await client_guard.client()->create_context(
-                CreateType::window)();
+                CreateType::window);
             auto nav_url = co_await client_guard.client()->navigate(
-                context_id, "https://example.com")();
+                context_id, "https://example.com");
             (void)nav_url;
             auto title_obj = co_await client_guard.client()->evaluate(
-                "document.title", context_id)();
+                "document.title", context_id);
             (void)title_obj;
             finished_.store(true, std::memory_order_release);
             co_return 0;
