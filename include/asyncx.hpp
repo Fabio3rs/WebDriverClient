@@ -18,8 +18,8 @@
  *   execution when created.
  * - Composition operators (.map, .and_then, .on_error, .timeout, .retry) build
  *   up a chain of transformations without executing anything.
- * - Terminal operations materialize the chain: .finally(), co_await, operator()
- *   are the only triggers that start actual async work.
+ * - Terminal operations materialize the chain: .finally(), co_await are the
+ *   only triggers that start actual async work.
  * - This design enables optimization (chain flattening) and clean error
  * handling.
  *
@@ -344,16 +344,13 @@ template <class T = void> class Async {
     // Implicit conversion to boost::asio::awaitable<void>
     operator net::awaitable<void>() const {
         auto self = *this;
-        return [self]() -> net::awaitable<void> {
-            co_await self;
-            co_return;
-        }();
+        return (self)();
     }
 
     // Implicit conversion to boost::asio::awaitable<T>
     operator net::awaitable<T>() const {
         auto self = *this;
-        return [self]() -> net::awaitable<T> { co_return co_await self; }();
+        return (self)();
     }
 
     /**
@@ -440,14 +437,37 @@ template <class T = void> class Async {
      *         original exception type) or `boost::system::system_error`
      *         for transport/cancellation errors.
      *
-     * Example usage:
+     * Usage patterns:
+     *
+     * **Pattern 1 (Preferred): Direct co_await on temporaries**
+     * @code
+     * // Most common: co_await directly on function return (rvalue)
+     * auto result = co_await client->navigate(ctx, url);
+     * @endcode
+     *
+     * **Pattern 2: Parallel composition (when needed)**
+     * @code
+     * // Launch multiple operations, await later
+     * auto task1 = client->operation1();  // Start async op 1
+     * auto task2 = client->operation2();  // Start async op 2
+     *
+     * // ... do other work ...
+     *
+     * // Await results (requires () or std::move for lvalues)
+     * auto result1 = co_await task1();  // Convert lvalue to awaitable
+     * auto result2 = co_await std::move(task2);  // Or use std::move
+     * @endcode
+     *
+     * **Pattern 3: Exception handling**
      * @code
      * try {
-     *   auto value = co_await my_async_operation();
+     *   auto value = co_await client->evaluate(expr, ctx);
      * } catch (const ScriptEvaluateException& e) {
-     *   // handle domain-specific error (preserved)
+     *   // Domain-specific exceptions preserved
+     *   std::cerr << e.reason << ", line " << e.line_number << "\n";
      * } catch (const boost::system::system_error& se) {
-     *   // handle transport or cancellation errors
+     *   // Transport/timeout errors
+     *   std::cerr << se.what() << "\n";
      * }
      * @endcode
      */

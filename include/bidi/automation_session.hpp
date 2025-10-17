@@ -75,11 +75,11 @@ class AutomationSession {
      * @brief Navigate to URL in the default context (ASYNC)
      *
      * @param url Target URL to navigate to
-     * @return Task<std::string> - Navigation ID (lazy, call () to execute)
+     * @return Task<std::string> - Navigation ID (lazy, awaitable)
      *
      * @example
      * @code
-     * auto nav_id = co_await session.navigate("https://example.com")();
+     * auto nav_id = co_await session.navigate("https://example.com");
      * @endcode
      */
     [[nodiscard]] auto
@@ -91,12 +91,11 @@ class AutomationSession {
      * @brief Evaluate JavaScript expression in the default context (ASYNC)
      *
      * @param expression JavaScript code to evaluate
-     * @return Task<boost::json::object> - Evaluation result (lazy, call () to
-     * execute)
+     * @return Task<boost::json::object> - Evaluation result (lazy, awaitable)
      *
      * @example
      * @code
-     * auto result = co_await session.evaluate("document.title")();
+     * auto result = co_await session.evaluate("document.title");
      * auto title = result.at("value").as_string();
      * @endcode
      */
@@ -108,11 +107,11 @@ class AutomationSession {
     /**
      * @brief Get page title (convenience wrapper for evaluate) (ASYNC)
      *
-     * @return Task<std::string> - Page title (lazy, call () to execute)
+     * @return Task<std::string> - Page title (lazy, awaitable)
      *
      * @example
      * @code
-     * auto title = co_await session.get_title()();
+     * auto title = co_await session.get_title();
      * @endcode
      */
     [[nodiscard]] auto get_title() -> Task<std::string>;
@@ -120,7 +119,7 @@ class AutomationSession {
     /**
      * @brief Get current URL (convenience wrapper for evaluate) (ASYNC)
      *
-     * @return Task<std::string> - Current URL (lazy, call () to execute)
+     * @return Task<std::string> - Current URL (lazy, awaitable)
      */
     [[nodiscard]] auto get_url() -> Task<std::string>;
 
@@ -132,7 +131,7 @@ class AutomationSession {
      *
      * @tparam T Expected return type (must be Boost.JSON compatible)
      * @param expression JavaScript code to evaluate
-     * @return Task<T> - Typed result (lazy, call () to execute)
+     * @return Task<T> - Typed result (lazy, awaitable)
      *
      * @throws std::runtime_error if conversion fails
      * @throws ScriptEvaluateException if script execution fails
@@ -140,17 +139,17 @@ class AutomationSession {
      * @example
      * @code
      * // Instead of manual parsing:
-     * auto result = co_await session.evaluate("document.readyState")();
+     * auto result = co_await session.evaluate("document.readyState");
      * std::string state = result.at("value").as_string();  // Manual!
      *
      * // Type-safe alternative:
      * auto state = co_await
-     * session.evaluate_as<std::string>("document.readyState")();
+     * session.evaluate_as<std::string>("document.readyState");
      *
      * // Works with all JSON-compatible types:
      * auto count = co_await
-     * session.evaluate_as<int>("document.links.length")(); auto visible =
-     * co_await session.evaluate_as<bool>("document.hasFocus()")();
+     * session.evaluate_as<int>("document.links.length)"); auto visible =
+     * co_await session.evaluate_as<bool>("document.hasFocus()");
      * @endcode
      */
     template <typename T>
@@ -182,9 +181,9 @@ class AutomationSession {
      * @example
      * @code
      * auto title = co_await session.evaluate_as_or("document.title",
-     *                                               std::string("Untitled"))();
+     *                                               std::string("Untitled"));
      * auto count = co_await session.evaluate_as_or("document.links.length",
-     * 0)();
+     * 0);
      * @endcode
      */
     template <typename T>
@@ -216,7 +215,7 @@ class AutomationSession {
      * auto outcome = co_await session.evaluate_outcome(
      *     "nonexistent.property",
      *     script_eval_policy::return_outcome
-     * )();
+     * );
      *
      * if (outcome.has_exception()) {
      *     std::cerr << "Script error: " << outcome.exception->text << "\n";
@@ -254,7 +253,7 @@ class AutomationSession {
      * try {
      *     auto title = co_await session.evaluate_as_outcome<std::string>(
      *         "document.title"
-     *     )();
+     *     );
      * } catch (const script::ScriptEvaluateException &e) {
      *     std::cerr << "Script error at line "
      *               << e.details().line_number.value_or(-1) << ": "
@@ -303,7 +302,7 @@ class AutomationSession {
      * @code
      * try {
      *     return session.run([&]() -> boost::asio::awaitable<int> {
-     *         co_await session.navigate("https://example.com")();
+     *         co_await session.navigate("https://example.com");
      *         co_return 0;
      *     });
      * } catch (const std::exception &e) {

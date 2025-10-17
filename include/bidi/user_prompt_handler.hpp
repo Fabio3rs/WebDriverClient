@@ -196,11 +196,11 @@ struct UserPromptHandlerConfig {
  *
  * Example usage:
  * @code
- * auto client = co_await bidi::Client::connect(io, url)();
+ * auto client = co_await bidi::Client::connect(io, url);
  * auto prompt_handler = co_await bidi::UserPromptHandler::create(
- *     client, bidi::UserPromptHandlerConfig::accept_all())();
+ *     client, bidi::UserPromptHandlerConfig::accept_all());
  * // All prompts automatically handled until prompt_handler destroyed
- * co_await client->navigate(ctx, "http://example.com/alerts")();
+ * co_await client->navigate(ctx, "http://example.com/alerts");
  * // RAII: prompt_handler auto-unsubscribes when out of scope
  * @endcode
  *
@@ -216,23 +216,21 @@ class UserPromptHandler {
      * subscription
      *
      * Subscribes to browsingContext.userPromptOpened event and returns RAII
-     * guard. Returns Task<UserPromptHandler> for lazy evaluation (must be
-     * materialized).
+     * guard.
      *
      * @param client Shared pointer to Client (must outlive handler)
      * @param config Policy configuration (default: accept_all)
-     * @return Task<UserPromptHandler> Lazy task that creates handler when
-     * materialized
+     * @return Task<std::shared_ptr<UserPromptHandler>> - Lazy, awaitable
      *
      * @see F.15 - Return values over out-parameters
      * @see C.45 - Prefer factory functions for construction
      *
      * Usage:
      * @code
-     * auto handler = co_await UserPromptHandler::create(client)();
+     * auto handler = co_await UserPromptHandler::create(client);
      * // or with custom config:
      * auto handler = co_await UserPromptHandler::create(
-     *     client, UserPromptHandlerConfig::dismiss_all())();
+     *     client, UserPromptHandlerConfig::dismiss_all());
      * @endcode
      */
     [[nodiscard]] static auto create(

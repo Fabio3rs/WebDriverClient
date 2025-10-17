@@ -33,7 +33,7 @@ namespace bidi::script {
  * auto add = make_function_caller<int, int, int>(
  *     client, ctx_id, "function(a, b) { return a + b; }"
  * );
- * auto result = co_await add(2, 3)(); // returns Task<int>
+ * auto result = co_await add(2, 3); // returns Task<int>
  */
 template <typename Result, typename... Args> struct FunctionBidi {
     std::shared_ptr<bidi::Client> client;

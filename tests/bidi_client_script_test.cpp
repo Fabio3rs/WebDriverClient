@@ -52,8 +52,8 @@ class BiDiClientScriptTest : public ::testing::Test {
         auto fut = boost::asio::co_spawn(
             io_context_,
             [this]() -> boost::asio::awaitable<void> {
-                auto client_ptr = co_await bidi::Client::connect(
-                    io_context_, websocket_url_);
+                auto client_ptr =
+                    co_await bidi::Client::connect(io_context_, websocket_url_);
                 if (!client_ptr) {
                     throw std::runtime_error(
                         "Client::connect returned nullptr");

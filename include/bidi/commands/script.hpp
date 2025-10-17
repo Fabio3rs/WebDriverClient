@@ -47,10 +47,11 @@ struct Target {
  * @param ownership Result ownership mode
  * @return Params object for script.callFunction command
  */
-[[nodiscard]] auto call_function(
-    std::string_view function_declaration, const Target &target,
-    boost::json::array arguments = {}, bool await_promise = true,
-    ResultOwnership ownership = ResultOwnership::root) -> boost::json::object;
+[[nodiscard]] auto
+call_function(std::string_view function_declaration, const Target &target,
+              boost::json::array arguments = {}, bool await_promise = true,
+              ResultOwnership ownership = ResultOwnership::root)
+    -> boost::json::object;
 
 /**
  * @brief Build script.callFunction params (variadic convenience overload)

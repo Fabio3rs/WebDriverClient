@@ -206,7 +206,7 @@ class TimerGuard {
  *
  * Example:
  * @code
- * auto client = co_await bidi::Client::connect(io, url)();
+ * auto client = co_await bidi::Client::connect(io, url);
  * bidi::ClientGuard guard(client);
  * guard.add_subscription(sub1);
  * // Automatic cleanup on scope exit

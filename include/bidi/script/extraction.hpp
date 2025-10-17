@@ -172,7 +172,7 @@ template <typename T>
  * @example
  * @code
  * #include "bidi/script_eval.hpp"
- * auto outcome = co_await client->evaluate(expr, ctx, return_outcome)();
+ * auto outcome = co_await client->evaluate(expr, ctx, return_outcome);
  * auto title = extract_value_from_outcome<std::string>(outcome);
  * @endcode
  */
