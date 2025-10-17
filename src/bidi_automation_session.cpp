@@ -62,12 +62,10 @@ auto AutomationSession::start(std::string_view webdriver_url, bool headless)
 }
 
 // Navigate (async, returns lazy Task)
-auto AutomationSession::navigate(std::string_view url,
-                                 const std::source_location &loc)
-    -> Task<std::string> {
-    return client_->navigate(
-        context_id_, url, commands::browsing_context::ReadinessState::complete,
-        loc);
+auto AutomationSession::navigate(
+    std::string_view url, commands::browsing_context::ReadinessState wait,
+    const std::source_location &loc) -> Task<std::string> {
+    return client_->navigate(context_id_, url, wait, loc);
 }
 
 // Evaluate (async, returns lazy Task)
@@ -78,13 +76,15 @@ auto AutomationSession::evaluate(std::string_view expression,
 }
 
 // Get page title (convenience wrapper)
-auto AutomationSession::get_title() -> Task<std::string> {
-    return evaluate_as_or("document.title", std::string(""));
+auto AutomationSession::get_title(const std::source_location &loc)
+    -> Task<std::string> {
+    return evaluate_as_or("document.title", std::string(""), loc);
 }
 
 // Get current URL (convenience wrapper)
-auto AutomationSession::get_url() -> Task<std::string> {
-    return evaluate_as_or("document.location.href", std::string(""));
+auto AutomationSession::get_url(const std::source_location &loc)
+    -> Task<std::string> {
+    return evaluate_as_or("document.location.href", std::string(""), loc);
 }
 
 } // namespace bidi

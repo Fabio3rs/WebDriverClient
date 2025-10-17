@@ -115,6 +115,62 @@ auto handle_user_prompt(std::string_view context, std::optional<bool> accept,
     return params;
 }
 
+auto locate_nodes(std::string_view context,
+                  const types::browsing_context::Locator &locator,
+                  std::optional<std::uint64_t> max_node_count,
+                  std::optional<std::string_view> sandbox,
+                  std::optional<std::vector<std::string>> start_nodes)
+    -> boost::json::object {
+    boost::json::object params;
+    params["context"] = context;
+
+    // Serialize locator using Boost.JSON tag_invoke
+    params["locator"] = boost::json::value_from(locator);
+
+    if (max_node_count.has_value()) {
+        params["maxNodeCount"] = *max_node_count;
+    }
+
+    if (sandbox.has_value() && !sandbox->empty()) {
+        params["sandbox"] = *sandbox;
+    }
+
+    if (start_nodes.has_value() && !start_nodes->empty()) {
+        boost::json::array start_nodes_array;
+        for (const auto &node : *start_nodes) {
+            boost::json::object shared_ref;
+            shared_ref["sharedId"] = node;
+            start_nodes_array.emplace_back(std::move(shared_ref));
+        }
+        params["startNodes"] = std::move(start_nodes_array);
+    }
+
+    return params;
+}
+
+auto capture_screenshot(
+    std::string_view context, std::optional<std::string_view> origin,
+    std::optional<types::browsing_context::ImageFormat> format,
+    std::optional<types::browsing_context::ClipRectangle> clip)
+    -> boost::json::object {
+    boost::json::object params;
+    params["context"] = context;
+
+    if (origin.has_value() && !origin->empty()) {
+        params["origin"] = *origin;
+    }
+
+    if (format.has_value()) {
+        params["format"] = boost::json::value_from(*format);
+    }
+
+    if (clip.has_value()) {
+        params["clip"] = boost::json::value_from(*clip);
+    }
+
+    return params;
+}
+
 } // namespace browsing_context
 
 // ======================== Script Commands ========================

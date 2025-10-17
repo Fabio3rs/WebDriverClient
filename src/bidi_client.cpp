@@ -20,9 +20,10 @@ Client::Client(std::shared_ptr<core::BiDiSession> session)
     : session_(std::move(session)) {}
 
 auto Client::connect(boost::asio::io_context &ioc,
-                     std::string_view websocket_url) -> Task<Client::Ptr> {
+                     std::string_view websocket_url, std::source_location loc)
+    -> Task<Client::Ptr> {
     auto ex = ioc.get_executor();
-    auto result = Task<Ptr>::make(ex);
+    auto result = Task<Ptr>::make(ex, loc);
     auto ws_client = std::make_shared<core::WebSocketClient>(ioc);
     auto session = std::make_shared<core::BiDiSession>(ws_client);
     session->async_start(
@@ -188,6 +189,155 @@ auto Client::handle_user_prompt(std::string_view context,
                 return;
             }
             result.fulfill();
+        },
+        core::BiDiSession::kDefaultTimeout, loc);
+    return result;
+}
+
+auto Client::locate_nodes(std::string_view context,
+                          const types::browsing_context::Locator &locator,
+                          std::optional<std::uint64_t> max_node_count,
+                          std::optional<std::string_view> sandbox,
+                          std::optional<std::vector<std::string>> start_nodes,
+                          const std::source_location &loc)
+    -> Task<std::vector<types::script::NodeRemoteValue>> {
+    auto ex = get_executor();
+    auto result = Task<std::vector<types::script::NodeRemoteValue>>::make(ex);
+    auto params = commands::browsing_context::locate_nodes(
+        context, locator, max_node_count, sandbox, std::move(start_nodes));
+    session_->send_command(
+        bidi::ids::methods::bc_locateNodes, params,
+        [result](const core::ParsedResponse &response) mutable {
+            if (!response.is_success) {
+                result.fail(std::make_exception_ptr(std::runtime_error(
+                    "browsingContext.locateNodes failed: " +
+                    response.error_code_raw + " - " + response.error_message)));
+                return;
+            }
+
+            // Parse nodes array from response
+            std::vector<types::script::NodeRemoteValue> nodes;
+            const auto *nodes_it = response.result.find("nodes");
+            if (nodes_it == response.result.end() ||
+                !nodes_it->value().is_array()) {
+                result.fail(std::make_exception_ptr(std::runtime_error(
+                    "browsingContext.locateNodes: missing or invalid 'nodes' "
+                    "array in response")));
+                return;
+            }
+
+            const auto &nodes_array = nodes_it->value().as_array();
+            nodes.reserve(nodes_array.size());
+
+            for (const auto &node_value : nodes_array) {
+                try {
+                    if (!node_value.is_object()) {
+                        logging::log_warning(
+                            "browsingContext.locateNodes: skipping non-object "
+                            "node entry");
+                        continue;
+                    }
+
+                    const auto &node_obj = node_value.as_object();
+                    types::script::NodeRemoteValue node;
+
+                    // Extract handle (optional)
+                    if (node_obj.if_contains("handle")) {
+                        const auto *handle_it = node_obj.find("handle");
+                        if (handle_it != node_obj.end() &&
+                            handle_it->value().is_string()) {
+                            node.handle = std::string(
+                                handle_it->value().as_string().c_str());
+                        }
+                    }
+
+                    // Extract internalId (optional)
+                    if (node_obj.if_contains("internalId")) {
+                        const auto *internal_id_it =
+                            node_obj.find("internalId");
+                        if (internal_id_it != node_obj.end() &&
+                            internal_id_it->value().is_string()) {
+                            node.internal_id = std::string(
+                                internal_id_it->value().as_string().c_str());
+                        }
+                    }
+
+                    // Extract sharedId (optional)
+                    if (node_obj.if_contains("sharedId")) {
+                        const auto *shared_id_it = node_obj.find("sharedId");
+                        if (shared_id_it != node_obj.end() &&
+                            shared_id_it->value().is_string()) {
+                            node.shared_id = std::string(
+                                shared_id_it->value().as_string().c_str());
+                        }
+                    }
+
+                    // Extract nodeType (optional)
+                    if (node_obj.if_contains("nodeType")) {
+                        const auto *node_type_it = node_obj.find("nodeType");
+                        if (node_type_it != node_obj.end() &&
+                            node_type_it->value().is_string()) {
+                            node.node_type = std::string(
+                                node_type_it->value().as_string().c_str());
+                        }
+                    }
+
+                    // Extract localName (optional)
+                    if (node_obj.if_contains("localName")) {
+                        const auto *local_name_it = node_obj.find("localName");
+                        if (local_name_it != node_obj.end() &&
+                            local_name_it->value().is_string()) {
+                            node.local_name = std::string(
+                                local_name_it->value().as_string().c_str());
+                        }
+                    }
+
+                    nodes.push_back(std::move(node));
+                } catch (const std::exception &e) {
+                    // Resilient parsing: log warning but continue processing
+                    logging::log_warning(
+                        std::format("browsingContext.locateNodes: failed to "
+                                    "parse node entry: {}",
+                                    e.what()));
+                    continue;
+                }
+            }
+
+            result.fulfill(std::move(nodes));
+        },
+        core::BiDiSession::kDefaultTimeout, loc);
+    return result;
+}
+
+auto Client::capture_screenshot(
+    std::string_view context, std::optional<std::string_view> origin,
+    std::optional<types::browsing_context::ImageFormat> format,
+    std::optional<types::browsing_context::ClipRectangle> clip,
+    const std::source_location &loc) -> Task<std::string> {
+    auto ex = get_executor();
+    auto result = Task<std::string>::make(ex);
+    auto params = commands::browsing_context::capture_screenshot(
+        context, origin, std::move(format), std::move(clip));
+    session_->send_command(
+        bidi::ids::methods::bc_captureScreenshot, params,
+        [result](const core::ParsedResponse &response) mutable {
+            if (!response.is_success) {
+                result.fail(std::make_exception_ptr(std::runtime_error(
+                    "browsingContext.captureScreenshot failed: " +
+                    response.error_code_raw + " - " + response.error_message)));
+                return;
+            }
+
+            const auto *data_it = response.result.find("data");
+            if (data_it == response.result.end() ||
+                !data_it->value().is_string()) {
+                result.fail(std::make_exception_ptr(std::runtime_error(
+                    "browsingContext.captureScreenshot: missing 'data' string "
+                    "in response")));
+                return;
+            }
+
+            result.fulfill(std::string(data_it->value().as_string().c_str()));
         },
         core::BiDiSession::kDefaultTimeout, loc);
     return result;
@@ -402,7 +552,7 @@ auto Client::subscribe(const std::vector<std::string> &events,
 
 auto Client::set_event_handler(std::string_view method,
                                std::function<void(boost::json::object)> handler,
-                               std::source_location loc)
+                               const std::source_location &loc)
     -> boost::asio::awaitable<void> {
     auto sub_async = session_->subscribe_event(
         method, [handler = std::move(handler)](const core::ParsedEvent &event) {

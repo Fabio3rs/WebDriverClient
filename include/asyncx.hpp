@@ -522,7 +522,8 @@ template <class T = void> class Async {
 
         a.finally([out, fn, loc](std::optional<T> v, std::optional<EC> ec,
                                  std::exception_ptr ep) mutable {
-            (void)loc; // suppress unused warning
+            (void)loc; // Captured for GDB inspection (see CLAUDE.md debugging
+                       // section)
             if (v) {
                 out.fulfill(std::move(*v));
                 return;
@@ -615,7 +616,8 @@ template <class T = void> class Async {
         using U = std::invoke_result_t<F, const T &>;
         auto next = Async<U>::make(st_->ex, loc);
         auto cont = [st = st_, next, f = std::move(f), loc]() mutable {
-            (void)loc; // suppress unused warning
+            (void)loc; // Captured for GDB inspection (see CLAUDE.md debugging
+                       // section)
             if (auto p = std::get_if<T>(&st->result)) {
                 try {
                     next.fulfill(std::invoke(f, *p));
@@ -649,7 +651,8 @@ template <class T = void> class Async {
 
         auto next = R::make(st_->ex);
         auto cont = [st = st_, next, f = std::move(f), loc]() mutable {
-            (void)loc; // suppress unused warning
+            (void)loc; // Captured for GDB inspection (see CLAUDE.md debugging
+                       // section)
             if (auto p = std::get_if<T>(&st->result)) {
                 try {
                     auto nxt = std::invoke(f, std::move(*p));
@@ -703,7 +706,8 @@ template <class T = void> class Async {
         -> Async<T> {
         auto next = Async<T>::make(st_->ex, loc);
         auto cont = [st = st_, next, f = std::move(f), loc]() mutable {
-            (void)loc; // suppress unused warning
+            (void)loc; // Captured for GDB inspection (see CLAUDE.md debugging
+                       // section)
             if (auto p = std::get_if<T>(&st->result)) {
                 next.fulfill(std::move(*p));
                 return;
@@ -733,7 +737,8 @@ template <class T = void> class Async {
     void finally(F f, const std::source_location &loc =
                           std::source_location::current()) const {
         auto cont = [st = st_, f = std::move(f), loc]() mutable {
-            (void)loc; // suppress unused warning
+            (void)loc; // Captured for GDB inspection (see CLAUDE.md debugging
+                       // section)
             std::optional<T> v;
             std::optional<EC> ec;
             std::exception_ptr ep;
@@ -755,7 +760,8 @@ template <class T = void> class Async {
     await(const std::source_location &loc = std::source_location::current())
         -> auto & {
         attach_or_run([loc]() {
-            (void)loc; // suppress unused warning
+            (void)loc; // Captured for GDB inspection (see CLAUDE.md debugging
+                       // section)
         });
 
         return *this;
@@ -765,7 +771,8 @@ template <class T = void> class Async {
     void await_error(F f, const std::source_location &loc =
                               std::source_location::current()) const {
         auto cont = [st = st_, f = std::move(f), loc]() mutable {
-            (void)loc; // suppress unused warning
+            (void)loc; // Captured for GDB inspection (see CLAUDE.md debugging
+                       // section)
             std::optional<EC> ec;
             std::exception_ptr ep;
             if (auto pe = std::get_if<EC>(&st->result)) {
@@ -784,7 +791,8 @@ template <class T = void> class Async {
     void await(F f, const std::source_location &loc =
                         std::source_location::current()) const {
         auto cont = [st = st_, f = std::move(f), loc]() mutable {
-            (void)loc; // suppress unused warning
+            (void)loc; // Captured for GDB inspection (see CLAUDE.md debugging
+                       // section)
             std::optional<T &> v;
             std::optional<EC> ec;
             std::exception_ptr ep;
@@ -1005,9 +1013,10 @@ template <class T = void> class Async {
     template <class U>
     static auto
     from_future(net::any_io_executor ex, std::future<U> fut,
-                const std::shared_ptr<boost::asio::thread_pool> &pool = nullptr)
+                const std::shared_ptr<boost::asio::thread_pool> &pool = nullptr,
+                std::source_location loc = std::source_location::current())
         -> Async<U> {
-        auto a = Async<U>::make(ex);
+        auto a = Async<U>::make(ex, loc);
         auto &target_pool = pool ? *pool : webdriver::global_thread_pool();
         boost::asio::post(target_pool, [a, f = std::move(fut)]() mutable {
             try {
@@ -1023,9 +1032,11 @@ template <class T = void> class Async {
     }
 
     template <class Initiator>
-    static auto from_callback(net::any_io_executor ex, Initiator init)
+    static auto
+    from_callback(net::any_io_executor ex, Initiator init,
+                  std::source_location loc = std::source_location::current())
         -> Async<T> {
-        auto a = Async<T>::make(ex);
+        auto a = Async<T>::make(ex, loc);
         init(
             [a](EC ec, T v) {
                 if (ec) {
@@ -1217,7 +1228,8 @@ template <> class Async<void> {
             this->finally(
                 [sp, loc](std::optional<asyncx::EC> erc,
                           const std::exception_ptr & /*ep*/) mutable {
-                    (void)loc; // suppress unused warning
+                    (void)loc; // Captured for GDB inspection (see CLAUDE.md
+                               // debugging section)
                     if (!erc) {
                         (*sp)(boost::system::error_code{});
                     } else {
@@ -1240,7 +1252,8 @@ template <> class Async<void> {
         using U = std::invoke_result_t<F>;
         auto next = Async<U>::make(st_->ex, loc);
         auto cont = [st = st_, next, f = std::move(f), loc]() mutable {
-            (void)loc; // suppress unused warning
+            (void)loc; // Captured for GDB inspection (see CLAUDE.md debugging
+                       // section)
             if (std::holds_alternative<std::monostate>(st->result)) {
                 try {
                     next.fulfill(std::invoke(f));
@@ -1279,7 +1292,8 @@ template <> class Async<void> {
                     if constexpr (std::is_void_v<U>) {
                         nxt.finally([next, loc](std::optional<EC> ec,
                                                 std::exception_ptr ep) {
-                            (void)loc; // suppress unused warning
+                            (void)loc; // Captured for GDB inspection (see
+                                       // CLAUDE.md debugging section)
                             if (!ec && !ep) {
                                 next.fulfill();
                             } else if (ec) {
@@ -1292,7 +1306,8 @@ template <> class Async<void> {
                         nxt.finally([next, loc](std::optional<U> v,
                                                 std::optional<EC> ec,
                                                 std::exception_ptr ep) {
-                            (void)loc; // suppress unused warning
+                            (void)loc; // Captured for GDB inspection (see
+                                       // CLAUDE.md debugging section)
                             if (v) {
                                 next.fulfill(*v);
                             } else if (ec) {
@@ -1328,7 +1343,8 @@ template <> class Async<void> {
         -> Async<void> {
         auto next = Async<void>::make(st_->ex, loc);
         auto cont = [st = st_, next, f = std::move(f), loc]() mutable {
-            (void)loc; // suppress unused warning
+            (void)loc; // Captured for GDB inspection (see CLAUDE.md debugging
+                       // section)
             if (std::holds_alternative<std::monostate>(st->result)) {
                 next.fulfill();
                 return;
@@ -1356,7 +1372,8 @@ template <> class Async<void> {
     finally(F f,
             std::source_location loc = std::source_location::current()) const {
         auto cont = [st = st_, f = std::move(f), loc]() mutable {
-            (void)loc; // suppress unused warning
+            (void)loc; // Captured for GDB inspection (see CLAUDE.md debugging
+                       // section)
             std::optional<EC> ec;
             std::exception_ptr ep;
 
@@ -1394,9 +1411,11 @@ template <> class Async<void> {
 
   public:
     template <class Initiator>
-    static auto from_callback(const net::any_io_executor &ex, Initiator init)
+    static auto
+    from_callback(const net::any_io_executor &ex, Initiator init,
+                  std::source_location loc = std::source_location::current())
         -> Async<void> {
-        auto a = Async<void>::make(ex);
+        auto a = Async<void>::make(ex, loc);
         init(
             [a](EC ec) {
                 if (ec) {
@@ -1412,9 +1431,10 @@ template <> class Async<void> {
 
 // ---------- combinadores livres: all / race / timeout ----------
 template <class T>
-auto all(net::any_io_executor ex, std::vector<Async<T>> vs)
+auto all(net::any_io_executor ex, std::vector<Async<T>> vs,
+         std::source_location loc = std::source_location::current())
     -> Async<std::vector<T>> {
-    auto out = Async<std::vector<T>>::make(ex);
+    auto out = Async<std::vector<T>>::make(ex, loc);
     auto ops = std::make_shared<std::vector<Async<T>>>(std::move(vs));
     auto res = std::make_shared<std::vector<std::optional<T>>>(ops->size());
     auto left =
@@ -1488,8 +1508,10 @@ auto all(net::any_io_executor ex, std::vector<Async<T>> vs)
 }
 
 template <class T>
-auto race(net::any_io_executor ex, std::vector<Async<T>> vs) -> Async<T> {
-    auto out = Async<T>::make(ex);
+auto race(net::any_io_executor ex, std::vector<Async<T>> vs,
+          std::source_location loc = std::source_location::current())
+    -> Async<T> {
+    auto out = Async<T>::make(ex, loc);
     auto done = std::make_shared<std::atomic_bool>(false);
     auto ops = std::make_shared<std::vector<Async<T>>>(std::move(vs));
 
@@ -1584,7 +1606,8 @@ auto timeout(Async<T> inA, net::any_io_executor ex,
     }
 
     timer->async_wait([weak_out, weak_in, done, timer, loc](EC ec) mutable {
-        (void)loc; // suppress unused warning
+        (void)loc; // Captured for GDB inspection (see CLAUDE.md debugging
+                   // section)
         if (done->exchange(true)) {
             return;
         }
@@ -1626,16 +1649,19 @@ auto timeout(Async<T> inA, net::any_io_executor ex,
     return out;
 }
 
-inline auto value_on(const boost::asio::any_io_executor &ex) -> Async<void> {
-    auto a = Async<void>::make(ex);
+inline auto value_on(const boost::asio::any_io_executor &ex,
+                     std::source_location loc = std::source_location::current())
+    -> Async<void> {
+    auto a = Async<void>::make(ex, loc);
     a.fulfill();
     return a;
 }
 
-inline auto value() -> Async<void> {
+inline auto value(std::source_location loc = std::source_location::current())
+    -> Async<void> {
     // Execute on the system_executor; this is immediate and does not block
     // the caller's io_context.
-    auto a = Async<void>::make(boost::asio::system_executor{});
+    auto a = Async<void>::make(boost::asio::system_executor{}, loc);
     a.fulfill();
     return a;
 }
@@ -1799,7 +1825,8 @@ template <class F> auto filter_map(F transform_fn) {
  * @see State<T> for additional synchronization rationale
  */
 template <class T, class U>
-auto zip(Async<T> first_async, Async<U> second_async)
+auto zip(Async<T> first_async, Async<U> second_async,
+         std::source_location loc = std::source_location::current())
     -> Async<std::tuple<T, U>> {
     /**
      * @brief Shared state for zip coordination with cross-executor safety
@@ -1813,7 +1840,7 @@ auto zip(Async<T> first_async, Async<U> second_async)
         bool done = false;   ///< Completion flag
     };
     auto ex = first_async.get_executor();
-    auto out = Async<std::tuple<T, U>>::make(ex);
+    auto out = Async<std::tuple<T, U>>::make(ex, loc);
     auto state = std::make_shared<ZipState>();
     // Propagate cancellation from composed Async to children (keep reg alive
     // until out completes)

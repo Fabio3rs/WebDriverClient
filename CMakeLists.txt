@@ -419,6 +419,12 @@ if(WEBDRIVER_BUILD_EXAMPLES)
     target_link_libraries(example_bidi_flow_script_exception PRIVATE webdriverclientcpp)
     configure_compiler_flags(example_bidi_flow_script_exception)
     configure_sanitizers(example_bidi_flow_script_exception)
+
+    # Example demonstrating AutomationSession facade with type-safe APIs
+    add_executable(example_automation_session_minimal "examples/flow/example_automation_session_minimal.cpp")
+    target_link_libraries(example_automation_session_minimal PRIVATE webdriverclientcpp)
+    configure_compiler_flags(example_automation_session_minimal)
+    configure_sanitizers(example_automation_session_minimal)
     endif()
 endif()
 

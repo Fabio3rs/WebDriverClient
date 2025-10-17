@@ -337,4 +337,108 @@ inline auto tag_invoke(
     return *type;
 }
 
+inline void
+tag_invoke(value_from_tag /*unused*/, value &jv,
+           const bidi::types::browsing_context::ImageFormat &format) {
+    object obj;
+    obj["type"] = format.type;
+    if (format.quality.has_value()) {
+        obj["quality"] = *format.quality;
+    }
+    jv = std::move(obj);
+}
+
+namespace detail {
+struct ClipRectangleSerializer {
+    object &target;
+
+    void operator()(
+        const bidi::types::browsing_context::ElementClipRectangle &clip) {
+        object element_obj;
+        element_obj["sharedId"] = clip.shared_reference;
+        target["type"] = "element";
+        target["element"] = std::move(element_obj);
+    }
+
+    void
+    operator()(const bidi::types::browsing_context::BoxClipRectangle &clip) {
+        target["type"] = "box";
+        target["x"] = clip.x;
+        target["y"] = clip.y;
+        target["width"] = clip.width;
+        target["height"] = clip.height;
+    }
+};
+} // namespace detail
+
+inline void
+tag_invoke(value_from_tag /*unused*/, value &jv,
+           const bidi::types::browsing_context::ClipRectangle &clip) {
+    object obj;
+    std::visit(detail::ClipRectangleSerializer{obj}, clip);
+    jv = std::move(obj);
+}
+
+// ==================== Locator Serialization ====================
+
+namespace detail {
+struct LocatorSerializer {
+    object &target;
+
+    void
+    operator()(const bidi::types::browsing_context::AccessibilityLocator &loc) {
+        object value_obj;
+        if (loc.name.has_value()) {
+            value_obj["name"] = *loc.name;
+        }
+        if (loc.role.has_value()) {
+            value_obj["role"] = *loc.role;
+        }
+        target["type"] = "accessibility";
+        target["value"] = std::move(value_obj);
+    }
+
+    void operator()(const bidi::types::browsing_context::CssLocator &loc) {
+        target["type"] = "css";
+        target["value"] = loc.value;
+    }
+
+    void
+    operator()(const bidi::types::browsing_context::InnerTextLocator &loc) {
+        object value_obj;
+        value_obj["value"] = loc.value;
+        if (loc.ignore_case.has_value()) {
+            value_obj["ignoreCase"] = *loc.ignore_case;
+        }
+        if (loc.match_type.has_value()) {
+            value_obj["matchType"] =
+                bidi::types::browsing_context::to_string(*loc.match_type);
+        }
+        if (loc.max_depth.has_value()) {
+            value_obj["maxDepth"] = *loc.max_depth;
+        }
+        target["type"] = "innerText";
+        target["value"] = std::move(value_obj);
+    }
+
+    void operator()(const bidi::types::browsing_context::XPathLocator &loc) {
+        target["type"] = "xpath";
+        target["value"] = loc.value;
+    }
+
+    void operator()(const bidi::types::browsing_context::ContextLocator &loc) {
+        target["type"] = "context";
+        target["value"] = loc.context;
+    }
+};
+} // namespace detail
+
+// Locator variant serialization
+inline void tag_invoke(value_from_tag /*unused*/, value &jv,
+                       const bidi::types::browsing_context::Locator &locator) {
+    object obj;
+    std::visit(detail::LocatorSerializer{obj}, locator);
+    jv = std::move(obj);
+}
+
 } // namespace boost::json

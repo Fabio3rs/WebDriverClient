@@ -74,6 +74,48 @@ TEST(BidiBuilders, BrowsingContextCommands) {
     EXPECT_FALSE(prompt_dismiss.if_contains("userText"));
 }
 
+TEST(BidiBuilders, BrowsingContextCaptureScreenshot) {
+    using types::browsing_context::BoxClipRectangle;
+    using types::browsing_context::ClipRectangle;
+    using types::browsing_context::ElementClipRectangle;
+    using types::browsing_context::ImageFormat;
+
+    auto minimal = browsing_context::capture_screenshot("CTX");
+    EXPECT_EQ(minimal["context"].as_string(), "CTX");
+    EXPECT_FALSE(minimal.if_contains("origin"));
+    EXPECT_FALSE(minimal.if_contains("format"));
+    EXPECT_FALSE(minimal.if_contains("clip"));
+
+    ImageFormat format;
+    format.type = "jpeg";
+    format.quality = 0.85;
+    ClipRectangle box = BoxClipRectangle{
+        .x = 10.0,
+        .y = 20.0,
+        .width = 300.0,
+        .height = 150.0,
+    };
+    auto with_box =
+        browsing_context::capture_screenshot("CTX", "document", format, box);
+    EXPECT_EQ(with_box["origin"].as_string(), "document");
+    const auto &format_obj = with_box["format"].as_object();
+    EXPECT_EQ(format_obj.at("type").as_string(), "jpeg");
+    EXPECT_DOUBLE_EQ(format_obj.at("quality").as_double(), 0.85);
+    const auto &clip_obj = with_box["clip"].as_object();
+    EXPECT_EQ(clip_obj.at("type").as_string(), "box");
+    EXPECT_DOUBLE_EQ(clip_obj.at("x").as_double(), 10.0);
+    EXPECT_DOUBLE_EQ(clip_obj.at("height").as_double(), 150.0);
+
+    ClipRectangle element = ElementClipRectangle{"shared-ref"};
+    auto with_element = browsing_context::capture_screenshot(
+        "CTX", "viewport", std::nullopt, element);
+    EXPECT_EQ(with_element["origin"].as_string(), "viewport");
+    const auto &clip_element_obj = with_element["clip"].as_object();
+    EXPECT_EQ(clip_element_obj.at("type").as_string(), "element");
+    const auto &element_ref = clip_element_obj.at("element").as_object();
+    EXPECT_EQ(element_ref.at("sharedId").as_string(), "shared-ref");
+}
+
 TEST(BidiBuilders, ScriptCommands) {
     script::Target target{.context = "CTX", .sandbox = "SB"};
     auto eval_params =

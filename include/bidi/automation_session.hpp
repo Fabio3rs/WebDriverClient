@@ -4,6 +4,7 @@
 #include "bidi/guards.hpp"
 #include "bidi/io_context_runner.hpp"
 #include "bidi/script/extraction.hpp"
+#include "bidi/script/function_wrapper.hpp"
 #include "bidi/script_eval.hpp"
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
@@ -75,29 +76,75 @@ class AutomationSession {
      * @brief Navigate to URL in the default context (ASYNC)
      *
      * @param url Target URL to navigate to
+     * @param wait Readiness state to wait for (default: complete)
+     *             - none: Return immediately after navigation starts
+     *             - interactive: Wait for DOM ready (DOMContentLoaded)
+     *             - complete: Wait for full page load (window.onload)
+     * @param loc Source location for debugging
      * @return Task<std::string> - Navigation ID (lazy, awaitable)
      *
-     * @example
+     * @example Default navigation (complete)
      * @code
      * auto nav_id = co_await session.navigate("https://example.com");
+     * // Waits for full page load including images, scripts, etc.
+     * @endcode
+     *
+     * @example Fast navigation (interactive)
+     * @code
+     * using namespace bidi::commands::browsing_context;
+     * auto nav_id = co_await session.navigate(
+     *     "https://example.com",
+     *     ReadinessState::interactive
+     * );
+     * // Can interact with DOM before all resources load
      * @endcode
      */
     [[nodiscard]] auto
     navigate(std::string_view url,
+             commands::browsing_context::ReadinessState wait =
+                 commands::browsing_context::ReadinessState::complete,
              const std::source_location &loc = std::source_location::current())
         -> Task<std::string>;
 
     /**
-     * @brief Evaluate JavaScript expression in the default context (ASYNC)
+     * @brief Evaluate JavaScript expression - LOW-LEVEL API (ADVANCED)
+     *
+     * Returns raw BiDi JSON response. **Most users should use
+     * evaluate_as<T>()** for type-safe extraction instead.
+     *
+     * **When to use this API:**
+     * - You need access to full BiDi response structure
+     * - You're building custom extraction logic
+     * - You need metadata beyond the result value
+     *
+     * **Recommended alternatives:**
+     * - `evaluate_as<T>(expr)` - Type-safe extraction
+     * - `evaluate_as_or<T>(expr, fallback)` - With fallback value
+     * - `evaluate_outcome(expr)` - Policy-aware with exception details
      *
      * @param expression JavaScript code to evaluate
-     * @return Task<boost::json::object> - Evaluation result (lazy, awaitable)
+     * @param loc Source location for debugging
+     * @return Task<boost::json::object> - Raw BiDi evaluation result (lazy,
+     * awaitable)
      *
-     * @example
+     * @example Advanced: Inspecting full response structure
      * @code
      * auto result = co_await session.evaluate("document.title");
-     * auto title = result.at("value").as_string();
+     * if (result.contains("type")) {
+     *     std::string result_type = result.at("type").as_string();
+     *     // Custom logic based on type
+     * }
      * @endcode
+     *
+     * @example Recommended: Use type-safe API instead
+     * @code
+     * // BETTER: Type-safe, no manual JSON parsing
+     * auto title = co_await session.evaluate_as<std::string>("document.title");
+     * @endcode
+     *
+     * @see evaluate_as<T>() for type-safe alternative
+     * @see evaluate_outcome() for policy-aware evaluation
+     * @note This is an escape hatch for advanced users. Prefer type-safe APIs.
      */
     [[nodiscard]] auto
     evaluate(std::string_view expression,
@@ -107,6 +154,7 @@ class AutomationSession {
     /**
      * @brief Get page title (convenience wrapper for evaluate) (ASYNC)
      *
+     * @param loc Source location for debugging
      * @return Task<std::string> - Page title (lazy, awaitable)
      *
      * @example
@@ -114,14 +162,19 @@ class AutomationSession {
      * auto title = co_await session.get_title();
      * @endcode
      */
-    [[nodiscard]] auto get_title() -> Task<std::string>;
+    [[nodiscard]] auto
+    get_title(const std::source_location &loc = std::source_location::current())
+        -> Task<std::string>;
 
     /**
      * @brief Get current URL (convenience wrapper for evaluate) (ASYNC)
      *
+     * @param loc Source location for debugging
      * @return Task<std::string> - Current URL (lazy, awaitable)
      */
-    [[nodiscard]] auto get_url() -> Task<std::string>;
+    [[nodiscard]] auto
+    get_url(const std::source_location &loc = std::source_location::current())
+        -> Task<std::string>;
 
     /**
      * @brief Type-safe JavaScript evaluation (ASYNC)
@@ -148,8 +201,8 @@ class AutomationSession {
      *
      * // Works with all JSON-compatible types:
      * auto count = co_await
-     * session.evaluate_as<int>("document.links.length)"); auto visible =
-     * co_await session.evaluate_as<bool>("document.hasFocus()");
+     * session.evaluate_as<int>("document.links.length");
+     * auto visible = co_await session.evaluate_as<bool>("document.hasFocus()");
      * @endcode
      */
     template <typename T>
@@ -284,6 +337,64 @@ class AutomationSession {
     }
 
     /**
+     * @brief Create type-safe JavaScript function caller
+     *
+     * Wraps FunctionBidi with automatic context management.
+     * The returned callable can be invoked multiple times with C++ arguments
+     * that are automatically marshalled to JavaScript.
+     *
+     * @tparam Result Expected C++ return type
+     * @tparam Args C++ argument types (automatically marshalled)
+     * @param function_declaration JavaScript function source code
+     * @param policy Script exception handling policy
+     * @param loc Source location for debugging
+     * @return FunctionBidi callable object
+     *
+     * @example Basic arithmetic
+     * @code
+     * auto add = session.make_function<int, int, int>(
+     *     "function(a, b) { return a + b; }"
+     * );
+     * auto result = co_await add(2, 3);  // returns 5
+     * @endcode
+     *
+     * @example DOM queries
+     * @code
+     * auto get_element_count = session.make_function<int, std::string>(
+     *     "function(selector) { "
+     *     "  return document.querySelectorAll(selector).length; "
+     *     "}"
+     * );
+     * auto div_count = co_await get_element_count("div");
+     * auto link_count = co_await get_element_count("a");
+     * @endcode
+     *
+     * @example String manipulation
+     * @code
+     * auto get_attribute = session.make_function<std::string, std::string,
+     * std::string>( "function(selector, attr) { " "  return
+     * document.querySelector(selector).getAttribute(attr); "
+     *     "}"
+     * );
+     * auto href = co_await get_attribute("a.first", "href");
+     * @endcode
+     *
+     * @see FunctionBidi for implementation details
+     * @see bidi::script::make_function_caller for underlying factory
+     */
+    template <typename Result, typename... Args>
+    [[nodiscard]] auto make_function(
+        std::string function_declaration,
+        script::script_eval_policy policy =
+            script::script_eval_policy::throw_on_script_exception,
+        const std::source_location &loc = std::source_location::current())
+        -> script::FunctionBidi<Result, Args...> {
+        (void)loc; // Available for debugging via GDB
+        return script::make_function_caller<Result, Args...>(
+            client_, context_id_, std::move(function_declaration), policy);
+    }
+
+    /**
      * @brief Run a coroutine workflow with automatic io_context management
      *
      * Hides boilerplate:
@@ -357,6 +468,16 @@ class AutomationSession {
      * @return Reference to shared_ptr<Client>
      */
     [[nodiscard]] auto client() -> std::shared_ptr<Client> & { return client_; }
+
+    /**
+     * @brief Access the underlying Client (const, escape hatch for advanced
+     * usage)
+     *
+     * @return Const reference to shared_ptr<Client>
+     */
+    [[nodiscard]] auto client() const -> const std::shared_ptr<Client> & {
+        return client_;
+    }
 
     /**
      * @brief Get the default browsing context ID

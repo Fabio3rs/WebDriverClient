@@ -33,6 +33,7 @@
 #include "bidi/core.hpp"
 #include "bidi/ids.hpp"
 #include "bidi/script_eval.hpp"
+#include "bidi/types/script.hpp"
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/async_result.hpp>
 #include <memory>
@@ -53,8 +54,10 @@ class Client : public std::enable_shared_from_this<Client> {
     explicit Client(std::shared_ptr<core::BiDiSession> session);
 
     // Factory: connect to BiDi WebSocket directly
-    static auto connect(boost::asio::io_context &ioc,
-                        std::string_view websocket_url) -> Task<Ptr>;
+    static auto
+    connect(boost::asio::io_context &ioc, std::string_view websocket_url,
+            std::source_location loc = std::source_location::current())
+        -> Task<Ptr>;
 
     // Generic zero-overhead async_send (CompletionToken based)
     template <class CompletionToken>
@@ -101,6 +104,86 @@ class Client : public std::enable_shared_from_this<Client> {
         std::optional<std::string_view> user_text = std::nullopt,
         const std::source_location &loc = std::source_location::current())
         -> Task<void>;
+
+    /**
+     * @brief Locate DOM nodes using various locator strategies
+     *
+     * Locates elements in the browsing context using CSS selectors, XPath,
+     * accessibility properties, inner text matching, or context-based
+     * references.
+     *
+     * @param context Browsing context ID to search within
+     * @param locator Locator strategy (CSS, XPath, Accessibility, InnerText,
+     * Context)
+     * @param max_node_count Maximum number of nodes to return (optional)
+     * @param sandbox Sandbox name for isolated execution (optional)
+     * @param start_nodes Start nodes for scoped search (SharedReference IDs,
+     * optional)
+     * @param loc Source location for debugging (auto-captured)
+     * @return Task resolving to vector of NodeRemoteValue objects
+     *
+     * @example
+     * // Find elements by CSS selector
+     * auto css_locator = types::browsing_context::CssLocator{"button.submit"};
+     * auto nodes = co_await client->locate_nodes(ctx, css_locator);
+     *
+     * @example
+     * // Find elements by XPath with max count
+     * auto xpath_locator =
+     * types::browsing_context::XPathLocator{"//div[@role='button']"}; auto
+     * nodes = co_await client->locate_nodes(ctx, xpath_locator, 5);
+     *
+     * @example
+     * // Find elements by accessibility role
+     * auto aria_locator = types::browsing_context::AccessibilityLocator{
+     *     .role = "button",
+     *     .name = "Submit"
+     * };
+     * auto nodes = co_await client->locate_nodes(ctx, aria_locator);
+     *
+     * @example
+     * // Find elements by inner text (case-insensitive partial match)
+     * auto text_locator = types::browsing_context::InnerTextLocator{
+     *     .value = "Click here",
+     *     .ignore_case = true,
+     *     .match_type = types::browsing_context::LocateMatchType::Partial
+     * };
+     * auto nodes = co_await client->locate_nodes(ctx, text_locator);
+     *
+     * @see
+     * https://w3c.github.io/webdriver-bidi/#command-browsingContext-locateNodes
+     */
+    [[nodiscard]] auto locate_nodes(
+        std::string_view context,
+        const types::browsing_context::Locator &locator,
+        std::optional<std::uint64_t> max_node_count = std::nullopt,
+        std::optional<std::string_view> sandbox = std::nullopt,
+        std::optional<std::vector<std::string>> start_nodes = std::nullopt,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<std::vector<types::script::NodeRemoteValue>>;
+
+    /**
+     * @brief Capture a screenshot of the provided browsing context.
+     *
+     * @param context Browsing context identifier.
+     * @param origin Screenshot origin (`"viewport"` or `"document"`).
+     * @param format Optional image format and quality descriptor.
+     * @param clip Optional clip rectangle describing the capture region.
+     * @param loc Source location used for tracing/logging diagnostics.
+     * @return Base64-encoded image data as a lazy task.
+     *
+     * @see
+     * https://w3c.github.io/webdriver-bidi/#command-browsingContext-captureScreenshot
+     */
+    [[nodiscard]] auto capture_screenshot(
+        std::string_view context,
+        std::optional<std::string_view> origin = std::nullopt,
+        std::optional<types::browsing_context::ImageFormat> format =
+            std::nullopt,
+        std::optional<types::browsing_context::ClipRectangle> clip =
+            std::nullopt,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<std::string>;
 
     // ======================== Script API ========================
 
@@ -174,7 +257,7 @@ class Client : public std::enable_shared_from_this<Client> {
     auto set_event_handler(
         std::string_view method,
         std::function<void(boost::json::object)> handler,
-        std::source_location loc = std::source_location::current())
+        const std::source_location &loc = std::source_location::current())
         -> boost::asio::awaitable<void>;
 
     auto set_event_handler_subscription(
