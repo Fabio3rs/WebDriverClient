@@ -41,6 +41,19 @@ using Realm = std::string;
  */
 using SharedId = std::string;
 
+/**
+ * @brief Channel identifier for script.message events
+ * @see https://w3c.github.io/webdriver-bidi/#type-script-Channel
+ */
+using Channel = std::string;
+
+/**
+ * @brief Preload script identifier (handle to script that runs on realm
+ * creation)
+ * @see https://w3c.github.io/webdriver-bidi/#type-script-PreloadScript
+ */
+using PreloadScript = std::string;
+
 // ==================== Enums ====================
 
 /**
@@ -152,6 +165,56 @@ struct Target {
     std::optional<Realm> realm;
 
     auto operator==(const Target &) const -> bool = default;
+};
+
+// ==================== Serialization Options ====================
+
+/**
+ * @brief Serialization options for RemoteValue objects
+ * @see https://w3c.github.io/webdriver-bidi/#type-script-SerializationOptions
+ */
+struct SerializationOptions {
+    std::optional<std::uint64_t> max_dom_depth;    // null or uint, default 0
+    std::optional<std::uint64_t> max_object_depth; // null or uint, default null
+    std::string include_shadow_tree{"none"};       // "none" | "open" | "all"
+
+    auto operator==(const SerializationOptions &) const -> bool = default;
+};
+
+/**
+ * @brief Source information for script events
+ * @see https://w3c.github.io/webdriver-bidi/#type-script-Source
+ */
+struct Source {
+    Realm realm;
+    std::optional<std::string> context; // BrowsingContextId
+
+    auto operator==(const Source &) const -> bool = default;
+};
+
+// ==================== Channel Types ====================
+
+/**
+ * @brief Channel properties for bidirectional messaging
+ * @see https://w3c.github.io/webdriver-bidi/#type-script-ChannelProperties
+ */
+struct ChannelProperties {
+    Channel channel;
+    std::optional<SerializationOptions> serialization_options;
+    std::optional<ResultOwnership> ownership;
+
+    auto operator==(const ChannelProperties &) const -> bool = default;
+};
+
+/**
+ * @brief Channel value type for script arguments
+ * @see https://w3c.github.io/webdriver-bidi/#type-script-ChannelValue
+ */
+struct ChannelValue {
+    std::string type; // Always "channel"
+    ChannelProperties value;
+
+    auto operator==(const ChannelValue &) const -> bool = default;
 };
 
 // ==================== RemoteValue System (Basic) ====================
@@ -337,6 +400,57 @@ struct LocalValue {
     auto operator==(const LocalValue &) const -> bool = default;
 };
 
+// ==================== Evaluation Results ====================
+
+/**
+ * @brief Exception details for script evaluation
+ * @see https://w3c.github.io/webdriver-bidi/#type-script-ExceptionDetails
+ *
+ * Note: For higher-level exception handling, see
+ * bidi::script::ScriptExceptionDetails
+ */
+struct ExceptionDetails {
+    std::uint64_t column_number{0};
+    RemoteValue exception; // The thrown value
+    std::uint64_t line_number{0};
+    std::optional<boost::json::object> stack_trace;
+    std::string text;
+
+    auto operator==(const ExceptionDetails &) const -> bool = default;
+};
+
+/**
+ * @brief Successful script evaluation result
+ * @see https://w3c.github.io/webdriver-bidi/#type-script-EvaluateResultSuccess
+ */
+struct EvaluateResultSuccess {
+    std::string type{"success"};
+    RemoteValue result;
+    Realm realm;
+
+    auto operator==(const EvaluateResultSuccess &) const -> bool = default;
+};
+
+/**
+ * @brief Exception script evaluation result
+ * @see
+ * https://w3c.github.io/webdriver-bidi/#type-script-EvaluateResultException
+ */
+struct EvaluateResultException {
+    std::string type{"exception"};
+    ExceptionDetails exception_details;
+    Realm realm;
+
+    auto operator==(const EvaluateResultException &) const -> bool = default;
+};
+
+/**
+ * @brief Script evaluation result variant
+ * @see https://w3c.github.io/webdriver-bidi/#type-script-EvaluateResult
+ */
+using EvaluateResult =
+    std::variant<EvaluateResultSuccess, EvaluateResultException>;
+
 } // namespace bidi::types::script
 
 // ==================== Boost.JSON Integration ====================
@@ -353,6 +467,54 @@ inline void tag_invoke(value_from_tag /*unused*/, value &jv,
 inline void tag_invoke(value_from_tag /*unused*/, value &jv,
                        bidi::types::script::ResultOwnership ownership) {
     jv = bidi::types::script::to_string(ownership);
+}
+
+// SerializationOptions serialization
+inline void tag_invoke(value_from_tag /*unused*/, value &jv,
+                       const bidi::types::script::SerializationOptions &opts) {
+    object obj;
+    if (opts.max_dom_depth.has_value()) {
+        obj["maxDomDepth"] = *opts.max_dom_depth;
+    }
+    if (opts.max_object_depth.has_value()) {
+        obj["maxObjectDepth"] = *opts.max_object_depth;
+    }
+    obj["includeShadowTree"] = opts.include_shadow_tree;
+    jv = std::move(obj);
+}
+
+// Source serialization
+inline void tag_invoke(value_from_tag /*unused*/, value &jv,
+                       const bidi::types::script::Source &source) {
+    object obj;
+    obj["realm"] = source.realm;
+    if (source.context.has_value()) {
+        obj["context"] = *source.context;
+    }
+    jv = std::move(obj);
+}
+
+// ChannelProperties serialization
+inline void tag_invoke(value_from_tag /*unused*/, value &jv,
+                       const bidi::types::script::ChannelProperties &props) {
+    object obj;
+    obj["channel"] = props.channel;
+    if (props.serialization_options.has_value()) {
+        obj["serializationOptions"] = value_from(*props.serialization_options);
+    }
+    if (props.ownership.has_value()) {
+        obj["ownership"] = bidi::types::script::to_string(*props.ownership);
+    }
+    jv = std::move(obj);
+}
+
+// ChannelValue serialization
+inline void tag_invoke(value_from_tag /*unused*/, value &jv,
+                       const bidi::types::script::ChannelValue &channel_val) {
+    object obj;
+    obj["type"] = channel_val.type;
+    obj["value"] = value_from(channel_val.value);
+    jv = std::move(obj);
 }
 
 } // namespace boost::json

@@ -13,6 +13,7 @@
 #include "bidi/types/core.hpp"
 
 // Module types (ordered by dependencies)
+#include "bidi/types/browser.hpp"
 #include "bidi/types/browsing_context.hpp"
 #include "bidi/types/log.hpp"
 #include "bidi/types/network.hpp"
@@ -26,6 +27,7 @@
  *
  * Type system organization:
  * - core: ErrorCode enum, message envelope types
+ * - browser: Client windows, user contexts
  * - session: Capabilities, proxy, subscriptions
  * - browsing_context: Locators, navigation, screenshots
  * - script: RemoteValue, realms, handles

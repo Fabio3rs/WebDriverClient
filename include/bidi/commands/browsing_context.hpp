@@ -76,6 +76,14 @@ enum class ReadinessState { none, interactive, complete };
     -> boost::json::object;
 
 /**
+ * @brief Build browsingContext.activate params
+ * @param context Browsing context ID to activate and focus
+ * @return Params object for browsingContext.activate command
+ * @see https://w3c.github.io/webdriver-bidi/#command-browsingContext-activate
+ */
+[[nodiscard]] auto activate(std::string_view context) -> boost::json::object;
+
+/**
  * @brief Build browsingContext.handleUserPrompt params
  * @param context Browsing context ID
  * @param accept Whether to accept the prompt (default: true)

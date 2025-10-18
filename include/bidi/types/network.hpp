@@ -22,6 +22,7 @@ namespace bidi::types::network {
 
 using RequestId = std::string;
 using InterceptId = std::string;
+using Collector = std::string;
 
 // ==================== BytesValue System ====================
 
@@ -136,6 +137,17 @@ struct AuthChallenge {
 };
 
 /**
+ * @brief Authentication credentials (password-based)
+ */
+struct AuthCredentials {
+    std::string type{"password"};
+    std::string username;
+    std::string password;
+
+    auto operator==(const AuthCredentials &) const -> bool = default;
+};
+
+/**
  * @brief HTTP response data
  */
 struct ResponseData {
@@ -172,6 +184,37 @@ struct RequestData {
     auto operator==(const RequestData &) const -> bool = default;
 };
 
+// ==================== URL Pattern ====================
+
+/**
+ * @brief URL pattern using pattern matching
+ */
+struct UrlPatternPattern {
+    std::string type{"pattern"};
+    std::optional<std::string> protocol;
+    std::optional<std::string> hostname;
+    std::optional<std::string> port;
+    std::optional<std::string> pathname;
+    std::optional<std::string> search;
+
+    auto operator==(const UrlPatternPattern &) const -> bool = default;
+};
+
+/**
+ * @brief URL pattern using string matching
+ */
+struct UrlPatternString {
+    std::string type{"string"};
+    std::string pattern;
+
+    auto operator==(const UrlPatternString &) const -> bool = default;
+};
+
+/**
+ * @brief URL pattern (pattern-based or string-based)
+ */
+using UrlPattern = std::variant<UrlPatternPattern, UrlPatternString>;
+
 } // namespace bidi::types::network
 
 // ==================== Boost.JSON Integration ====================
@@ -192,6 +235,48 @@ inline auto tag_invoke(value_to_tag<bidi::types::network::SameSite> /*unused*/,
         throw std::runtime_error("Invalid SameSite value");
     }
     return *same_site;
+}
+
+// AuthCredentials serialization
+inline void tag_invoke(value_from_tag /*unused*/, value &jv,
+                       const bidi::types::network::AuthCredentials &creds) {
+    object obj;
+    obj["type"] = creds.type;
+    obj["username"] = creds.username;
+    obj["password"] = creds.password;
+    jv = std::move(obj);
+}
+
+// UrlPatternPattern serialization
+inline void tag_invoke(value_from_tag /*unused*/, value &jv,
+                       const bidi::types::network::UrlPatternPattern &pattern) {
+    object obj;
+    obj["type"] = pattern.type;
+    if (pattern.protocol.has_value()) {
+        obj["protocol"] = *pattern.protocol;
+    }
+    if (pattern.hostname.has_value()) {
+        obj["hostname"] = *pattern.hostname;
+    }
+    if (pattern.port.has_value()) {
+        obj["port"] = *pattern.port;
+    }
+    if (pattern.pathname.has_value()) {
+        obj["pathname"] = *pattern.pathname;
+    }
+    if (pattern.search.has_value()) {
+        obj["search"] = *pattern.search;
+    }
+    jv = std::move(obj);
+}
+
+// UrlPatternString serialization
+inline void tag_invoke(value_from_tag /*unused*/, value &jv,
+                       const bidi::types::network::UrlPatternString &pattern) {
+    object obj;
+    obj["type"] = pattern.type;
+    obj["pattern"] = pattern.pattern;
+    jv = std::move(obj);
 }
 
 } // namespace boost::json

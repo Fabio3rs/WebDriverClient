@@ -290,6 +290,32 @@ struct ImageFormat {
     auto operator==(const ImageFormat &) const -> bool = default;
 };
 
+// ==================== Print/PDF Generation ====================
+
+/**
+ * @brief Print margin parameters (in cm)
+ * @see https://w3c.github.io/webdriver-bidi/#command-browsingContext-print
+ */
+struct PrintMarginParameters {
+    double top{1.0};    // >= 0.0, default 1.0 cm
+    double bottom{1.0}; // >= 0.0, default 1.0 cm
+    double left{1.0};   // >= 0.0, default 1.0 cm
+    double right{1.0};  // >= 0.0, default 1.0 cm
+
+    auto operator==(const PrintMarginParameters &) const -> bool = default;
+};
+
+/**
+ * @brief Print page parameters (in cm)
+ * @see https://w3c.github.io/webdriver-bidi/#command-browsingContext-print
+ */
+struct PrintPageParameters {
+    double width{21.59};  // >= 0.0352 cm (1pt), default 21.59 cm (A4 width)
+    double height{27.94}; // >= 0.0352 cm (1pt), default 27.94 cm (A4 height)
+
+    auto operator==(const PrintPageParameters &) const -> bool = default;
+};
+
 } // namespace bidi::types::browsing_context
 
 // Convenience aliases at bidi:: level
@@ -438,6 +464,28 @@ inline void tag_invoke(value_from_tag /*unused*/, value &jv,
                        const bidi::types::browsing_context::Locator &locator) {
     object obj;
     std::visit(detail::LocatorSerializer{obj}, locator);
+    jv = std::move(obj);
+}
+
+// ==================== Print Parameters Serialization ====================
+
+inline void
+tag_invoke(value_from_tag /*unused*/, value &jv,
+           const bidi::types::browsing_context::PrintMarginParameters &margin) {
+    object obj;
+    obj["top"] = margin.top;
+    obj["bottom"] = margin.bottom;
+    obj["left"] = margin.left;
+    obj["right"] = margin.right;
+    jv = std::move(obj);
+}
+
+inline void
+tag_invoke(value_from_tag /*unused*/, value &jv,
+           const bidi::types::browsing_context::PrintPageParameters &page) {
+    object obj;
+    obj["width"] = page.width;
+    obj["height"] = page.height;
     jv = std::move(obj);
 }
 

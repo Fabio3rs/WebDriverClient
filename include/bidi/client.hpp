@@ -86,6 +86,20 @@ class Client : public std::enable_shared_from_this<Client> {
              const std::source_location &loc = std::source_location::current())
         -> Task<std::string>;
 
+    // Reload browsing context
+    [[nodiscard]] auto
+    reload(std::string_view context, bool ignore_cache = false,
+           commands::browsing_context::ReadinessState wait =
+               commands::browsing_context::ReadinessState::complete,
+           const std::source_location &loc = std::source_location::current())
+        -> Task<std::string>;
+
+    // Activate and focus browsing context
+    [[nodiscard]] auto
+    activate(std::string_view context,
+             const std::source_location &loc = std::source_location::current())
+        -> Task<void>;
+
     // Close browsing context
     [[nodiscard]] auto close_context(
         std::string_view context,
@@ -217,6 +231,19 @@ class Client : public std::enable_shared_from_this<Client> {
         bool await_promise = true,
         const std::source_location &loc = std::source_location::current())
         -> Task<script::ScriptEvalOutcome>;
+
+    // Add preload script (runs on realm creation)
+    [[nodiscard]] auto add_preload_script(
+        std::string_view function_declaration,
+        boost::json::array arguments = {}, std::string_view sandbox = {},
+        const std::source_location &loc = std::source_location::current())
+        -> Task<std::string>;
+
+    // Remove preload script
+    [[nodiscard]] auto remove_preload_script(
+        std::string_view script_id,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<void>;
 
     // ======================== Session API ========================
 

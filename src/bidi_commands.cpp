@@ -98,6 +98,12 @@ auto reload(std::string_view context, bool ignore_cache, ReadinessState wait)
     return params;
 }
 
+auto activate(std::string_view context) -> boost::json::object {
+    boost::json::object params;
+    params["context"] = context;
+    return params;
+}
+
 auto handle_user_prompt(std::string_view context, std::optional<bool> accept,
                         std::optional<std::string_view> user_text)
     -> boost::json::object {
@@ -232,6 +238,29 @@ auto disown(const boost::json::array &handles, const Target &target)
     }
     params["target"] = std::move(target_obj);
 
+    return params;
+}
+
+auto add_preload_script(std::string_view function_declaration,
+                        boost::json::array arguments, std::string_view sandbox)
+    -> boost::json::object {
+    boost::json::object params;
+    params["functionDeclaration"] = function_declaration;
+
+    if (!arguments.empty()) {
+        params["arguments"] = std::move(arguments);
+    }
+
+    if (!sandbox.empty()) {
+        params["sandbox"] = sandbox;
+    }
+
+    return params;
+}
+
+auto remove_preload_script(std::string_view script) -> boost::json::object {
+    boost::json::object params;
+    params["script"] = script;
     return params;
 }
 

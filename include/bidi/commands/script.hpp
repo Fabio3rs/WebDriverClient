@@ -77,4 +77,25 @@ auto call_function(const Target &target, std::string_view function_declaration,
 [[nodiscard]] auto disown(const boost::json::array &handles,
                           const Target &target) -> boost::json::object;
 
+/**
+ * @brief Build script.addPreloadScript params
+ * @param function_declaration JavaScript function source to run on realm
+ * creation
+ * @param arguments Optional array of ChannelValue arguments
+ * @param sandbox Optional sandbox name
+ * @return Params object for script.addPreloadScript command
+ */
+[[nodiscard]] auto add_preload_script(std::string_view function_declaration,
+                                      boost::json::array arguments = {},
+                                      std::string_view sandbox = {})
+    -> boost::json::object;
+
+/**
+ * @brief Build script.removePreloadScript params
+ * @param script Preload script identifier to remove
+ * @return Params object for script.removePreloadScript command
+ */
+[[nodiscard]] auto remove_preload_script(std::string_view script)
+    -> boost::json::object;
+
 } // namespace bidi::commands::script

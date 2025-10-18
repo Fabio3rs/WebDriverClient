@@ -130,6 +130,54 @@ auto Client::navigate(std::string_view context, std::string_view url,
     return result;
 }
 
+auto Client::reload(std::string_view context, bool ignore_cache,
+                    commands::browsing_context::ReadinessState wait,
+                    const std::source_location &loc) -> Task<std::string> {
+    auto ex = get_executor();
+    auto result = Task<std::string>::make(ex);
+    auto params =
+        commands::browsing_context::reload(context, ignore_cache, wait);
+    session_->send_command(
+        "browsingContext.reload", params,
+        [result](const core::ParsedResponse &response) mutable {
+            if (!response.is_success) {
+                result.fail(std::make_exception_ptr(std::runtime_error(
+                    "browsingContext.reload failed: " +
+                    response.error_code_raw + " - " + response.error_message)));
+                return;
+            }
+            const auto *url_it = response.result.find("url");
+            if (url_it != response.result.end() &&
+                url_it->value().is_string()) {
+                result.fulfill(std::string(url_it->value().as_string()));
+            } else {
+                result.fulfill(std::string{});
+            }
+        },
+        core::BiDiSession::kDefaultTimeout, loc);
+    return result;
+}
+
+auto Client::activate(std::string_view context, const std::source_location &loc)
+    -> Task<void> {
+    auto ex = get_executor();
+    auto result = Task<void>::make(ex);
+    auto params = commands::browsing_context::activate(context);
+    session_->send_command(
+        "browsingContext.activate", params,
+        [result](const core::ParsedResponse &response) mutable {
+            if (!response.is_success) {
+                result.fail(std::make_exception_ptr(std::runtime_error(
+                    "browsingContext.activate failed: " +
+                    response.error_code_raw + " - " + response.error_message)));
+                return;
+            }
+            result.fulfill();
+        },
+        core::BiDiSession::kDefaultTimeout, loc);
+    return result;
+}
+
 auto Client::close_context(std::string_view context,
                            const std::source_location &loc) -> Task<bool> {
     auto ex = get_executor();
@@ -242,54 +290,43 @@ auto Client::locate_nodes(std::string_view context,
                     types::script::NodeRemoteValue node;
 
                     // Extract handle (optional)
-                    if (node_obj.if_contains("handle")) {
-                        const auto *handle_it = node_obj.find("handle");
-                        if (handle_it != node_obj.end() &&
-                            handle_it->value().is_string()) {
-                            node.handle = std::string(
-                                handle_it->value().as_string().c_str());
-                        }
+                    const auto *handle_it = node_obj.find("handle");
+                    if (handle_it != node_obj.end() &&
+                        handle_it->value().is_string()) {
+                        node.handle =
+                            std::string(handle_it->value().as_string());
                     }
 
                     // Extract internalId (optional)
-                    if (node_obj.if_contains("internalId")) {
-                        const auto *internal_id_it =
-                            node_obj.find("internalId");
-                        if (internal_id_it != node_obj.end() &&
-                            internal_id_it->value().is_string()) {
-                            node.internal_id = std::string(
-                                internal_id_it->value().as_string().c_str());
-                        }
+                    const auto *internal_id_it = node_obj.find("internalId");
+                    if (internal_id_it != node_obj.end() &&
+                        internal_id_it->value().is_string()) {
+                        node.internal_id =
+                            std::string(internal_id_it->value().as_string());
                     }
 
                     // Extract sharedId (optional)
-                    if (node_obj.if_contains("sharedId")) {
-                        const auto *shared_id_it = node_obj.find("sharedId");
-                        if (shared_id_it != node_obj.end() &&
-                            shared_id_it->value().is_string()) {
-                            node.shared_id = std::string(
-                                shared_id_it->value().as_string().c_str());
-                        }
+                    const auto *shared_id_it = node_obj.find("sharedId");
+                    if (shared_id_it != node_obj.end() &&
+                        shared_id_it->value().is_string()) {
+                        node.shared_id =
+                            std::string(shared_id_it->value().as_string());
                     }
 
                     // Extract nodeType (optional)
-                    if (node_obj.if_contains("nodeType")) {
-                        const auto *node_type_it = node_obj.find("nodeType");
-                        if (node_type_it != node_obj.end() &&
-                            node_type_it->value().is_string()) {
-                            node.node_type = std::string(
-                                node_type_it->value().as_string().c_str());
-                        }
+                    const auto *node_type_it = node_obj.find("nodeType");
+                    if (node_type_it != node_obj.end() &&
+                        node_type_it->value().is_string()) {
+                        node.node_type =
+                            std::string(node_type_it->value().as_string());
                     }
 
                     // Extract localName (optional)
-                    if (node_obj.if_contains("localName")) {
-                        const auto *local_name_it = node_obj.find("localName");
-                        if (local_name_it != node_obj.end() &&
-                            local_name_it->value().is_string()) {
-                            node.local_name = std::string(
-                                local_name_it->value().as_string().c_str());
-                        }
+                    const auto *local_name_it = node_obj.find("localName");
+                    if (local_name_it != node_obj.end() &&
+                        local_name_it->value().is_string()) {
+                        node.local_name =
+                            std::string(local_name_it->value().as_string());
                     }
 
                     nodes.push_back(std::move(node));
@@ -518,6 +555,61 @@ auto Client::call_function(std::string_view function_declaration,
                            loc);
 
     return task;
+}
+
+auto Client::add_preload_script(std::string_view function_declaration,
+                                boost::json::array arguments,
+                                std::string_view sandbox,
+                                const std::source_location &loc)
+    -> Task<std::string> {
+    auto ex = get_executor();
+    auto result = Task<std::string>::make(ex, loc);
+    auto params = commands::script::add_preload_script(
+        function_declaration, std::move(arguments), sandbox);
+    auto responseHandler = [result](
+                               const core::ParsedResponse &response) mutable {
+        if (!response.is_success) {
+            result.fail(std::make_exception_ptr(std::runtime_error(
+                std::string("script.addPreloadScript failed: ") +
+                response.error_code_raw + " - " + response.error_message)));
+            return;
+        }
+        try {
+            auto script_id =
+                std::string(response.result.at("script").as_string().c_str());
+            result.fulfill(std::move(script_id));
+        } catch (const std::exception &e) {
+            result.fail(std::make_exception_ptr(std::runtime_error(
+                std::string("Failed to parse addPreloadScript response: ") +
+                e.what())));
+        }
+    };
+    session_->send_command(ids::methods::script_addPreloadScript, params,
+                           std::move(responseHandler),
+                           core::BiDiSession::kDefaultTimeout, loc);
+    return result;
+}
+
+auto Client::remove_preload_script(std::string_view script_id,
+                                   const std::source_location &loc)
+    -> Task<void> {
+    auto ex = get_executor();
+    auto result = Task<void>::make(ex, loc);
+    auto params = commands::script::remove_preload_script(script_id);
+    auto responseHandler =
+        [result](const core::ParsedResponse &response) mutable {
+            if (!response.is_success) {
+                result.fail(std::make_exception_ptr(std::runtime_error(
+                    std::string("script.removePreloadScript failed: ") +
+                    response.error_code_raw + " - " + response.error_message)));
+                return;
+            }
+            result.fulfill();
+        };
+    session_->send_command(ids::methods::script_removePreloadScript, params,
+                           std::move(responseHandler),
+                           core::BiDiSession::kDefaultTimeout, loc);
+    return result;
 }
 
 // ======================== Session API ========================
