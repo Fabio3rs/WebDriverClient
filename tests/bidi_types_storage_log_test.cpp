@@ -422,3 +422,294 @@ TEST(BidiTypesStorageLog, CompleteJavaScriptLogEntry) {
     EXPECT_NE(entry.stack_trace->find("script.js:10:5"), std::string::npos);
     EXPECT_TRUE(entry.realm.has_value());
 }
+
+// ==================== LogEntry Variant Tests ====================
+
+TEST(BidiTypesLog, LogEntryVariantConsoleLog) {
+    ConsoleLogEntry console_entry;
+    console_entry.method = "log";
+    console_entry.level = Level::Info;
+    console_entry.text = "Test message";
+    console_entry.timestamp_ms = 1234567890;
+
+    LogEntry log_entry = console_entry;
+
+    ASSERT_TRUE(std::holds_alternative<ConsoleLogEntry>(log_entry.value));
+    const auto &entry = std::get<ConsoleLogEntry>(log_entry.value);
+    EXPECT_EQ(entry.method, "log");
+    EXPECT_EQ(entry.level, Level::Info);
+    EXPECT_EQ(entry.text, "Test message");
+}
+
+TEST(BidiTypesLog, LogEntryVariantJavaScriptLog) {
+    JavaScriptLogEntry js_entry;
+    js_entry.level = Level::Error;
+    js_entry.text = "TypeError occurred";
+    js_entry.timestamp_ms = 9876543210;
+    js_entry.stack_trace = "at line 42";
+
+    LogEntry log_entry = js_entry;
+
+    ASSERT_TRUE(std::holds_alternative<JavaScriptLogEntry>(log_entry.value));
+    const auto &entry = std::get<JavaScriptLogEntry>(log_entry.value);
+    EXPECT_EQ(entry.level, Level::Error);
+    EXPECT_EQ(entry.text, "TypeError occurred");
+    EXPECT_TRUE(entry.stack_trace.has_value());
+}
+
+TEST(BidiTypesLog, LogEntryVariantVisit) {
+    ConsoleLogEntry console_entry;
+    console_entry.method = "warn";
+    console_entry.level = Level::Warn;
+    console_entry.text = "Warning message";
+
+    LogEntry log_entry = console_entry;
+
+    bool visited_console = false;
+    bool visited_js = false;
+
+    std::visit(
+        [&](const auto &entry) {
+            using T = std::decay_t<decltype(entry)>;
+            if constexpr (std::is_same_v<T, ConsoleLogEntry>) {
+                visited_console = true;
+                EXPECT_EQ(entry.level, Level::Warn);
+            } else if constexpr (std::is_same_v<T, JavaScriptLogEntry>) {
+                visited_js = true;
+            }
+        },
+        log_entry.value);
+
+    EXPECT_TRUE(visited_console);
+    EXPECT_FALSE(visited_js);
+}
+
+// ==================== Boost.JSON Serialization Tests ====================
+
+TEST(BidiTypesLog, ConsoleLogEntryJsonSerialization) {
+    ConsoleLogEntry entry;
+    entry.method = "log";
+    entry.level = Level::Info;
+    entry.text = "Hello from console";
+    entry.timestamp_ms = 1704067200000;
+    entry.args.emplace_back(123);
+    entry.args.emplace_back("test");
+
+    auto jv = boost::json::value_from(entry);
+    const auto &obj = jv.as_object();
+
+    EXPECT_EQ(obj.at("type").as_string(), "console");
+    EXPECT_EQ(obj.at("method").as_string(), "log");
+    EXPECT_EQ(obj.at("level").as_string(), "info");
+    EXPECT_EQ(obj.at("text").as_string(), "Hello from console");
+    EXPECT_EQ(obj.at("timestamp").as_uint64(), 1704067200000U);
+    EXPECT_TRUE(obj.contains("args"));
+    EXPECT_EQ(obj.at("args").as_array().size(), 2U);
+}
+
+TEST(BidiTypesLog, ConsoleLogEntryJsonDeserialization) {
+    boost::json::object obj = {
+        {"type", "console"},       {"method", "warn"},
+        {"level", "warn"},         {"text", "Warning message"},
+        {"timestamp", 1234567890}, {"args", boost::json::array{42, "hello"}}};
+
+    boost::json::value jv = obj;
+    auto entry = boost::json::value_to<ConsoleLogEntry>(jv);
+
+    EXPECT_EQ(entry.method, "warn");
+    EXPECT_EQ(entry.level, Level::Warn);
+    EXPECT_EQ(entry.text, "Warning message");
+    EXPECT_EQ(entry.timestamp_ms, 1234567890U);
+    EXPECT_EQ(entry.args.size(), 2U);
+    EXPECT_EQ(entry.args[0].as_int64(), 42);
+    EXPECT_EQ(entry.args[1].as_string(), "hello");
+}
+
+TEST(BidiTypesLog, ConsoleLogEntryJsonRoundTrip) {
+    ConsoleLogEntry original;
+    original.method = "error";
+    original.level = Level::Error;
+    original.text = "Error occurred";
+    original.timestamp_ms = 9999999999;
+    original.args.emplace_back(true);
+    original.args.emplace_back(3.14);
+
+    auto jv = boost::json::value_from(original);
+    auto parsed = boost::json::value_to<ConsoleLogEntry>(jv);
+
+    EXPECT_EQ(parsed.method, original.method);
+    EXPECT_EQ(parsed.level, original.level);
+    EXPECT_EQ(parsed.text, original.text);
+    EXPECT_EQ(parsed.timestamp_ms, original.timestamp_ms);
+    EXPECT_EQ(parsed.args.size(), original.args.size());
+}
+
+TEST(BidiTypesLog, JavaScriptLogEntryJsonSerialization) {
+    JavaScriptLogEntry entry;
+    entry.level = Level::Error;
+    entry.text = "TypeError: x is undefined";
+    entry.timestamp_ms = 1704067200000;
+    entry.stack_trace = "at Object.<anonymous> (test.js:10:5)";
+
+    auto jv = boost::json::value_from(entry);
+    const auto &obj = jv.as_object();
+
+    EXPECT_EQ(obj.at("type").as_string(), "javascript");
+    EXPECT_EQ(obj.at("level").as_string(), "error");
+    EXPECT_EQ(obj.at("text").as_string(), "TypeError: x is undefined");
+    EXPECT_EQ(obj.at("timestamp").as_uint64(), 1704067200000U);
+    EXPECT_TRUE(obj.contains("stackTrace"));
+    EXPECT_NE(obj.at("stackTrace").as_string().find("test.js"),
+              std::string_view::npos);
+}
+
+TEST(BidiTypesLog, JavaScriptLogEntryJsonDeserialization) {
+    boost::json::object obj = {{"type", "javascript"},
+                               {"level", "error"},
+                               {"text", "ReferenceError: foo is not defined"},
+                               {"timestamp", 1234567890},
+                               {"stackTrace", "at <anonymous>:1:1"}};
+
+    boost::json::value jv = obj;
+    auto entry = boost::json::value_to<JavaScriptLogEntry>(jv);
+
+    EXPECT_EQ(entry.level, Level::Error);
+    EXPECT_EQ(entry.text, "ReferenceError: foo is not defined");
+    EXPECT_EQ(entry.timestamp_ms, 1234567890U);
+    EXPECT_TRUE(entry.stack_trace.has_value());
+    EXPECT_EQ(*entry.stack_trace, "at <anonymous>:1:1");
+}
+
+TEST(BidiTypesLog, JavaScriptLogEntryJsonRoundTrip) {
+    JavaScriptLogEntry original;
+    original.level = Level::Warn;
+    original.text = "Warning from JavaScript";
+    original.timestamp_ms = 5555555555;
+    original.stack_trace = "at function (app.js:42:10)";
+
+    auto jv = boost::json::value_from(original);
+    auto parsed = boost::json::value_to<JavaScriptLogEntry>(jv);
+
+    EXPECT_EQ(parsed.level, original.level);
+    EXPECT_EQ(parsed.text, original.text);
+    EXPECT_EQ(parsed.timestamp_ms, original.timestamp_ms);
+    EXPECT_EQ(parsed.stack_trace, original.stack_trace);
+}
+
+TEST(BidiTypesLog, LogEntryVariantJsonSerializationConsole) {
+    ConsoleLogEntry console_entry;
+    console_entry.method = "log";
+    console_entry.level = Level::Info;
+    console_entry.text = "Console message";
+    console_entry.timestamp_ms = 1111111111;
+    console_entry.args.emplace_back("test");
+
+    LogEntry log_entry = console_entry;
+    auto jv = boost::json::value_from(log_entry);
+    const auto &obj = jv.as_object();
+
+    EXPECT_EQ(obj.at("type").as_string(), "console");
+    EXPECT_EQ(obj.at("method").as_string(), "log");
+    EXPECT_EQ(obj.at("level").as_string(), "info");
+}
+
+TEST(BidiTypesLog, LogEntryVariantJsonSerializationJavaScript) {
+    JavaScriptLogEntry js_entry;
+    js_entry.level = Level::Error;
+    js_entry.text = "Script error";
+    js_entry.timestamp_ms = 2222222222;
+
+    LogEntry log_entry = js_entry;
+    auto jv = boost::json::value_from(log_entry);
+    const auto &obj = jv.as_object();
+
+    EXPECT_EQ(obj.at("type").as_string(), "javascript");
+    EXPECT_EQ(obj.at("level").as_string(), "error");
+    EXPECT_EQ(obj.at("text").as_string(), "Script error");
+}
+
+TEST(BidiTypesLog, LogEntryVariantJsonDeserializationConsole) {
+    boost::json::object obj = {
+        {"type", "console"},       {"method", "warn"},
+        {"level", "warn"},         {"text", "Warning"},
+        {"timestamp", 3333333333}, {"args", boost::json::array{}}};
+
+    boost::json::value jv = obj;
+    auto log_entry = boost::json::value_to<LogEntry>(jv);
+
+    ASSERT_TRUE(std::holds_alternative<ConsoleLogEntry>(log_entry.value));
+    const auto &entry = std::get<ConsoleLogEntry>(log_entry.value);
+    EXPECT_EQ(entry.method, "warn");
+    EXPECT_EQ(entry.level, Level::Warn);
+    EXPECT_EQ(entry.text, "Warning");
+}
+
+TEST(BidiTypesLog, LogEntryVariantJsonDeserializationJavaScript) {
+    boost::json::object obj = {{"type", "javascript"},
+                               {"level", "error"},
+                               {"text", "Error message"},
+                               {"timestamp", 4444444444}};
+
+    boost::json::value jv = obj;
+    auto log_entry = boost::json::value_to<LogEntry>(jv);
+
+    ASSERT_TRUE(std::holds_alternative<JavaScriptLogEntry>(log_entry.value));
+    const auto &entry = std::get<JavaScriptLogEntry>(log_entry.value);
+    EXPECT_EQ(entry.level, Level::Error);
+    EXPECT_EQ(entry.text, "Error message");
+}
+
+TEST(BidiTypesLog, LogEntryVariantJsonRoundTripConsole) {
+    ConsoleLogEntry original;
+    original.method = "debug";
+    original.level = Level::Debug;
+    original.text = "Debug message";
+    original.timestamp_ms = 7777777777;
+
+    LogEntry log_entry = original;
+    auto jv = boost::json::value_from(log_entry);
+    auto parsed = boost::json::value_to<LogEntry>(jv);
+
+    ASSERT_TRUE(std::holds_alternative<ConsoleLogEntry>(parsed.value));
+    const auto &entry = std::get<ConsoleLogEntry>(parsed.value);
+    EXPECT_EQ(entry.method, original.method);
+    EXPECT_EQ(entry.level, original.level);
+    EXPECT_EQ(entry.text, original.text);
+}
+
+TEST(BidiTypesLog, LogEntryVariantJsonRoundTripJavaScript) {
+    JavaScriptLogEntry original;
+    original.level = Level::Warn;
+    original.text = "JavaScript warning";
+    original.timestamp_ms = 8888888888;
+    original.stack_trace = "stack trace here";
+
+    LogEntry log_entry = original;
+    auto jv = boost::json::value_from(log_entry);
+    auto parsed = boost::json::value_to<LogEntry>(jv);
+
+    ASSERT_TRUE(std::holds_alternative<JavaScriptLogEntry>(parsed.value));
+    const auto &entry = std::get<JavaScriptLogEntry>(parsed.value);
+    EXPECT_EQ(entry.level, original.level);
+    EXPECT_EQ(entry.text, original.text);
+    EXPECT_EQ(entry.stack_trace, original.stack_trace);
+}
+
+TEST(BidiTypesLog, LogEntryVariantJsonMissingType) {
+    boost::json::object obj = {{"level", "info"},
+                               {"text", "Missing type field"},
+                               {"timestamp", 5555555555}};
+
+    boost::json::value jv = obj;
+    EXPECT_THROW(boost::json::value_to<LogEntry>(jv), std::runtime_error);
+}
+
+TEST(BidiTypesLog, LogEntryVariantJsonInvalidType) {
+    boost::json::object obj = {{"type", "invalid_type"},
+                               {"level", "info"},
+                               {"text", "Invalid type"},
+                               {"timestamp", 6666666666}};
+
+    boost::json::value jv = obj;
+    EXPECT_THROW(boost::json::value_to<LogEntry>(jv), std::runtime_error);
+}

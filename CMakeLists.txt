@@ -420,6 +420,12 @@ if(WEBDRIVER_BUILD_EXAMPLES)
     configure_compiler_flags(example_bidi_flow_script_exception)
     configure_sanitizers(example_bidi_flow_script_exception)
 
+    # Example demonstrating log.entryAdded event with typed log entry handlers
+    add_executable(example_log_monitoring "examples/flow/example_log_monitoring.cpp")
+    target_link_libraries(example_log_monitoring PRIVATE webdriverclientcpp)
+    configure_compiler_flags(example_log_monitoring)
+    configure_sanitizers(example_log_monitoring)
+
     # Example demonstrating AutomationSession facade with type-safe APIs
     add_executable(example_automation_session_minimal "examples/flow/example_automation_session_minimal.cpp")
     target_link_libraries(example_automation_session_minimal PRIVATE webdriverclientcpp)
