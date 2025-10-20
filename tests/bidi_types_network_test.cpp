@@ -561,3 +561,709 @@ TEST(BidiTypesNetwork, ComplexStructWithAllFields) {
     EXPECT_TRUE(resp.auth_challenges.has_value());
     EXPECT_EQ(resp.auth_challenges->size(), 1U);
 }
+
+// ==================== InterceptPhase Enum Tests ====================
+
+TEST(BidiTypesNetwork, InterceptPhaseToString) {
+    using enum InterceptPhase;
+
+    EXPECT_EQ(to_string(BeforeRequestSent), "beforeRequestSent");
+    EXPECT_EQ(to_string(ResponseStarted), "responseStarted");
+    EXPECT_EQ(to_string(AuthRequired), "authRequired");
+}
+
+TEST(BidiTypesNetwork, InterceptPhaseConstexpr) {
+    constexpr auto str = to_string(InterceptPhase::BeforeRequestSent);
+    static_assert(str == "beforeRequestSent");
+}
+
+TEST(BidiTypesNetwork, InterceptPhaseParse) {
+    auto val1 = parse_intercept_phase("beforeRequestSent");
+    ASSERT_TRUE(val1.has_value());
+    EXPECT_EQ(*val1, InterceptPhase::BeforeRequestSent);
+
+    auto val2 = parse_intercept_phase("responseStarted");
+    ASSERT_TRUE(val2.has_value());
+    EXPECT_EQ(*val2, InterceptPhase::ResponseStarted);
+
+    auto val3 = parse_intercept_phase("authRequired");
+    ASSERT_TRUE(val3.has_value());
+    EXPECT_EQ(*val3, InterceptPhase::AuthRequired);
+
+    auto unknown = parse_intercept_phase("invalid");
+    EXPECT_FALSE(unknown.has_value());
+}
+
+TEST(BidiTypesNetwork, InterceptPhaseRoundTrip) {
+    using enum InterceptPhase;
+
+    auto test_round_trip = [](InterceptPhase value) {
+        auto str = to_string(value);
+        auto parsed = parse_intercept_phase(str);
+        ASSERT_TRUE(parsed.has_value());
+        EXPECT_EQ(*parsed, value);
+    };
+
+    test_round_trip(BeforeRequestSent);
+    test_round_trip(ResponseStarted);
+    test_round_trip(AuthRequired);
+}
+
+TEST(BidiTypesNetwork, InterceptPhaseBoostJson) {
+    using enum InterceptPhase;
+
+    // Serialization
+    auto jv1 = boost::json::value_from(BeforeRequestSent);
+    EXPECT_EQ(jv1.as_string(), "beforeRequestSent");
+
+    auto jv2 = boost::json::value_from(ResponseStarted);
+    EXPECT_EQ(jv2.as_string(), "responseStarted");
+
+    auto jv3 = boost::json::value_from(AuthRequired);
+    EXPECT_EQ(jv3.as_string(), "authRequired");
+
+    // Deserialization
+    boost::json::value jv4 = "responseStarted";
+    auto val = boost::json::value_to<InterceptPhase>(jv4);
+    EXPECT_EQ(val, ResponseStarted);
+
+    // Round-trip
+    auto jv5 = boost::json::value_from(AuthRequired);
+    auto parsed = boost::json::value_to<InterceptPhase>(jv5);
+    EXPECT_EQ(parsed, AuthRequired);
+}
+
+TEST(BidiTypesNetwork, InterceptPhaseInvalidJson) {
+    boost::json::value jv = "invalid_phase";
+    EXPECT_THROW(boost::json::value_to<InterceptPhase>(jv), std::runtime_error);
+}
+
+// ==================== AuthAction Enum Tests ====================
+
+TEST(BidiTypesNetwork, AuthActionToString) {
+    using enum AuthAction;
+
+    EXPECT_EQ(to_string(ProvideCredentials), "provideCredentials");
+    EXPECT_EQ(to_string(Default), "default");
+    EXPECT_EQ(to_string(Cancel), "cancel");
+}
+
+TEST(BidiTypesNetwork, AuthActionConstexpr) {
+    constexpr auto str = to_string(AuthAction::Default);
+    static_assert(str == "default");
+}
+
+TEST(BidiTypesNetwork, AuthActionParse) {
+    auto val1 = parse_auth_action("provideCredentials");
+    ASSERT_TRUE(val1.has_value());
+    EXPECT_EQ(*val1, AuthAction::ProvideCredentials);
+
+    auto val2 = parse_auth_action("default");
+    ASSERT_TRUE(val2.has_value());
+    EXPECT_EQ(*val2, AuthAction::Default);
+
+    auto val3 = parse_auth_action("cancel");
+    ASSERT_TRUE(val3.has_value());
+    EXPECT_EQ(*val3, AuthAction::Cancel);
+
+    auto unknown = parse_auth_action("invalid");
+    EXPECT_FALSE(unknown.has_value());
+}
+
+TEST(BidiTypesNetwork, AuthActionRoundTrip) {
+    using enum AuthAction;
+
+    auto test_round_trip = [](AuthAction value) {
+        auto str = to_string(value);
+        auto parsed = parse_auth_action(str);
+        ASSERT_TRUE(parsed.has_value());
+        EXPECT_EQ(*parsed, value);
+    };
+
+    test_round_trip(ProvideCredentials);
+    test_round_trip(Default);
+    test_round_trip(Cancel);
+}
+
+TEST(BidiTypesNetwork, AuthActionBoostJson) {
+    using enum AuthAction;
+
+    // Serialization
+    auto jv1 = boost::json::value_from(ProvideCredentials);
+    EXPECT_EQ(jv1.as_string(), "provideCredentials");
+
+    auto jv2 = boost::json::value_from(Default);
+    EXPECT_EQ(jv2.as_string(), "default");
+
+    auto jv3 = boost::json::value_from(Cancel);
+    EXPECT_EQ(jv3.as_string(), "cancel");
+
+    // Deserialization
+    boost::json::value jv4 = "cancel";
+    auto val = boost::json::value_to<AuthAction>(jv4);
+    EXPECT_EQ(val, Cancel);
+
+    // Round-trip
+    auto jv5 = boost::json::value_from(ProvideCredentials);
+    auto parsed = boost::json::value_to<AuthAction>(jv5);
+    EXPECT_EQ(parsed, ProvideCredentials);
+}
+
+TEST(BidiTypesNetwork, AuthActionInvalidJson) {
+    boost::json::value jv = "invalid_action";
+    EXPECT_THROW(boost::json::value_to<AuthAction>(jv), std::runtime_error);
+}
+
+// ==================== CookieHeader Tests ====================
+
+TEST(BidiTypesNetwork, CookieHeaderEquality) {
+    CookieHeader cookie1{.name = "session", .value = StringBytes{"abc123"}};
+
+    CookieHeader cookie2{.name = "session", .value = StringBytes{"abc123"}};
+
+    CookieHeader cookie3{.name = "other", .value = StringBytes{"xyz"}};
+
+    EXPECT_EQ(cookie1, cookie2);
+    EXPECT_NE(cookie1, cookie3);
+}
+
+TEST(BidiTypesNetwork, CookieHeaderBase64Value) {
+    CookieHeader cookie1{.name = "binary", .value = StringBytes{"text"}};
+
+    CookieHeader cookie2{.name = "binary", .value = Base64Bytes{"dGV4dA=="}};
+
+    EXPECT_NE(cookie1, cookie2); // Different BytesValue variants
+}
+
+TEST(BidiTypesNetwork, CookieHeaderBoostJson) {
+    CookieHeader cookie{.name = "auth", .value = StringBytes{"token123"}};
+
+    // Serialization
+    auto jv = boost::json::value_from(cookie);
+    auto obj = jv.as_object();
+
+    EXPECT_EQ(obj.at("name").as_string(), "auth");
+    EXPECT_TRUE(obj.contains("value"));
+
+    // Verify BytesValue structure
+    const auto &value_obj = obj.at("value").as_object();
+    EXPECT_EQ(value_obj.at("type").as_string(), "string");
+    EXPECT_EQ(value_obj.at("value").as_string(), "token123");
+}
+
+// ==================== SetCookieHeader Tests ====================
+
+TEST(BidiTypesNetwork, SetCookieHeaderEquality) {
+    // Order: name, value, domain, path, expiry_epoch_seconds, http_only,
+    // secure, same_site
+    SetCookieHeader cookie1{.name = "session",
+                            .value = StringBytes{"abc123"},
+                            .domain = "example.com",
+                            .path = "/",
+                            .expiry_epoch_seconds = std::nullopt,
+                            .http_only = true,
+                            .secure = true,
+                            .same_site = SameSite::Strict};
+
+    SetCookieHeader cookie2{.name = "session",
+                            .value = StringBytes{"abc123"},
+                            .domain = "example.com",
+                            .path = "/",
+                            .expiry_epoch_seconds = std::nullopt,
+                            .http_only = true,
+                            .secure = true,
+                            .same_site = SameSite::Strict};
+
+    SetCookieHeader cookie3{.name = "other",
+                            .value = StringBytes{"xyz"},
+                            .domain = std::nullopt,
+                            .path = std::nullopt,
+                            .expiry_epoch_seconds = std::nullopt,
+                            .http_only = std::nullopt,
+                            .secure = std::nullopt,
+                            .same_site = std::nullopt};
+
+    EXPECT_EQ(cookie1, cookie2);
+    EXPECT_NE(cookie1, cookie3);
+}
+
+TEST(BidiTypesNetwork, SetCookieHeaderDefaultValues) {
+    SetCookieHeader cookie{.name = "test",
+                           .value = StringBytes{"value"},
+                           .domain = std::nullopt,
+                           .path = std::nullopt,
+                           .expiry_epoch_seconds = std::nullopt,
+                           .http_only = std::nullopt,
+                           .secure = std::nullopt,
+                           .same_site = std::nullopt};
+
+    EXPECT_FALSE(cookie.domain.has_value());
+    EXPECT_FALSE(cookie.path.has_value());
+    EXPECT_FALSE(cookie.expiry_epoch_seconds.has_value());
+    EXPECT_FALSE(cookie.http_only.has_value());
+    EXPECT_FALSE(cookie.secure.has_value());
+    EXPECT_FALSE(cookie.same_site.has_value());
+}
+
+TEST(BidiTypesNetwork, SetCookieHeaderOptionalFields) {
+    SetCookieHeader cookie{.name = "test",
+                           .value = StringBytes{"value"},
+                           .domain = std::nullopt,
+                           .path = std::nullopt,
+                           .expiry_epoch_seconds = std::nullopt,
+                           .http_only = std::nullopt,
+                           .secure = std::nullopt,
+                           .same_site = std::nullopt};
+
+    cookie.domain = "example.com";
+    cookie.path = "/api";
+    cookie.expiry_epoch_seconds = 1729497600; // Unix timestamp
+    cookie.http_only = true;
+    cookie.secure = true;
+    cookie.same_site = SameSite::None;
+
+    EXPECT_TRUE(cookie.domain.has_value());
+    EXPECT_EQ(*cookie.domain, "example.com");
+    EXPECT_TRUE(cookie.path.has_value());
+    EXPECT_EQ(*cookie.path, "/api");
+    EXPECT_TRUE(cookie.expiry_epoch_seconds.has_value());
+    EXPECT_EQ(*cookie.expiry_epoch_seconds, 1729497600U);
+    EXPECT_TRUE(cookie.http_only.has_value());
+    EXPECT_TRUE(*cookie.http_only);
+    EXPECT_TRUE(cookie.secure.has_value());
+    EXPECT_TRUE(*cookie.secure);
+    EXPECT_TRUE(cookie.same_site.has_value());
+    EXPECT_EQ(*cookie.same_site, SameSite::None);
+}
+
+TEST(BidiTypesNetwork, SetCookieHeaderBoostJson) {
+    SetCookieHeader cookie{.name = "session",
+                           .value = StringBytes{"token456"},
+                           .domain = "secure.example.com",
+                           .path = std::nullopt,
+                           .expiry_epoch_seconds = 1729497600,
+                           .http_only = std::nullopt,
+                           .secure = true,
+                           .same_site = SameSite::Strict};
+
+    // Serialization
+    auto jv = boost::json::value_from(cookie);
+    auto obj = jv.as_object();
+
+    EXPECT_EQ(obj.at("name").as_string(), "session");
+    EXPECT_TRUE(obj.contains("value"));
+    EXPECT_EQ(obj.at("domain").as_string(), "secure.example.com");
+    EXPECT_EQ(obj.at("expiry").as_uint64(), 1729497600U);
+    EXPECT_TRUE(obj.at("secure").as_bool());
+    EXPECT_EQ(obj.at("sameSite").as_string(), "strict");
+}
+
+// ==================== BaseParameters Tests ====================
+
+TEST(BidiTypesNetwork, BaseParametersEquality) {
+    // Order: request, navigation, context, timestamp, redirect_count,
+    // is_blocked, intercepts
+    BaseParameters params1{.request = "req-789",
+                           .navigation = "nav-456",
+                           .context = "ctx-123",
+                           .timestamp = 1234567890,
+                           .redirect_count = 2,
+                           .is_blocked = true,
+                           .intercepts = std::nullopt};
+
+    BaseParameters params2{.request = "req-789",
+                           .navigation = "nav-456",
+                           .context = "ctx-123",
+                           .timestamp = 1234567890,
+                           .redirect_count = 2,
+                           .is_blocked = true,
+                           .intercepts = std::nullopt};
+
+    BaseParameters params3{.request = "req-000",
+                           .navigation = std::nullopt,
+                           .context = "ctx-999",
+                           .timestamp = 0,
+                           .redirect_count = 0,
+                           .is_blocked = false,
+                           .intercepts = std::nullopt};
+
+    EXPECT_EQ(params1, params2);
+    EXPECT_NE(params1, params3);
+}
+
+TEST(BidiTypesNetwork, BaseParametersDefaultValues) {
+    BaseParameters params{.request = "req-123",
+                          .navigation = std::nullopt,
+                          .context = std::nullopt,
+                          .timestamp = 0,
+                          .redirect_count = 0,
+                          .is_blocked = false,
+                          .intercepts = std::nullopt};
+
+    EXPECT_FALSE(params.context.has_value());
+    EXPECT_EQ(params.is_blocked, false);
+    EXPECT_FALSE(params.navigation.has_value());
+    EXPECT_EQ(params.redirect_count, 0U);
+    EXPECT_EQ(params.timestamp, 0U);
+}
+
+TEST(BidiTypesNetwork, BaseParametersOptionalFields) {
+    BaseParameters params{.request = "req-123",
+                          .navigation = std::nullopt,
+                          .context = std::nullopt,
+                          .timestamp = 0,
+                          .redirect_count = 0,
+                          .is_blocked = false,
+                          .intercepts = std::nullopt};
+
+    params.context = "ctx-456";
+    params.navigation = "nav-789";
+
+    EXPECT_TRUE(params.context.has_value());
+    EXPECT_EQ(*params.context, "ctx-456");
+    EXPECT_TRUE(params.navigation.has_value());
+    EXPECT_EQ(*params.navigation, "nav-789");
+}
+
+TEST(BidiTypesNetwork, BaseParametersBoostJson) {
+    BaseParameters params{.request = "req-789",
+                          .navigation = "nav-456",
+                          .context = "ctx-123",
+                          .timestamp = 9876543210,
+                          .redirect_count = 3,
+                          .is_blocked = true,
+                          .intercepts = std::nullopt};
+
+    // Serialization
+    auto jv = boost::json::value_from(params);
+    auto obj = jv.as_object();
+
+    EXPECT_EQ(obj.at("context").as_string(), "ctx-123");
+    EXPECT_TRUE(obj.at("isBlocked").as_bool());
+    EXPECT_EQ(obj.at("navigation").as_string(), "nav-456");
+    EXPECT_EQ(obj.at("redirectCount").as_uint64(), 3U);
+    EXPECT_EQ(obj.at("request").as_string(), "req-789");
+    EXPECT_EQ(obj.at("timestamp").as_uint64(), 9876543210U);
+}
+
+// ==================== AddInterceptParameters Tests ====================
+
+TEST(BidiTypesNetwork, AddInterceptParametersEquality) {
+    using enum InterceptPhase;
+    // Order: phases, contexts, url_patterns
+
+    AddInterceptParameters params1{
+        .phases = {BeforeRequestSent, ResponseStarted},
+        .contexts = std::nullopt,
+        .url_patterns = std::nullopt};
+
+    AddInterceptParameters params2{
+        .phases = {BeforeRequestSent, ResponseStarted},
+        .contexts = std::nullopt,
+        .url_patterns = std::nullopt};
+
+    AddInterceptParameters params3{.phases = {AuthRequired},
+                                   .contexts = std::nullopt,
+                                   .url_patterns = std::nullopt};
+
+    EXPECT_EQ(params1, params2);
+    EXPECT_NE(params1, params3);
+}
+
+TEST(BidiTypesNetwork, AddInterceptParametersOptionalFields) {
+    using enum InterceptPhase;
+
+    AddInterceptParameters params{.phases = {BeforeRequestSent},
+                                  .contexts = std::nullopt,
+                                  .url_patterns = std::nullopt};
+
+    EXPECT_FALSE(params.contexts.has_value());
+    EXPECT_FALSE(params.url_patterns.has_value());
+
+    params.contexts = std::vector<std::string>{"ctx-1", "ctx-2"};
+
+    EXPECT_TRUE(params.contexts.has_value());
+    EXPECT_EQ(params.contexts->size(), 2U);
+    EXPECT_EQ((*params.contexts)[0], "ctx-1");
+}
+
+TEST(BidiTypesNetwork, AddInterceptParametersBoostJson) {
+    using enum InterceptPhase;
+
+    AddInterceptParameters params{
+        .phases = {BeforeRequestSent, ResponseStarted},
+        .contexts = std::vector<std::string>{"ctx-123"},
+        .url_patterns = std::nullopt};
+
+    // Serialization
+    auto jv = boost::json::value_from(params);
+    auto obj = jv.as_object();
+
+    EXPECT_TRUE(obj.contains("phases"));
+    auto phases = obj.at("phases").as_array();
+    EXPECT_EQ(phases.size(), 2U);
+    EXPECT_EQ(phases[0].as_string(), "beforeRequestSent");
+    EXPECT_EQ(phases[1].as_string(), "responseStarted");
+
+    EXPECT_TRUE(obj.contains("contexts"));
+    auto contexts = obj.at("contexts").as_array();
+    EXPECT_EQ(contexts.size(), 1U);
+    EXPECT_EQ(contexts[0].as_string(), "ctx-123");
+}
+
+// ==================== ContinueRequestParameters Tests ====================
+
+TEST(BidiTypesNetwork, ContinueRequestParametersEquality) {
+    // Order: request, body, cookies, headers, method, url
+    ContinueRequestParameters params1{.request = "req-123",
+                                      .body = std::nullopt,
+                                      .cookies = std::nullopt,
+                                      .headers = std::nullopt,
+                                      .method = "POST",
+                                      .url = "https://example.com/api"};
+
+    ContinueRequestParameters params2{.request = "req-123",
+                                      .body = std::nullopt,
+                                      .cookies = std::nullopt,
+                                      .headers = std::nullopt,
+                                      .method = "POST",
+                                      .url = "https://example.com/api"};
+
+    ContinueRequestParameters params3{.request = "req-456",
+                                      .body = std::nullopt,
+                                      .cookies = std::nullopt,
+                                      .headers = std::nullopt,
+                                      .method = std::nullopt,
+                                      .url = std::nullopt};
+
+    EXPECT_EQ(params1, params2);
+    EXPECT_NE(params1, params3);
+}
+
+TEST(BidiTypesNetwork, ContinueRequestParametersOptionalFields) {
+    ContinueRequestParameters params{.request = "req-123",
+                                     .body = std::nullopt,
+                                     .cookies = std::nullopt,
+                                     .headers = std::nullopt,
+                                     .method = std::nullopt,
+                                     .url = std::nullopt};
+
+    EXPECT_FALSE(params.body.has_value());
+    EXPECT_FALSE(params.cookies.has_value());
+    EXPECT_FALSE(params.headers.has_value());
+    EXPECT_FALSE(params.method.has_value());
+    EXPECT_FALSE(params.url.has_value());
+
+    params.method = "PUT";
+    params.url = "https://modified.com";
+
+    EXPECT_TRUE(params.method.has_value());
+    EXPECT_EQ(*params.method, "PUT");
+    EXPECT_TRUE(params.url.has_value());
+    EXPECT_EQ(*params.url, "https://modified.com");
+}
+
+// ==================== ContinueResponseParameters Tests ====================
+
+TEST(BidiTypesNetwork, ContinueResponseParametersEquality) {
+    // Order: request, cookies, credentials, headers, reason_phrase, status_code
+    ContinueResponseParameters params1{.request = "req-123",
+                                       .cookies = std::nullopt,
+                                       .credentials = std::nullopt,
+                                       .headers = std::nullopt,
+                                       .reason_phrase = "OK",
+                                       .status_code = 200};
+
+    ContinueResponseParameters params2{.request = "req-123",
+                                       .cookies = std::nullopt,
+                                       .credentials = std::nullopt,
+                                       .headers = std::nullopt,
+                                       .reason_phrase = "OK",
+                                       .status_code = 200};
+
+    ContinueResponseParameters params3{.request = "req-456",
+                                       .cookies = std::nullopt,
+                                       .credentials = std::nullopt,
+                                       .headers = std::nullopt,
+                                       .reason_phrase = std::nullopt,
+                                       .status_code = 404};
+
+    EXPECT_EQ(params1, params2);
+    EXPECT_NE(params1, params3);
+}
+
+TEST(BidiTypesNetwork, ContinueResponseParametersWithCredentials) {
+    AuthCredentials creds{
+        .type = "password", .username = "user", .password = "pass"};
+
+    ContinueResponseParameters params{.request = "req-123",
+                                      .cookies = std::nullopt,
+                                      .credentials = creds,
+                                      .headers = std::nullopt,
+                                      .reason_phrase = std::nullopt,
+                                      .status_code = 200};
+
+    EXPECT_TRUE(params.credentials.has_value());
+    EXPECT_EQ(params.credentials->username, "user");
+}
+
+// ==================== BeforeRequestSentParameters Tests ====================
+
+TEST(BidiTypesNetwork, BeforeRequestSentParametersEquality) {
+    RequestData req_data;
+    req_data.request_id = "req-123";
+    req_data.url = "https://example.com";
+    req_data.method = "GET";
+
+    BeforeRequestSentParameters params1{
+        .base = BaseParameters{.request = "req-123",
+                               .navigation = std::nullopt,
+                               .context = std::nullopt,
+                               .timestamp = 0,
+                               .redirect_count = 0,
+                               .is_blocked = false,
+                               .intercepts = std::nullopt},
+        .request = req_data};
+
+    BeforeRequestSentParameters params2{
+        .base = BaseParameters{.request = "req-123",
+                               .navigation = std::nullopt,
+                               .context = std::nullopt,
+                               .timestamp = 0,
+                               .redirect_count = 0,
+                               .is_blocked = false,
+                               .intercepts = std::nullopt},
+        .request = req_data};
+
+    EXPECT_EQ(params1, params2);
+}
+
+TEST(BidiTypesNetwork, BeforeRequestSentParametersConstruction) {
+    RequestData req_data;
+    req_data.request_id = "req-456";
+    req_data.url = "https://api.example.com";
+    req_data.method = "POST";
+
+    BaseParameters base{.request = "req-456",
+                        .navigation = std::nullopt,
+                        .context = "ctx-789",
+                        .timestamp = 0,
+                        .redirect_count = 0,
+                        .is_blocked = true,
+                        .intercepts = std::nullopt};
+
+    BeforeRequestSentParameters params{.base = base, .request = req_data};
+
+    EXPECT_EQ(params.base.request, "req-456");
+    EXPECT_TRUE(params.base.is_blocked);
+    EXPECT_EQ(params.request.request_id, "req-456");
+    EXPECT_EQ(params.request.method, "POST");
+}
+
+// ==================== ResponseStartedParameters Tests ====================
+
+TEST(BidiTypesNetwork, ResponseStartedParametersEquality) {
+    ResponseData resp_data;
+    resp_data.url = "https://example.com";
+    resp_data.status = 200;
+
+    ResponseStartedParameters params1{
+        .base = BaseParameters{.request = "req-123",
+                               .navigation = std::nullopt,
+                               .context = std::nullopt,
+                               .timestamp = 0,
+                               .redirect_count = 0,
+                               .is_blocked = false,
+                               .intercepts = std::nullopt},
+        .response = resp_data};
+
+    ResponseStartedParameters params2{
+        .base = BaseParameters{.request = "req-123",
+                               .navigation = std::nullopt,
+                               .context = std::nullopt,
+                               .timestamp = 0,
+                               .redirect_count = 0,
+                               .is_blocked = false,
+                               .intercepts = std::nullopt},
+        .response = resp_data};
+
+    EXPECT_EQ(params1, params2);
+}
+
+TEST(BidiTypesNetwork, ResponseStartedParametersConstruction) {
+    ResponseData resp_data;
+    resp_data.url = "https://api.example.com";
+    resp_data.status = 201;
+    resp_data.status_text = "Created";
+
+    BaseParameters base{.request = "req-456",
+                        .navigation = std::nullopt,
+                        .context = "ctx-789",
+                        .timestamp = 0,
+                        .redirect_count = 0,
+                        .is_blocked = false,
+                        .intercepts = std::nullopt};
+
+    ResponseStartedParameters params{.base = base, .response = resp_data};
+
+    EXPECT_EQ(params.base.request, "req-456");
+    EXPECT_EQ(params.response.status, 201U);
+    EXPECT_EQ(params.response.status_text, "Created");
+}
+
+// ==================== AuthRequiredParameters Tests ====================
+
+TEST(BidiTypesNetwork, AuthRequiredParametersEquality) {
+    ResponseData resp_data;
+    resp_data.url = "https://example.com";
+    resp_data.status = 401;
+
+    AuthRequiredParameters params1{
+        .base = BaseParameters{.request = "req-123",
+                               .navigation = std::nullopt,
+                               .context = std::nullopt,
+                               .timestamp = 0,
+                               .redirect_count = 0,
+                               .is_blocked = false,
+                               .intercepts = std::nullopt},
+        .response = resp_data};
+
+    AuthRequiredParameters params2{
+        .base = BaseParameters{.request = "req-123",
+                               .navigation = std::nullopt,
+                               .context = std::nullopt,
+                               .timestamp = 0,
+                               .redirect_count = 0,
+                               .is_blocked = false,
+                               .intercepts = std::nullopt},
+        .response = resp_data};
+
+    EXPECT_EQ(params1, params2);
+}
+
+TEST(BidiTypesNetwork, AuthRequiredParametersConstruction) {
+    ResponseData resp_data;
+    resp_data.url = "https://secure.example.com";
+    resp_data.status = 401;
+    resp_data.status_text = "Unauthorized";
+
+    AuthChallenge challenge{.scheme = "Basic", .realm = "Protected Area"};
+    resp_data.auth_challenges = std::vector<AuthChallenge>{challenge};
+
+    BaseParameters base{.request = "req-456",
+                        .navigation = std::nullopt,
+                        .context = "ctx-789",
+                        .timestamp = 0,
+                        .redirect_count = 0,
+                        .is_blocked = true,
+                        .intercepts = std::nullopt};
+
+    AuthRequiredParameters params{.base = base, .response = resp_data};
+
+    EXPECT_EQ(params.base.request, "req-456");
+    EXPECT_TRUE(params.base.is_blocked);
+    EXPECT_EQ(params.response.status, 401U);
+    EXPECT_TRUE(params.response.auth_challenges.has_value());
+    EXPECT_EQ(params.response.auth_challenges->size(), 1U);
+    EXPECT_EQ((*params.response.auth_challenges)[0].scheme, "Basic");
+}

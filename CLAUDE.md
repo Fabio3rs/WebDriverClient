@@ -33,9 +33,10 @@ This project is currently in active development. Key implications:
 - Report issues and feedback via GitHub issues
 - Production use is NOT recommended at this stage
 
-## Recent Highlights (2025-10-17)
-- Added `commands::browsing_context::capture_screenshot()` builder and `Client::capture_screenshot()` API returning base64 screenshot data.
-- Extended Boost.JSON serializers for screenshot `ImageFormat`/`ClipRectangle` variants used by capture screenshots.
+## Recent Highlights (2025-10-21)
+- **Test Infrastructure**: Extracted reusable `TestHttpServer` (`tests/test_http_server.hpp`) with custom handlers, authentication support, and proper RAII thread management
+- **Network Interception**: Fixed all compilation errors in `NetworkInterceptHandler` (designated initializers, return type migration to `shared_ptr`, Boost.JSON conversions)
+- **Build Status**: 348/350 tests passing (99%), all 30 targets compile successfully
 
 ## Build Commands
 

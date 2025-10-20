@@ -132,6 +132,7 @@ inline constexpr std::string_view net_beforeRequestSent =
     "network.beforeRequestSent";
 inline constexpr std::string_view net_responseStarted =
     "network.responseStarted";
+inline constexpr std::string_view net_authRequired = "network.authRequired";
 inline constexpr std::string_view net_responseCompleted =
     "network.responseCompleted";
 inline constexpr std::string_view net_fetchError = "network.fetchError";

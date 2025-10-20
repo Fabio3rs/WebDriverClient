@@ -612,6 +612,250 @@ auto Client::remove_preload_script(std::string_view script_id,
     return result;
 }
 
+// ======================== Network Interception API ========================
+
+auto Client::add_intercept(
+    std::vector<types::network::InterceptPhase> phases,
+    std::optional<std::vector<std::string>> contexts,
+    std::optional<std::vector<types::network::UrlPattern>> url_patterns,
+    const std::source_location &loc) -> Task<types::network::InterceptId> {
+    auto ex = get_executor();
+    auto result = Task<types::network::InterceptId>::make(ex, loc);
+
+    types::network::AddInterceptParameters params{
+        .phases = std::move(phases),
+        .contexts = std::move(contexts),
+        .url_patterns = std::move(url_patterns)};
+
+    session_->send_command(
+        bidi::ids::methods::net_addIntercept,
+        boost::json::value_from(params).as_object(),
+        [result](const core::ParsedResponse &response) mutable {
+            if (!response.is_success) {
+                result.fail(std::make_exception_ptr(std::runtime_error(
+                    "network.addIntercept failed: " + response.error_code_raw +
+                    " - " + response.error_message)));
+                return;
+            }
+
+            try {
+                const auto *intercept_it = response.result.find("intercept");
+                if (intercept_it != response.result.end() &&
+                    intercept_it->value().is_string()) {
+                    result.fulfill(
+                        std::string(intercept_it->value().as_string().c_str()));
+                } else {
+                    result.fail(std::make_exception_ptr(
+                        std::runtime_error("network.addIntercept: missing "
+                                           "'intercept' field in response")));
+                }
+            } catch (const std::exception &e) {
+                result.fail(
+                    std::make_exception_ptr(std::runtime_error(std::format(
+                        "Failed to parse network.addIntercept response: {}",
+                        e.what()))));
+            }
+        },
+        core::BiDiSession::kDefaultTimeout, loc);
+
+    return result;
+}
+
+auto Client::remove_intercept(types::network::InterceptId intercept_id,
+                              const std::source_location &loc) -> Task<void> {
+    auto ex = get_executor();
+    auto result = Task<void>::make(ex, loc);
+
+    types::network::RemoveInterceptParameters params{
+        .intercept = std::move(intercept_id)};
+
+    session_->send_command(
+        bidi::ids::methods::net_removeIntercept,
+        boost::json::value_from(params).as_object(),
+        [result](const core::ParsedResponse &response) mutable {
+            if (!response.is_success) {
+                result.fail(std::make_exception_ptr(std::runtime_error(
+                    "network.removeIntercept failed: " +
+                    response.error_code_raw + " - " + response.error_message)));
+                return;
+            }
+            result.fulfill();
+        },
+        core::BiDiSession::kDefaultTimeout, loc);
+
+    return result;
+}
+
+auto Client::continue_request(
+    types::network::RequestId request_id,
+    std::optional<types::network::BytesValue> body,
+    std::optional<std::vector<types::network::CookieHeader>> cookies,
+    std::optional<std::vector<types::network::Header>> headers,
+    std::optional<std::string> method, std::optional<std::string> url,
+    const std::source_location &loc) -> Task<void> {
+    auto ex = get_executor();
+    auto result = Task<void>::make(ex, loc);
+
+    types::network::ContinueRequestParameters params{
+        .request = std::move(request_id),
+        .body = std::move(body),
+        .cookies = std::move(cookies),
+        .headers = std::move(headers),
+        .method = std::move(method),
+        .url = std::move(url)};
+
+    session_->send_command(
+        bidi::ids::methods::net_continueRequest,
+        boost::json::value_from(params).as_object(),
+        [result](const core::ParsedResponse &response) mutable {
+            if (!response.is_success) {
+                result.fail(std::make_exception_ptr(std::runtime_error(
+                    "network.continueRequest failed: " +
+                    response.error_code_raw + " - " + response.error_message)));
+                return;
+            }
+            result.fulfill();
+        },
+        core::BiDiSession::kDefaultTimeout, loc);
+
+    return result;
+}
+
+auto Client::fail_request(types::network::RequestId request_id,
+                          const std::source_location &loc) -> Task<void> {
+    auto ex = get_executor();
+    auto result = Task<void>::make(ex, loc);
+
+    types::network::FailRequestParameters params{.request =
+                                                     std::move(request_id)};
+
+    session_->send_command(
+        bidi::ids::methods::net_failRequest,
+        boost::json::value_from(params).as_object(),
+        [result](const core::ParsedResponse &response) mutable {
+            if (!response.is_success) {
+                result.fail(std::make_exception_ptr(std::runtime_error(
+                    "network.failRequest failed: " + response.error_code_raw +
+                    " - " + response.error_message)));
+                return;
+            }
+            result.fulfill();
+        },
+        core::BiDiSession::kDefaultTimeout, loc);
+
+    return result;
+}
+
+auto Client::continue_response(
+    types::network::RequestId request_id,
+    std::optional<std::vector<types::network::SetCookieHeader>> cookies,
+    std::optional<types::network::AuthCredentials> credentials,
+    std::optional<std::vector<types::network::Header>> headers,
+    std::optional<std::string> reason_phrase,
+    std::optional<std::uint64_t> status_code, const std::source_location &loc)
+    -> Task<void> {
+    auto ex = get_executor();
+    auto result = Task<void>::make(ex, loc);
+
+    types::network::ContinueResponseParameters params{
+        .request = std::move(request_id),
+        .cookies = std::move(cookies),
+        .credentials = std::move(credentials),
+        .headers = std::move(headers),
+        .reason_phrase = std::move(reason_phrase),
+        .status_code = status_code};
+
+    session_->send_command(
+        bidi::ids::methods::net_continueResponse,
+        boost::json::value_from(params).as_object(),
+        [result](const core::ParsedResponse &response) mutable {
+            if (!response.is_success) {
+                result.fail(std::make_exception_ptr(std::runtime_error(
+                    "network.continueResponse failed: " +
+                    response.error_code_raw + " - " + response.error_message)));
+                return;
+            }
+            result.fulfill();
+        },
+        core::BiDiSession::kDefaultTimeout, loc);
+
+    return result;
+}
+
+auto Client::provide_response(
+    types::network::RequestId request_id,
+    std::optional<types::network::BytesValue> body,
+    std::optional<std::vector<types::network::SetCookieHeader>> cookies,
+    std::optional<std::vector<types::network::Header>> headers,
+    std::optional<std::string> reason_phrase,
+    std::optional<std::uint64_t> status_code, const std::source_location &loc)
+    -> Task<void> {
+    auto ex = get_executor();
+    auto result = Task<void>::make(ex, loc);
+
+    types::network::ProvideResponseParameters params{
+        .request = std::move(request_id),
+        .body = std::move(body),
+        .cookies = std::move(cookies),
+        .headers = std::move(headers),
+        .reason_phrase = std::move(reason_phrase),
+        .status_code = status_code};
+
+    session_->send_command(
+        bidi::ids::methods::net_provideResponse,
+        boost::json::value_from(params).as_object(),
+        [result](const core::ParsedResponse &response) mutable {
+            if (!response.is_success) {
+                result.fail(std::make_exception_ptr(std::runtime_error(
+                    "network.provideResponse failed: " +
+                    response.error_code_raw + " - " + response.error_message)));
+                return;
+            }
+            result.fulfill();
+        },
+        core::BiDiSession::kDefaultTimeout, loc);
+
+    return result;
+}
+
+auto Client::continue_with_auth(
+    types::network::RequestId request_id, types::network::AuthAction action,
+    std::optional<types::network::AuthCredentials> credentials,
+    const std::source_location &loc) -> Task<void> {
+    auto ex = get_executor();
+    auto result = Task<void>::make(ex, loc);
+
+    types::network::ContinueWithAuthParameters params{
+        .request = std::move(request_id),
+        .action =
+            credentials.has_value()
+                ? std::variant<types::network::ContinueWithAuthCredentials,
+                               types::network::ContinueWithAuthNoCredentials>(
+                      types::network::ContinueWithAuthCredentials{
+                          .action = action,
+                          .credentials = std::move(*credentials)})
+                : std::variant<types::network::ContinueWithAuthCredentials,
+                               types::network::ContinueWithAuthNoCredentials>(
+                      types::network::ContinueWithAuthNoCredentials{
+                          .action = action})};
+
+    session_->send_command(
+        bidi::ids::methods::net_continueWithAuth,
+        boost::json::value_from(params).as_object(),
+        [result](const core::ParsedResponse &response) mutable {
+            if (!response.is_success) {
+                result.fail(std::make_exception_ptr(std::runtime_error(
+                    "network.continueWithAuth failed: " +
+                    response.error_code_raw + " - " + response.error_message)));
+                return;
+            }
+            result.fulfill();
+        },
+        core::BiDiSession::kDefaultTimeout, loc);
+
+    return result;
+}
+
 // ======================== Session API ========================
 
 auto Client::subscribe(const std::vector<std::string> &events,

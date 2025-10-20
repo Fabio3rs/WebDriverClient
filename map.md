@@ -42,7 +42,7 @@ Architectural pillars:
       automation_session.hpp
       buffer_pool.hpp
       client.hpp           (Client facade, includes convenience API `Client::disconnect()`)
-      commands.hpp         (command builders: browsingContext.*, script.*, session.*)
+      commands.hpp         (command builders: browsingContext.*, script.*, session.*, network.*)
       connection_builder.hpp
       core.hpp             (id_type, build_command, pending entries, timer racing)
       guards.hpp           (RAII: SessionGuard, ClientGuard, TimerGuard)
@@ -53,10 +53,12 @@ Architectural pillars:
       memory_pool.hpp      (arena/monotonic allocator per message frame)
       message_queue.hpp    (write queue for command serialization)
       metrics.hpp          (PoolMetrics, counters, timings)
+      network_intercept_handler.hpp (RAII network interception with policy-based handling)
       script/
         script_eval.hpp    (script.evaluate with outcome/policy support)
       session_threaded.hpp (RAII session management)
       threading.hpp        (strand orchestration, read/write serialization)
+      user_prompt_handler.hpp (RAII user prompt handling with policy-based dispatch)
 
       # W3C BiDi Type System (include/bidi/types)
       types/
@@ -65,7 +67,7 @@ Architectural pillars:
         session.hpp        (ProxyType, UserPromptAction, ProxyConfiguration, CapabilityRequest, UserPromptHandler, SubscriptionRequest)
         browsing_context.hpp (Locator variants, NavigationInfo, ClipRectangle, ImageFormat, UserPromptType, ReadinessState, CreateType)
         script.hpp         (RemoteValue system with 10 types, RealmType, RealmInfo, RemoteReference variants, Target)
-        network.hpp        (BytesValue variant, SameSite, Cookie, Header, ResponseData, RequestData)
+        network.hpp        (BytesValue variant, SameSite, Cookie, Header, ResponseData, RequestData, InterceptPhase, AuthAction, network intercept types)
         storage.hpp        (Cookie alias, PartitionDescriptor)
         log.hpp            (Level enum, ConsoleLogEntry, JavaScriptLogEntry)
 
@@ -99,6 +101,10 @@ Architectural pillars:
     # Commands
     bidi_commands.cpp
     bidi_script_eval.cpp
+
+    # RAII Handlers
+    bidi_network_intercept_handler.cpp
+    bidi_user_prompt_handler.cpp
 
     # Pools / resources
     bidi_memory_pool.cpp
@@ -139,6 +145,9 @@ Architectural pillars:
     CMakeLists.txt
     html/
 
+    # Test Infrastructure
+    test_http_server.hpp              (Reusable HTTP server for integration tests with custom handlers)
+
     # Core tests
     asyncx_core_tests.cpp
     asyncx_await_exception_test.cpp
@@ -155,7 +164,7 @@ Architectural pillars:
     bidi_types_session_test.cpp           (18 tests: ProxyType, UserPromptAction, session structs)
     bidi_types_browsing_context_test.cpp  (36 tests: Locator variants, enums, NavigationInfo, ClipRectangle)
     bidi_types_script_test.cpp            (42 tests: RemoteValue system, RealmType, RealmInfo, RemoteReference)
-    bidi_types_network_test.cpp           (36 tests: BytesValue, SameSite, Cookie, ResponseData, RequestData)
+    bidi_types_network_test.cpp           (72 tests: BytesValue, SameSite, Cookie, ResponseData, RequestData, network interception types)
     bidi_types_storage_log_test.cpp       (24 tests: PartitionDescriptor, Level enum, ConsoleLogEntry, JavaScriptLogEntry)
 
     # Client integration tests
@@ -393,6 +402,26 @@ Removed: cases tied to promise_pool (obsolete layer)
 (Update: 2025-10-03 – lifecycle and shutdown standardized in examples; new convenience API Client::disconnect; production uses shutdown by coroutine and thread join in main)
 
 ## 17. Recent Updates
+
+2025-10-21
+- **Test Infrastructure Improvements** - Extracted and enhanced HTTP test server for reusability:
+  - **TestHttpServer** (`tests/test_http_server.hpp`): Reusable HTTP/1.1 test server extracted from `execute_script_integration_test.cpp`
+  - **Features**: Custom response handlers per path, basic authentication support, custom headers/status codes, thread-safe operation with RAII cleanup
+  - **Threading Fix**: Replaced detached threads with managed thread pool (`client_threads_` vector) that properly joins all threads in destructor, eliminating threading violations
+  - **API**: `add_handler()`, `add_auth_handler()`, `set_default_handler()`, `clear_handlers()`, `base_url()`, `port()`
+  - **Helper Types**: `HttpRequest` (method/path/version/headers/body), `HttpResponse` with factory methods (`ok()`, `json()`, `unauthorized()`, `not_found()`, `redirect()`)
+  - **Usage Pattern**: Enables fine-grained control over test server responses for integration testing of network interception, authentication, and custom headers
+  - **Files Affected**: `tests/test_http_server.hpp` (new), `tests/execute_script_integration_test.cpp` (refactored to use new server)
+
+- **Network Intercept Handler Fixes** - Resolved all compilation errors and architectural issues:
+  - **Designated Initializers**: Added explicit `std::nullopt` initialization for all optional fields in factory methods (`continue_all`, `fail_all`, `custom`) to satisfy C++20 strict field ordering
+  - **Return Type Migration**: Changed `NetworkInterceptHandler::create()` from `Task<NetworkInterceptHandler>` to `Task<std::shared_ptr<NetworkInterceptHandler>>` to match `UserPromptHandler` pattern (required for event handler lambda captures)
+  - **Boost.JSON Fix**: Wrapped `boost::json::object` parameters in `boost::json::value()` for `value_to` calls to match correct overload
+  - **Nodiscard Compliance**: Added `(void)` cast to `set_event_handler()` calls to acknowledge fire-and-forget event registration
+  - **Exception Handling**: Replaced non-existent `complete_with_exception()` with `result.fail(std::current_exception())`
+  - **Resolution Structs**: Added all optional fields with `std::nullopt` for `RequestResolution`, `ResponseResolution`, and `AuthResolution` in policy switch statements
+  - **Files Affected**: `include/bidi/network_intercept_handler.hpp`, `src/bidi_network_intercept_handler.cpp`
+  - **Build Status**: All 30 targets compile successfully, 348/350 tests passing (99%)
 
 2025-10-17
 - **browsingContext.locateNodes Implementation** - Complete implementation of W3C BiDi element location with all 5 locator strategies:

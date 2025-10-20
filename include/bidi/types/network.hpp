@@ -215,6 +215,287 @@ struct UrlPatternString {
  */
 using UrlPattern = std::variant<UrlPatternPattern, UrlPatternString>;
 
+// ==================== Interception Phase ====================
+
+/**
+ * @brief Network intercept phase
+ * @see https://w3c.github.io/webdriver-bidi/#network-InterceptPhase
+ */
+enum class InterceptPhase : std::uint8_t {
+    BeforeRequestSent,
+    ResponseStarted,
+    AuthRequired
+};
+
+[[nodiscard]] constexpr auto to_string(InterceptPhase phase) noexcept
+    -> std::string_view {
+    using enum InterceptPhase;
+    switch (phase) {
+    case BeforeRequestSent:
+        return "beforeRequestSent";
+    case ResponseStarted:
+        return "responseStarted";
+    case AuthRequired:
+        return "authRequired";
+    }
+    return "beforeRequestSent"; // Default
+}
+
+[[nodiscard]] constexpr auto
+parse_intercept_phase(std::string_view text) noexcept
+    -> std::optional<InterceptPhase> {
+    using enum InterceptPhase;
+    if (text == "beforeRequestSent") {
+        return BeforeRequestSent;
+    }
+    if (text == "responseStarted") {
+        return ResponseStarted;
+    }
+    if (text == "authRequired") {
+        return AuthRequired;
+    }
+    return std::nullopt;
+}
+
+// ==================== Cookie Headers ====================
+
+/**
+ * @brief Cookie header for request modification
+ * @see https://w3c.github.io/webdriver-bidi/#network-CookieHeader
+ */
+struct CookieHeader {
+    std::string name;
+    BytesValue value;
+
+    auto operator==(const CookieHeader &) const -> bool = default;
+};
+
+/**
+ * @brief Set-Cookie header for response modification
+ * @see https://w3c.github.io/webdriver-bidi/#network-SetCookieHeader
+ */
+struct SetCookieHeader {
+    std::string name;
+    BytesValue value;
+    std::optional<std::string> domain;
+    std::optional<std::string> path;
+    std::optional<std::uint64_t> expiry_epoch_seconds;
+    std::optional<bool> http_only;
+    std::optional<bool> secure;
+    std::optional<SameSite> same_site;
+
+    auto operator==(const SetCookieHeader &) const -> bool = default;
+};
+
+// ==================== Auth Actions ====================
+
+/**
+ * @brief Auth action types for continueWithAuth
+ */
+enum class AuthAction : std::uint8_t { ProvideCredentials, Default, Cancel };
+
+[[nodiscard]] constexpr auto to_string(AuthAction action) noexcept
+    -> std::string_view {
+    using enum AuthAction;
+    switch (action) {
+    case ProvideCredentials:
+        return "provideCredentials";
+    case Default:
+        return "default";
+    case Cancel:
+        return "cancel";
+    }
+    return "default";
+}
+
+[[nodiscard]] constexpr auto parse_auth_action(std::string_view text) noexcept
+    -> std::optional<AuthAction> {
+    using enum AuthAction;
+    if (text == "provideCredentials") {
+        return ProvideCredentials;
+    }
+    if (text == "default") {
+        return Default;
+    }
+    if (text == "cancel") {
+        return Cancel;
+    }
+    return std::nullopt;
+}
+
+// ==================== Command Parameters ====================
+
+/**
+ * @brief Parameters for network.addIntercept command
+ * @see https://w3c.github.io/webdriver-bidi/#command-network-addIntercept
+ */
+struct AddInterceptParameters {
+    std::vector<InterceptPhase> phases;
+    std::optional<std::vector<std::string>> contexts; // BrowsingContext IDs
+    std::optional<std::vector<UrlPattern>> url_patterns;
+
+    auto operator==(const AddInterceptParameters &) const -> bool = default;
+};
+
+/**
+ * @brief Result for network.addIntercept command
+ */
+struct AddInterceptResult {
+    InterceptId intercept;
+
+    auto operator==(const AddInterceptResult &) const -> bool = default;
+};
+
+/**
+ * @brief Parameters for network.continueRequest command
+ * @see https://w3c.github.io/webdriver-bidi/#command-network-continueRequest
+ */
+struct ContinueRequestParameters {
+    RequestId request;
+    std::optional<BytesValue> body;
+    std::optional<std::vector<CookieHeader>> cookies;
+    std::optional<std::vector<Header>> headers;
+    std::optional<std::string> method;
+    std::optional<std::string> url;
+
+    auto operator==(const ContinueRequestParameters &) const -> bool = default;
+};
+
+/**
+ * @brief Parameters for network.continueResponse command
+ * @see https://w3c.github.io/webdriver-bidi/#command-network-continueResponse
+ */
+struct ContinueResponseParameters {
+    RequestId request;
+    std::optional<std::vector<SetCookieHeader>> cookies;
+    std::optional<AuthCredentials> credentials;
+    std::optional<std::vector<Header>> headers;
+    std::optional<std::string> reason_phrase;
+    std::optional<std::uint64_t> status_code;
+
+    auto operator==(const ContinueResponseParameters &) const -> bool = default;
+};
+
+/**
+ * @brief Parameters for network.provideResponse command
+ * @see https://w3c.github.io/webdriver-bidi/#command-network-provideResponse
+ */
+struct ProvideResponseParameters {
+    RequestId request;
+    std::optional<BytesValue> body;
+    std::optional<std::vector<SetCookieHeader>> cookies;
+    std::optional<std::vector<Header>> headers;
+    std::optional<std::string> reason_phrase;
+    std::optional<std::uint64_t> status_code;
+
+    auto operator==(const ProvideResponseParameters &) const -> bool = default;
+};
+
+/**
+ * @brief Auth action with credentials
+ */
+struct ContinueWithAuthCredentials {
+    AuthAction action{AuthAction::ProvideCredentials};
+    AuthCredentials credentials;
+
+    auto operator==(const ContinueWithAuthCredentials &) const
+        -> bool = default;
+};
+
+/**
+ * @brief Auth action without credentials
+ */
+struct ContinueWithAuthNoCredentials {
+    AuthAction action; // Default or Cancel
+
+    auto operator==(const ContinueWithAuthNoCredentials &) const
+        -> bool = default;
+};
+
+/**
+ * @brief Parameters for network.continueWithAuth command
+ * @see https://w3c.github.io/webdriver-bidi/#command-network-continueWithAuth
+ */
+struct ContinueWithAuthParameters {
+    RequestId request;
+    std::variant<ContinueWithAuthCredentials, ContinueWithAuthNoCredentials>
+        action;
+
+    auto operator==(const ContinueWithAuthParameters &) const -> bool = default;
+};
+
+/**
+ * @brief Parameters for network.removeIntercept command
+ * @see https://w3c.github.io/webdriver-bidi/#command-network-removeIntercept
+ */
+struct RemoveInterceptParameters {
+    InterceptId intercept;
+
+    auto operator==(const RemoveInterceptParameters &) const -> bool = default;
+};
+
+/**
+ * @brief Parameters for network.failRequest command
+ * @see https://w3c.github.io/webdriver-bidi/#command-network-failRequest
+ */
+struct FailRequestParameters {
+    RequestId request;
+
+    auto operator==(const FailRequestParameters &) const -> bool = default;
+};
+
+// ==================== Event Parameters ====================
+
+/**
+ * @brief Base parameters for network events
+ * @see https://w3c.github.io/webdriver-bidi/#network-BaseParameters
+ */
+struct BaseParameters {
+    RequestId request;
+    std::optional<std::string> navigation;
+    std::optional<std::string> context; // BrowsingContext ID
+    std::uint64_t timestamp{0};
+    std::uint64_t redirect_count{0};
+    bool is_blocked{false};
+    std::optional<std::vector<InterceptId>> intercepts;
+
+    auto operator==(const BaseParameters &) const -> bool = default;
+};
+
+/**
+ * @brief Parameters for network.beforeRequestSent event
+ * @see https://w3c.github.io/webdriver-bidi/#event-network-beforeRequestSent
+ */
+struct BeforeRequestSentParameters {
+    BaseParameters base;
+    RequestData request;
+
+    auto operator==(const BeforeRequestSentParameters &) const
+        -> bool = default;
+};
+
+/**
+ * @brief Parameters for network.responseStarted event
+ * @see https://w3c.github.io/webdriver-bidi/#event-network-responseStarted
+ */
+struct ResponseStartedParameters {
+    BaseParameters base;
+    ResponseData response;
+
+    auto operator==(const ResponseStartedParameters &) const -> bool = default;
+};
+
+/**
+ * @brief Parameters for network.authRequired event
+ * @see https://w3c.github.io/webdriver-bidi/#event-network-authRequired
+ */
+struct AuthRequiredParameters {
+    BaseParameters base;
+    ResponseData response;
+
+    auto operator==(const AuthRequiredParameters &) const -> bool = default;
+};
+
 } // namespace bidi::types::network
 
 // ==================== Boost.JSON Integration ====================
@@ -277,6 +558,468 @@ inline void tag_invoke(value_from_tag /*unused*/, value &jv,
     obj["type"] = pattern.type;
     obj["pattern"] = pattern.pattern;
     jv = std::move(obj);
+}
+
+// InterceptPhase serialization
+inline void tag_invoke(value_from_tag /*unused*/, value &jv,
+                       bidi::types::network::InterceptPhase phase) {
+    jv = bidi::types::network::to_string(phase);
+}
+
+inline auto
+tag_invoke(value_to_tag<bidi::types::network::InterceptPhase> /*unused*/,
+           const value &jv) -> bidi::types::network::InterceptPhase {
+    auto text = value_to<std::string_view>(jv);
+    auto phase = bidi::types::network::parse_intercept_phase(text);
+    if (!phase) {
+        throw std::runtime_error("Invalid InterceptPhase value");
+    }
+    return *phase;
+}
+
+// AuthAction serialization
+inline void tag_invoke(value_from_tag /*unused*/, value &jv,
+                       bidi::types::network::AuthAction action) {
+    jv = bidi::types::network::to_string(action);
+}
+
+inline auto
+tag_invoke(value_to_tag<bidi::types::network::AuthAction> /*unused*/,
+           const value &jv) -> bidi::types::network::AuthAction {
+    auto text = value_to<std::string_view>(jv);
+    auto action = bidi::types::network::parse_auth_action(text);
+    if (!action) {
+        throw std::runtime_error("Invalid AuthAction value");
+    }
+    return *action;
+}
+
+// BytesValue serialization helper
+inline void
+serialize_bytes_value(object &obj, std::string_view key,
+                      const bidi::types::network::BytesValue &bytes) {
+    std::visit(
+        [&obj, key](const auto &bytes_val) {
+            using T = std::decay_t<decltype(bytes_val)>;
+            if constexpr (std::is_same_v<T,
+                                         bidi::types::network::StringBytes>) {
+                obj[key] =
+                    object{{"type", "string"}, {"value", bytes_val.value}};
+            } else {
+                obj[key] =
+                    object{{"type", "base64"}, {"value", bytes_val.value}};
+            }
+        },
+        bytes);
+}
+
+// CookieHeader serialization
+inline void tag_invoke(value_from_tag /*unused*/, value &jv,
+                       const bidi::types::network::CookieHeader &cookie) {
+    object obj;
+    obj["name"] = cookie.name;
+    serialize_bytes_value(obj, "value", cookie.value);
+    jv = std::move(obj);
+}
+
+// SetCookieHeader serialization
+inline void tag_invoke(value_from_tag /*unused*/, value &jv,
+                       const bidi::types::network::SetCookieHeader &cookie) {
+    object obj;
+    obj["name"] = cookie.name;
+    serialize_bytes_value(obj, "value", cookie.value);
+
+    if (cookie.domain) {
+        obj["domain"] = *cookie.domain;
+    }
+    if (cookie.path) {
+        obj["path"] = *cookie.path;
+    }
+    if (cookie.expiry_epoch_seconds) {
+        obj["expiry"] = *cookie.expiry_epoch_seconds;
+    }
+    if (cookie.http_only) {
+        obj["httpOnly"] = *cookie.http_only;
+    }
+    if (cookie.secure) {
+        obj["secure"] = *cookie.secure;
+    }
+    if (cookie.same_site) {
+        obj["sameSite"] = bidi::types::network::to_string(*cookie.same_site);
+    }
+
+    jv = std::move(obj);
+}
+
+// AddInterceptParameters serialization
+inline void
+tag_invoke(value_from_tag /*unused*/, value &jv,
+           const bidi::types::network::AddInterceptParameters &params) {
+    object obj;
+
+    array phases_arr;
+    for (const auto &phase : params.phases) {
+        phases_arr.emplace_back(bidi::types::network::to_string(phase));
+    }
+    obj["phases"] = std::move(phases_arr);
+
+    if (params.contexts) {
+        obj["contexts"] = value_from(*params.contexts);
+    }
+
+    if (params.url_patterns) {
+        array patterns_arr;
+        for (const auto &pattern : *params.url_patterns) {
+            std::visit(
+                [&patterns_arr](const auto &pat) {
+                    patterns_arr.emplace_back(value_from(pat));
+                },
+                pattern);
+        }
+        obj["urlPatterns"] = std::move(patterns_arr);
+    }
+
+    jv = std::move(obj);
+}
+
+// ContinueRequestParameters serialization
+inline void
+tag_invoke(value_from_tag /*unused*/, value &jv,
+           const bidi::types::network::ContinueRequestParameters &params) {
+    object obj;
+    obj["request"] = params.request;
+
+    if (params.body) {
+        serialize_bytes_value(obj, "body", *params.body);
+    }
+
+    if (params.cookies) {
+        obj["cookies"] = value_from(*params.cookies);
+    }
+    if (params.headers) {
+        obj["headers"] = value_from(*params.headers);
+    }
+    if (params.method) {
+        obj["method"] = *params.method;
+    }
+    if (params.url) {
+        obj["url"] = *params.url;
+    }
+
+    jv = std::move(obj);
+}
+
+// ContinueResponseParameters serialization
+inline void
+tag_invoke(value_from_tag /*unused*/, value &jv,
+           const bidi::types::network::ContinueResponseParameters &params) {
+    object obj;
+    obj["request"] = params.request;
+
+    if (params.cookies) {
+        obj["cookies"] = value_from(*params.cookies);
+    }
+    if (params.credentials) {
+        obj["credentials"] = value_from(*params.credentials);
+    }
+    if (params.headers) {
+        obj["headers"] = value_from(*params.headers);
+    }
+    if (params.reason_phrase) {
+        obj["reasonPhrase"] = *params.reason_phrase;
+    }
+    if (params.status_code) {
+        obj["statusCode"] = *params.status_code;
+    }
+
+    jv = std::move(obj);
+}
+
+// ProvideResponseParameters serialization
+inline void
+tag_invoke(value_from_tag /*unused*/, value &jv,
+           const bidi::types::network::ProvideResponseParameters &params) {
+    object obj;
+    obj["request"] = params.request;
+
+    if (params.body) {
+        serialize_bytes_value(obj, "body", *params.body);
+    }
+
+    if (params.cookies) {
+        obj["cookies"] = value_from(*params.cookies);
+    }
+    if (params.headers) {
+        obj["headers"] = value_from(*params.headers);
+    }
+    if (params.reason_phrase) {
+        obj["reasonPhrase"] = *params.reason_phrase;
+    }
+    if (params.status_code) {
+        obj["statusCode"] = *params.status_code;
+    }
+
+    jv = std::move(obj);
+}
+
+// ContinueWithAuthCredentials serialization
+inline void
+tag_invoke(value_from_tag /*unused*/, value &jv,
+           const bidi::types::network::ContinueWithAuthCredentials &params) {
+    object obj;
+    obj["action"] = bidi::types::network::to_string(params.action);
+    obj["credentials"] = value_from(params.credentials);
+    jv = std::move(obj);
+}
+
+// ContinueWithAuthNoCredentials serialization
+inline void
+tag_invoke(value_from_tag /*unused*/, value &jv,
+           const bidi::types::network::ContinueWithAuthNoCredentials &params) {
+    object obj;
+    obj["action"] = bidi::types::network::to_string(params.action);
+    jv = std::move(obj);
+}
+
+// ContinueWithAuthParameters serialization
+inline void
+tag_invoke(value_from_tag /*unused*/, value &jv,
+           const bidi::types::network::ContinueWithAuthParameters &params) {
+    object obj;
+    obj["request"] = params.request;
+
+    std::visit(
+        [&obj](const auto &action_params) {
+            auto action_obj = value_from(action_params);
+            if (action_obj.is_object()) {
+                for (const auto &pair : action_obj.as_object()) {
+                    obj[pair.key()] = pair.value();
+                }
+            }
+        },
+        params.action);
+
+    jv = std::move(obj);
+}
+
+// RemoveInterceptParameters serialization
+inline void
+tag_invoke(value_from_tag /*unused*/, value &jv,
+           const bidi::types::network::RemoveInterceptParameters &params) {
+    object obj;
+    obj["intercept"] = params.intercept;
+    jv = std::move(obj);
+}
+
+// FailRequestParameters serialization
+inline void
+tag_invoke(value_from_tag /*unused*/, value &jv,
+           const bidi::types::network::FailRequestParameters &params) {
+    object obj;
+    obj["request"] = params.request;
+    jv = std::move(obj);
+}
+
+// BaseParameters serialization
+inline void tag_invoke(value_from_tag /*unused*/, value &jv,
+                       const bidi::types::network::BaseParameters &params) {
+    object obj;
+    obj["request"] = params.request;
+    obj["timestamp"] = params.timestamp;
+    obj["redirectCount"] = params.redirect_count;
+    obj["isBlocked"] = params.is_blocked;
+
+    if (params.navigation) {
+        obj["navigation"] = *params.navigation;
+    }
+    if (params.context) {
+        obj["context"] = *params.context;
+    }
+    if (params.intercepts) {
+        obj["intercepts"] = value_from(*params.intercepts);
+    }
+
+    jv = std::move(obj);
+}
+
+inline auto
+tag_invoke(value_to_tag<bidi::types::network::BaseParameters> /*unused*/,
+           const value &jv) -> bidi::types::network::BaseParameters {
+    const auto &obj = jv.as_object();
+    bidi::types::network::BaseParameters params;
+
+    params.request = value_to<std::string>(obj.at("request"));
+    params.timestamp = value_to<std::uint64_t>(obj.at("timestamp"));
+    params.redirect_count = value_to<std::uint64_t>(obj.at("redirectCount"));
+    params.is_blocked = value_to<bool>(obj.at("isBlocked"));
+
+    if (obj.contains("navigation")) {
+        params.navigation = value_to<std::string>(obj.at("navigation"));
+    }
+    if (obj.contains("context")) {
+        params.context = value_to<std::string>(obj.at("context"));
+    }
+    if (obj.contains("intercepts")) {
+        params.intercepts =
+            value_to<std::vector<std::string>>(obj.at("intercepts"));
+    }
+
+    return params;
+}
+
+// Header serialization (for RequestData/ResponseData)
+inline void tag_invoke(value_from_tag /*unused*/, value &jv,
+                       const bidi::types::network::Header &header) {
+    object obj;
+    obj["name"] = header.name;
+    serialize_bytes_value(obj, "value", header.value);
+    jv = std::move(obj);
+}
+
+inline auto tag_invoke(value_to_tag<bidi::types::network::Header> /*unused*/,
+                       const value &jv) -> bidi::types::network::Header {
+    const auto &obj = jv.as_object();
+    bidi::types::network::Header header;
+
+    header.name = value_to<std::string>(obj.at("name"));
+
+    const auto &val_obj = obj.at("value").as_object();
+    const auto type_str = value_to<std::string_view>(val_obj.at("type"));
+    const auto val_data = value_to<std::string>(val_obj.at("value"));
+
+    if (type_str == "string") {
+        header.value = bidi::types::network::StringBytes{val_data};
+    } else {
+        header.value = bidi::types::network::Base64Bytes{val_data};
+    }
+
+    return header;
+}
+
+// RequestData deserialization
+inline auto
+tag_invoke(value_to_tag<bidi::types::network::RequestData> /*unused*/,
+           const value &jv) -> bidi::types::network::RequestData {
+    const auto &obj = jv.as_object();
+    bidi::types::network::RequestData data;
+
+    data.request_id = value_to<std::string>(obj.at("request"));
+    data.url = value_to<std::string>(obj.at("url"));
+    data.method = value_to<std::string>(obj.at("method"));
+    data.headers =
+        value_to<std::vector<bidi::types::network::Header>>(obj.at("headers"));
+
+    if (obj.contains("bodySize")) {
+        data.body_size = value_to<std::uint64_t>(obj.at("bodySize"));
+    }
+
+    return data;
+}
+
+// ResponseData deserialization
+inline auto
+tag_invoke(value_to_tag<bidi::types::network::ResponseData> /*unused*/,
+           const value &jv) -> bidi::types::network::ResponseData {
+    const auto &obj = jv.as_object();
+    bidi::types::network::ResponseData data;
+
+    data.url = value_to<std::string>(obj.at("url"));
+    data.protocol = value_to<std::string>(obj.at("protocol"));
+    data.status = value_to<std::uint64_t>(obj.at("status"));
+    data.status_text = value_to<std::string>(obj.at("statusText"));
+    data.from_cache = value_to<bool>(obj.at("fromCache"));
+    data.headers =
+        value_to<std::vector<bidi::types::network::Header>>(obj.at("headers"));
+    data.mime_type = value_to<std::string>(obj.at("mimeType"));
+    data.bytes_received = value_to<std::uint64_t>(obj.at("bytesReceived"));
+
+    if (obj.contains("headersSize")) {
+        data.headers_size = value_to<std::uint64_t>(obj.at("headersSize"));
+    }
+    if (obj.contains("bodySize")) {
+        data.body_size = value_to<std::uint64_t>(obj.at("bodySize"));
+    }
+
+    const auto &content_obj = obj.at("content").as_object();
+    data.content.size = value_to<std::uint64_t>(content_obj.at("size"));
+
+    return data;
+}
+
+// BeforeRequestSentParameters deserialization
+inline auto tag_invoke(
+    value_to_tag<bidi::types::network::BeforeRequestSentParameters> /*unused*/,
+    const value &jv) -> bidi::types::network::BeforeRequestSentParameters {
+    const auto &obj = jv.as_object();
+    bidi::types::network::BeforeRequestSentParameters params;
+
+    params.base.request = value_to<std::string>(obj.at("request"));
+    params.base.timestamp = value_to<std::uint64_t>(obj.at("timestamp"));
+    params.base.redirect_count =
+        value_to<std::uint64_t>(obj.at("redirectCount"));
+    params.base.is_blocked = value_to<bool>(obj.at("isBlocked"));
+
+    if (obj.contains("navigation")) {
+        params.base.navigation = value_to<std::string>(obj.at("navigation"));
+    }
+    if (obj.contains("context")) {
+        params.base.context = value_to<std::string>(obj.at("context"));
+    }
+    if (obj.contains("intercepts")) {
+        params.base.intercepts =
+            value_to<std::vector<std::string>>(obj.at("intercepts"));
+    }
+
+    if (obj.contains("request")) {
+        params.request =
+            value_to<bidi::types::network::RequestData>(obj.at("request"));
+    }
+
+    return params;
+}
+
+// ResponseStartedParameters deserialization
+inline auto tag_invoke(
+    value_to_tag<bidi::types::network::ResponseStartedParameters> /*unused*/,
+    const value &jv) -> bidi::types::network::ResponseStartedParameters {
+    const auto &obj = jv.as_object();
+    bidi::types::network::ResponseStartedParameters params;
+
+    params.base = value_to<bidi::types::network::BaseParameters>(jv);
+
+    if (obj.contains("response")) {
+        params.response =
+            value_to<bidi::types::network::ResponseData>(obj.at("response"));
+    }
+
+    return params;
+}
+
+// AuthRequiredParameters deserialization
+inline auto tag_invoke(
+    value_to_tag<bidi::types::network::AuthRequiredParameters> /*unused*/,
+    const value &jv) -> bidi::types::network::AuthRequiredParameters {
+    const auto &obj = jv.as_object();
+    bidi::types::network::AuthRequiredParameters params;
+
+    params.base = value_to<bidi::types::network::BaseParameters>(jv);
+
+    if (obj.contains("response")) {
+        params.response =
+            value_to<bidi::types::network::ResponseData>(obj.at("response"));
+    }
+
+    return params;
+}
+
+// AddInterceptResult deserialization
+inline auto
+tag_invoke(value_to_tag<bidi::types::network::AddInterceptResult> /*unused*/,
+           const value &jv) -> bidi::types::network::AddInterceptResult {
+    const auto &obj = jv.as_object();
+    bidi::types::network::AddInterceptResult result;
+    result.intercept = value_to<std::string>(obj.at("intercept"));
+    return result;
 }
 
 } // namespace boost::json

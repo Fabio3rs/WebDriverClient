@@ -33,6 +33,7 @@
 #include "bidi/core.hpp"
 #include "bidi/ids.hpp"
 #include "bidi/script_eval.hpp"
+#include "bidi/types/network.hpp"
 #include "bidi/types/script.hpp"
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/async_result.hpp>
@@ -242,6 +243,158 @@ class Client : public std::enable_shared_from_this<Client> {
     // Remove preload script
     [[nodiscard]] auto remove_preload_script(
         std::string_view script_id,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<void>;
+
+    // ======================== Network Interception API
+    // ========================
+
+    /**
+     * @brief Add network intercept
+     *
+     * @param phases Intercept phases (beforeRequestSent, responseStarted,
+     * authRequired)
+     * @param contexts Optional browsing context IDs to limit scope
+     * @param url_patterns Optional URL patterns to filter requests
+     * @param loc Source location for debugging (auto-captured)
+     * @return Task resolving to intercept ID
+     *
+     * @see https://w3c.github.io/webdriver-bidi/#command-network-addIntercept
+     */
+    [[nodiscard]] auto add_intercept(
+        std::vector<types::network::InterceptPhase> phases,
+        std::optional<std::vector<std::string>> contexts = std::nullopt,
+        std::optional<std::vector<types::network::UrlPattern>> url_patterns =
+            std::nullopt,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<types::network::InterceptId>;
+
+    /**
+     * @brief Remove network intercept
+     *
+     * @param intercept_id Intercept ID from addIntercept
+     * @param loc Source location for debugging (auto-captured)
+     * @return Task completing when intercept removed
+     *
+     * @see
+     * https://w3c.github.io/webdriver-bidi/#command-network-removeIntercept
+     */
+    [[nodiscard]] auto remove_intercept(
+        types::network::InterceptId intercept_id,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<void>;
+
+    /**
+     * @brief Continue intercepted request (possibly modified)
+     *
+     * @param request_id Request ID from intercept event
+     * @param body Optional modified request body
+     * @param cookies Optional modified cookies
+     * @param headers Optional modified headers
+     * @param method Optional modified HTTP method
+     * @param url Optional modified URL
+     * @param loc Source location for debugging (auto-captured)
+     * @return Task completing when request continued
+     *
+     * @see
+     * https://w3c.github.io/webdriver-bidi/#command-network-continueRequest
+     */
+    [[nodiscard]] auto continue_request(
+        types::network::RequestId request_id,
+        std::optional<types::network::BytesValue> body = std::nullopt,
+        std::optional<std::vector<types::network::CookieHeader>> cookies =
+            std::nullopt,
+        std::optional<std::vector<types::network::Header>> headers =
+            std::nullopt,
+        std::optional<std::string> method = std::nullopt,
+        std::optional<std::string> url = std::nullopt,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<void>;
+
+    /**
+     * @brief Fail intercepted request
+     *
+     * @param request_id Request ID from intercept event
+     * @param loc Source location for debugging (auto-captured)
+     * @return Task completing when request failed
+     *
+     * @see https://w3c.github.io/webdriver-bidi/#command-network-failRequest
+     */
+    [[nodiscard]] auto fail_request(
+        types::network::RequestId request_id,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<void>;
+
+    /**
+     * @brief Continue intercepted response (possibly modified)
+     *
+     * @param request_id Request ID from intercept event
+     * @param cookies Optional modified Set-Cookie headers
+     * @param headers Optional modified response headers
+     * @param reason_phrase Optional modified reason phrase
+     * @param status_code Optional modified status code
+     * @param loc Source location for debugging (auto-captured)
+     * @return Task completing when response continued
+     *
+     * @see
+     * https://w3c.github.io/webdriver-bidi/#command-network-continueResponse
+     */
+    [[nodiscard]] auto continue_response(
+        types::network::RequestId request_id,
+        std::optional<std::vector<types::network::SetCookieHeader>> cookies =
+            std::nullopt,
+        std::optional<types::network::AuthCredentials> credentials =
+            std::nullopt,
+        std::optional<std::vector<types::network::Header>> headers =
+            std::nullopt,
+        std::optional<std::string> reason_phrase = std::nullopt,
+        std::optional<std::uint64_t> status_code = std::nullopt,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<void>;
+
+    /**
+     * @brief Provide custom response for intercepted request
+     *
+     * @param request_id Request ID from intercept event
+     * @param body Optional response body
+     * @param cookies Optional Set-Cookie headers
+     * @param headers Optional response headers
+     * @param reason_phrase Optional reason phrase
+     * @param status_code Optional status code
+     * @param loc Source location for debugging (auto-captured)
+     * @return Task completing when response provided
+     *
+     * @see
+     * https://w3c.github.io/webdriver-bidi/#command-network-provideResponse
+     */
+    [[nodiscard]] auto provide_response(
+        types::network::RequestId request_id,
+        std::optional<types::network::BytesValue> body = std::nullopt,
+        std::optional<std::vector<types::network::SetCookieHeader>> cookies =
+            std::nullopt,
+        std::optional<std::vector<types::network::Header>> headers =
+            std::nullopt,
+        std::optional<std::string> reason_phrase = std::nullopt,
+        std::optional<std::uint64_t> status_code = std::nullopt,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<void>;
+
+    /**
+     * @brief Continue with auth action
+     *
+     * @param request_id Request ID from intercept event
+     * @param action Auth action (provideCredentials, default, cancel)
+     * @param credentials Optional credentials (required for provideCredentials)
+     * @param loc Source location for debugging (auto-captured)
+     * @return Task completing when auth continued
+     *
+     * @see
+     * https://w3c.github.io/webdriver-bidi/#command-network-continueWithAuth
+     */
+    [[nodiscard]] auto continue_with_auth(
+        types::network::RequestId request_id, types::network::AuthAction action,
+        std::optional<types::network::AuthCredentials> credentials =
+            std::nullopt,
         const std::source_location &loc = std::source_location::current())
         -> Task<void>;
 

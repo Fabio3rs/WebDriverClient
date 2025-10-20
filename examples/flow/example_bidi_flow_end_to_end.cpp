@@ -83,6 +83,9 @@ class EndToEndFlowDemo {
         return client;
     }
 
+    // Note: This function demonstrates subscription pattern but is not used in
+    // run_flow() For actual subscription example, see
+    // example_log_monitoring.cpp
     static auto subscribe(const std::shared_ptr<bidi::Client> &client)
         -> asyncx::Async<std::shared_ptr<bidi::Client>> {
         using namespace bidi;
@@ -99,6 +102,19 @@ class EndToEndFlowDemo {
             return result;
         }
 
+        // RAII: Store subscriptions to maintain their lifetime
+        // Note: This function returns the client, not the subscriptions,
+        // so subscriptions will be destroyed when holder goes out of scope.
+        // For proper long-lived subscriptions, store them in the calling scope
+        // (see example_log_monitoring.cpp lines 129-144 for correct pattern)
+        using SubscriptionPtr =
+            std::shared_ptr<bidi::core::BiDiSession::Subscription>;
+        struct SubscriptionHolder {
+            SubscriptionPtr sub1;
+            SubscriptionPtr sub2;
+        };
+        auto holder = std::make_shared<SubscriptionHolder>();
+
         auto sub_async = session->subscribe_event(
             ids::events::bc_contextCreated, [](const ParsedEvent &event) {
                 bidi::logging::log_info(std::string("Event received: ") +
@@ -112,22 +128,35 @@ class EndToEndFlowDemo {
 
         auto result = ClientAsync::make(client->get_executor());
         auto count = std::make_shared<std::atomic<int>>(0);
-        auto on_complete = [result, client, count]() {
-            if (++(*count) == 2) {
-                bidi::logging::log_info("Subscribed to events");
-                result.fulfill(client);
-            }
-        };
-        auto finally_handler = [on_complete, result](const auto &, auto ec_opt,
-                                                     const auto &) {
-            if (!ec_opt) {
-                on_complete();
+
+        // Store first subscription and check completion
+        sub_async.finally([result, client, count, holder](
+                              const auto &value, auto ec_opt, const auto &) {
+            if (!ec_opt && value) {
+                holder->sub1 = *value; // Store subscription for RAII
+                if (++(*count) == 2) {
+                    bidi::logging::log_info("Subscribed to events");
+                    result.fulfill(client);
+                }
             } else {
                 result.fail(*ec_opt);
             }
-        };
-        sub_async.finally(finally_handler);
-        sub2_async.finally(finally_handler);
+        });
+
+        // Store second subscription and check completion
+        sub2_async.finally([result, client, count, holder](
+                               const auto &value, auto ec_opt, const auto &) {
+            if (!ec_opt && value) {
+                holder->sub2 = *value; // Store subscription for RAII
+                if (++(*count) == 2) {
+                    bidi::logging::log_info("Subscribed to events");
+                    result.fulfill(client);
+                }
+            } else {
+                result.fail(*ec_opt);
+            }
+        });
+
         return result;
     }
 

@@ -24,7 +24,9 @@ auto main() -> int {
             bidi::logging::log_error("Connection failed");
             return 1;
         }
-        static auto sub_global = session->subscribe(
+        // RAII: Subscription with automatic storage duration (C.31)
+        // Destructor runs at scope exit, before session cleanup
+        auto sub_global = session->subscribe(
             std::string(bidi::ids::events::bc_contextCreated), std::nullopt,
             [](const std::string &method, const boost::json::object &params) {
                 bidi::logging::log_info(std::string("Event received: ") +
@@ -43,7 +45,7 @@ auto main() -> int {
                                 {"url", "https://example.com"},
                                 {"wait", "complete"}},
             std::chrono::seconds(10));
-        static auto sub_scoped = session->subscribe(
+        auto sub_scoped = session->subscribe(
             std::string(bidi::ids::events::log_entryAdded),
             std::optional<std::string>{context_id},
             [](const std::string &method, const boost::json::object &params) {

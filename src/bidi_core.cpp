@@ -1533,10 +1533,13 @@ auto BiDiSession::Subscription::operator=(Subscription &&other) noexcept
     return *this;
 }
 
-BiDiSession::Subscription::Subscription(Subscription &&other) noexcept {
-    if (this != &other) {
-        *this = std::move(other);
-    }
+BiDiSession::Subscription::Subscription(Subscription &&other) noexcept
+    : session_(std::move(other.session_)), method_(std::move(other.method_)),
+      contexts_(std::move(other.contexts_)),
+      handler_ptr_(std::move(other.handler_ptr_)),
+      subscription_id_(std::move(other.subscription_id_)), loc_(other.loc_),
+      active_(other.active_) {
+    other.active_ = false;
 }
 
 BiDiSession::Subscription::~Subscription() noexcept {
