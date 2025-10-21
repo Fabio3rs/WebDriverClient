@@ -117,23 +117,158 @@ auto NetworkInterceptHandler::create(std::shared_ptr<Client> client,
     return result;
 }
 
+auto NetworkInterceptHandler::cleanup(const std::source_location &loc)
+    -> Task<void> {
+    cleanup_started_.store(true, std::memory_order_relaxed);
+
+    auto exec =
+        client_ ? client_->get_executor() : asyncx::net::system_executor();
+    auto result = Task<void>::make(exec, loc);
+
+    if (!client_ || intercept_id_.empty()) {
+        cleanup_succeeded_.store(true, std::memory_order_relaxed);
+        result.fulfill();
+        return result;
+    }
+
+    auto intercept = intercept_id_;
+    auto remove_task = client_->remove_intercept(intercept, loc);
+
+    remove_task.finally([this, result,
+                         intercept](std::optional<asyncx::EC> ec,
+                                    std::exception_ptr ep) mutable {
+        if (ec && *ec) {
+            cleanup_succeeded_.store(false, std::memory_order_relaxed);
+            logging::log_error(std::format(
+                "NetworkInterceptHandler cleanup failed for intercept {}: {}",
+                intercept, ec->message()));
+            result.fail(*ec);
+            return;
+        }
+        if (ep) {
+            cleanup_succeeded_.store(false, std::memory_order_relaxed);
+            try {
+                std::rethrow_exception(ep);
+            } catch (const std::exception &e) {
+                logging::log_error(
+                    std::format("NetworkInterceptHandler cleanup failed for "
+                                "intercept {}: {}",
+                                intercept, e.what()));
+            } catch (...) {
+                logging::log_error(
+                    std::format("NetworkInterceptHandler cleanup failed for "
+                                "intercept {} with "
+                                "unknown exception",
+                                intercept));
+            }
+            result.fail(ep);
+            return;
+        }
+
+        intercept_id_.clear();
+        cleanup_succeeded_.store(true, std::memory_order_relaxed);
+        result.fulfill();
+    });
+
+    return result;
+}
+
+NetworkInterceptHandler::NetworkInterceptHandler(
+    NetworkInterceptHandler &&other) noexcept
+    : client_(std::move(other.client_)), config_(std::move(other.config_)),
+      intercept_id_(std::move(other.intercept_id_)) {
+    cleanup_started_.store(
+        other.cleanup_started_.load(std::memory_order_relaxed),
+        std::memory_order_relaxed);
+    cleanup_succeeded_.store(
+        other.cleanup_succeeded_.load(std::memory_order_relaxed),
+        std::memory_order_relaxed);
+
+    other.cleanup_started_.store(false, std::memory_order_relaxed);
+    other.cleanup_succeeded_.store(false, std::memory_order_relaxed);
+}
+
+auto NetworkInterceptHandler::operator=(
+    NetworkInterceptHandler &&other) noexcept -> NetworkInterceptHandler & {
+    if (this == &other) {
+        return *this;
+    }
+
+    client_ = std::move(other.client_);
+    config_ = std::move(other.config_);
+    intercept_id_ = std::move(other.intercept_id_);
+
+    cleanup_started_.store(
+        other.cleanup_started_.load(std::memory_order_relaxed),
+        std::memory_order_relaxed);
+    cleanup_succeeded_.store(
+        other.cleanup_succeeded_.load(std::memory_order_relaxed),
+        std::memory_order_relaxed);
+
+    other.cleanup_started_.store(false, std::memory_order_relaxed);
+    other.cleanup_succeeded_.store(false, std::memory_order_relaxed);
+
+    return *this;
+}
+
 // ==================== Destructor ====================
 
 NetworkInterceptHandler::~NetworkInterceptHandler() noexcept {
     try {
-        if (!intercept_id_.empty() && client_) {
-            // Fire-and-forget: remove intercept on destruction
-            auto remove_task = client_->remove_intercept(intercept_id_);
-            remove_task.finally([](auto &&...) {
-                // Cleanup complete (or failed - either way, handler is
-                // destroyed)
-            });
+        if (!client_ || intercept_id_.empty()) {
+            return;
         }
+
+        const auto intercept = intercept_id_;
+        const auto started = cleanup_started_.load(std::memory_order_relaxed);
+        const auto succeeded =
+            cleanup_succeeded_.load(std::memory_order_relaxed);
+
+        if (!started) {
+            logging::log_warning(std::format(
+                "NetworkInterceptHandler destroyed without explicit cleanup; "
+                "scheduling network.removeIntercept for {}",
+                intercept));
+        } else if (!succeeded) {
+            logging::log_warning(std::format(
+                "NetworkInterceptHandler cleanup previously failed for {}; "
+                "retrying during destruction",
+                intercept));
+        }
+
+        cleanup_started_.store(true, std::memory_order_relaxed);
+
+        auto remove_task = client_->remove_intercept(intercept);
+        remove_task.finally([id = intercept](std::optional<asyncx::EC> ec,
+                                             std::exception_ptr ep) {
+            if (ec && *ec) {
+                logging::log_error(std::format(
+                    "network.removeIntercept (destructor) failed for {}: {}",
+                    id, ec->message()));
+                return;
+            }
+            if (ep) {
+                try {
+                    std::rethrow_exception(ep);
+                } catch (const std::exception &e) {
+                    logging::log_error(std::format(
+                        "network.removeIntercept (destructor) threw for {}: {}",
+                        id, e.what()));
+                } catch (...) {
+                    logging::log_error(std::format(
+                        "network.removeIntercept (destructor) threw unknown "
+                        "exception for {}",
+                        id));
+                }
+            }
+        });
     } catch (...) {
         // Swallow all exceptions in destructor (C.31)
         try {
-            logging::log_error(
-                "NetworkInterceptHandler destructor: exception during cleanup");
+            logging::log_error(std::format(
+                "NetworkInterceptHandler destructor: exception scheduling "
+                "cleanup for {}",
+                intercept_id_));
         } catch (...) {
             // Even logging failed - give up silently
         }

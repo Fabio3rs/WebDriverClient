@@ -1,26 +1,44 @@
 #include "SubscriptionManager.hpp"
+
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/post.hpp>
+
 #include <gtest/gtest.h>
 
 using namespace bidi::ws;
 
 TEST(SubscriptionManager, SubscribeAndDispatch) {
-    SubscriptionManager mgr;
+    boost::asio::io_context io;
+    SubscriptionManager mgr{io.get_executor()};
     bool called = false;
-    auto handle1 = mgr.subscribe("topic1", [&](std::string_view payload) {
-        called = true;
-        EXPECT_EQ(payload, "hello");
+    SubscriptionHandle handle;
+
+    boost::asio::post(mgr.executor(), [&] {
+        handle = mgr.subscribe("topic1", [&](std::string_view payload) {
+            called = true;
+            EXPECT_EQ(payload, "hello");
+        });
+        mgr.dispatch("topic1", "hello");
     });
-    mgr.dispatch("topic1", "hello");
+
+    io.run();
     EXPECT_TRUE(called);
 }
 
 TEST(SubscriptionManager, UnsubscribeOnDestroy) {
-    SubscriptionManager mgr;
+    boost::asio::io_context io;
+    SubscriptionManager mgr{io.get_executor()};
     bool called = false;
-    {
-        auto handle2 =
-            mgr.subscribe("topic2", [&](std::string_view) { called = true; });
-    }
-    mgr.dispatch("topic2", "x");
+
+    boost::asio::post(mgr.executor(), [&] {
+        {
+            auto handle = mgr.subscribe(
+                "topic2", [&](std::string_view) { called = true; });
+            (void)handle;
+        }
+        mgr.dispatch("topic2", "x");
+    });
+
+    io.run();
     EXPECT_FALSE(called);
 }

@@ -1,91 +1,155 @@
 #pragma once
 
+#include <boost/asio/any_io_executor.hpp>
+#include <boost/asio/dispatch.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/strand.hpp>
+
+#include <boost/assert.hpp>
+
+#include <cstdint>
 #include <functional>
-#include <map>
 #include <memory>
-#include <mutex>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace bidi::ws {
 
-// Simple RAII subscription handle. When destroyed, invokes the unsubscribe
-// callback.
+namespace detail {
+struct subscription_entry {
+    std::string topic;
+    std::function<void(std::string_view)> callback;
+};
+
+struct subscription_state {
+    explicit subscription_state(boost::asio::any_io_executor executor)
+        : strand(boost::asio::make_strand(std::move(executor))) {}
+
+    boost::asio::strand<boost::asio::any_io_executor> strand;
+    std::unordered_map<std::uint64_t, subscription_entry> callbacks;
+    std::uint64_t next_id{1};
+};
+} // namespace detail
+
 class SubscriptionHandle {
   public:
     SubscriptionHandle() = default;
-    SubscriptionHandle(std::function<void()> unsub)
-        : unsub_(std::move(unsub)) {}
-    SubscriptionHandle(SubscriptionHandle &&o) noexcept
-        : unsub_(std::move(o.unsub_)) {
-        o.unsub_ = nullptr;
-    }
-    auto operator=(SubscriptionHandle &&o) noexcept -> SubscriptionHandle & {
-        unsub_ = std::move(o.unsub_);
-        o.unsub_ = nullptr;
-        return *this;
-    }
-    ~SubscriptionHandle() {
-        if (unsub_) {
-            unsub_();
-        }
-    }
+    SubscriptionHandle(std::shared_ptr<detail::subscription_state> state,
+                       std::uint64_t id) noexcept;
+    SubscriptionHandle(SubscriptionHandle &&) noexcept = default;
+    auto
+    operator=(SubscriptionHandle &&) noexcept -> SubscriptionHandle & = default;
+    ~SubscriptionHandle();
 
-    void cancel() {
-        if (unsub_) {
-            unsub_();
-            unsub_ = nullptr;
-        }
-    }
+    void cancel() noexcept;
 
-    [[nodiscard]] auto valid() const -> bool {
-        return static_cast<bool>(unsub_);
-    }
+    [[nodiscard]] auto valid() const noexcept -> bool;
 
   private:
-    std::function<void()> unsub_{nullptr};
+    std::weak_ptr<detail::subscription_state> state_;
+    std::uint64_t id_{0};
 };
 
-// SubscriptionManager: hold callbacks mapped by string topic -> id
+// SubscriptionManager: holds callbacks mapped by string topic -> id and runs
+// them through a strand-backed executor to align with the project's threading
+// model.
 class SubscriptionManager {
   public:
     using topic_t = std::string;
     using callback_t = std::function<void(std::string_view)>;
 
-    SubscriptionManager() = default;
+    explicit SubscriptionManager(boost::asio::any_io_executor executor);
+    explicit SubscriptionManager(boost::asio::io_context &context)
+        : SubscriptionManager(context.get_executor()) {}
 
-    // Subscribe: returns a handle that will remove the subscription on
-    // destruction
-    auto subscribe(topic_t topic, callback_t cb) -> SubscriptionHandle {
-        std::lock_guard lock(m_);
-        auto id = next_id_++;
-        callbacks_.emplace(id, std::make_pair(std::move(topic), std::move(cb)));
-        // create unsubscribe function
-        auto unsub = [this, id]() {
-            std::lock_guard lock2(m_);
-            callbacks_.erase(id);
-        };
-        return {unsub};
-    }
+    [[nodiscard]] auto
+    executor() const -> boost::asio::strand<boost::asio::any_io_executor>;
 
-    // dispatch a payload to subscribers that match topic (exact match for now)
-    void dispatch(std::string_view topic, std::string_view payload) {
-        std::vector<callback_t> list;
-        {
-            std::lock_guard lock(m_);
-            for (auto &kv : callbacks_) {
-                if (kv.second.first == topic) {
-                    list.push_back(kv.second.second);
-                }
-            }
-        }
-        for (auto &f : list) {
-            f(payload);
-        }
-    }
+    [[nodiscard]] auto subscribe(topic_t topic,
+                                 callback_t cb) -> SubscriptionHandle;
+    void dispatch(std::string_view topic, std::string_view payload);
 
   private:
-    std::mutex m_;
-    std::map<std::uint64_t, std::pair<topic_t, callback_t>> callbacks_;
-    std::uint64_t next_id_{1};
+    std::shared_ptr<detail::subscription_state> state_;
 };
+
+inline SubscriptionHandle::SubscriptionHandle(
+    std::shared_ptr<detail::subscription_state> state,
+    std::uint64_t id) noexcept
+    : state_(std::move(state)), id_(id) {}
+
+inline SubscriptionHandle::~SubscriptionHandle() { cancel(); }
+
+inline void SubscriptionHandle::cancel() noexcept {
+    if (id_ == 0) {
+        return;
+    }
+    if (auto state = state_.lock()) {
+        auto strand = state->strand;
+        auto id = id_;
+        boost::asio::dispatch(strand, [state = std::move(state), id]() {
+            state->callbacks.erase(id);
+        });
+    }
+    state_.reset();
+    id_ = 0;
+}
+
+inline auto SubscriptionHandle::valid() const noexcept -> bool {
+    return id_ != 0 && !state_.expired();
+}
+
+inline SubscriptionManager::SubscriptionManager(
+    boost::asio::any_io_executor executor)
+    : state_(
+          std::make_shared<detail::subscription_state>(std::move(executor))) {}
+
+inline auto SubscriptionManager::executor() const
+    -> boost::asio::strand<boost::asio::any_io_executor> {
+    BOOST_ASSERT(state_);
+    return state_->strand;
+}
+
+inline auto SubscriptionManager::subscribe(topic_t topic, callback_t cb)
+    -> SubscriptionHandle {
+    BOOST_ASSERT(state_);
+    BOOST_ASSERT(state_->strand.running_in_this_thread() &&
+                 "SubscriptionManager::subscribe must run on its strand");
+    auto &state = *state_;
+    const auto id = state.next_id++;
+    state.callbacks.emplace(
+        id, detail::subscription_entry{std::move(topic), std::move(cb)});
+    return SubscriptionHandle{state_, id};
+}
+
+inline void SubscriptionManager::dispatch(std::string_view topic,
+                                          std::string_view payload) {
+    BOOST_ASSERT(state_);
+    auto state = state_;
+    auto topic_copy = std::string(topic);
+    auto payload_copy = std::string(payload);
+    boost::asio::dispatch(
+        state->strand, [state = std::move(state), topic = std::move(topic_copy),
+                        payload = std::move(payload_copy)]() mutable {
+            std::vector<std::uint64_t> matching_ids;
+            matching_ids.reserve(state->callbacks.size());
+            for (const auto &[id, entry] : state->callbacks) {
+                if (entry.topic == topic) [[likely]] {
+                    matching_ids.push_back(id);
+                }
+            }
+
+            std::string_view payload_view{payload};
+            for (auto id : matching_ids) {
+                auto it = state->callbacks.find(id);
+                if (it != state->callbacks.end()) [[likely]] {
+                    it->second.callback(payload_view);
+                }
+            }
+        });
+}
 
 } // namespace bidi::ws

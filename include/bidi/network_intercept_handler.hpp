@@ -17,6 +17,7 @@
 
 #include "asyncx.hpp"
 #include "bidi/types/network.hpp"
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -96,8 +97,56 @@ enum class NetworkInterceptPolicy : std::uint8_t {
     Custom       // Use custom callbacks
 };
 
+// ==================== Callback Concepts (C++20) ====================
+
+/**
+ * @brief Concept: Validates callback for beforeRequestSent phase
+ *
+ * Ensures callable accepts BeforeRequestSentParameters and returns
+ * std::optional<RequestResolution>. Provides clear compile-time errors
+ * when callback signature is incorrect.
+ *
+ * @tparam F Callable type to validate
+ */
+template <typename F>
+concept BeforeRequestCallable =
+    requires(F f, const types::network::BeforeRequestSentParameters &params) {
+        { f(params) } -> std::convertible_to<std::optional<RequestResolution>>;
+    };
+
+/**
+ * @brief Concept: Validates callback for responseStarted phase
+ *
+ * Ensures callable accepts ResponseStartedParameters and returns
+ * std::optional<ResponseResolution>.
+ *
+ * @tparam F Callable type to validate
+ */
+template <typename F>
+concept ResponseStartedCallable =
+    requires(F f, const types::network::ResponseStartedParameters &params) {
+        { f(params) } -> std::convertible_to<std::optional<ResponseResolution>>;
+    };
+
+/**
+ * @brief Concept: Validates callback for authRequired phase
+ *
+ * Ensures callable accepts AuthRequiredParameters and returns
+ * std::optional<AuthResolution>.
+ *
+ * @tparam F Callable type to validate
+ */
+template <typename F>
+concept AuthRequiredCallable =
+    requires(F f, const types::network::AuthRequiredParameters &params) {
+        { f(params) } -> std::convertible_to<std::optional<AuthResolution>>;
+    };
+
 /**
  * @brief Callback signatures for custom intercept handling
+ *
+ * These type aliases accept any callable matching the respective concept.
+ * Use concepts above for compile-time validation.
  */
 using BeforeRequestCallback = std::function<std::optional<RequestResolution>(
     const types::network::BeforeRequestSentParameters &)>;
@@ -152,14 +201,32 @@ struct NetworkInterceptConfig {
                                       .auth_required_handler = std::nullopt};
     }
 
-    static auto
-    custom(std::vector<types::network::InterceptPhase> phases_to_intercept,
-           BeforeRequestCallback before_request = {},
-           ResponseStartedCallback response_started = {},
-           AuthRequiredCallback auth_required = {}) -> NetworkInterceptConfig {
+    /**
+     * @brief Create custom policy configuration with validated callbacks
+     *
+     * @tparam BeforeReqFn Callable for beforeRequestSent (concept-validated)
+     * @tparam RespStartedFn Callable for responseStarted (concept-validated)
+     * @tparam AuthReqFn Callable for authRequired (concept-validated)
+     *
+     * Concepts ensure compile-time validation of callback signatures,
+     * providing clear error messages if types don't match.
+     */
+    template <typename BeforeReqFn = BeforeRequestCallback,
+              typename RespStartedFn = ResponseStartedCallback,
+              typename AuthReqFn = AuthRequiredCallback>
+        requires(std::same_as<BeforeReqFn, BeforeRequestCallback> ||
+                 BeforeRequestCallable<BeforeReqFn>) &&
+                    (std::same_as<RespStartedFn, ResponseStartedCallback> ||
+                     ResponseStartedCallable<RespStartedFn>) &&
+                    (std::same_as<AuthReqFn, AuthRequiredCallback> ||
+                     AuthRequiredCallable<AuthReqFn>)
+    static auto custom(
+        const std::vector<types::network::InterceptPhase> &phases_to_intercept,
+        BeforeReqFn before_request = {}, RespStartedFn response_started = {},
+        AuthReqFn auth_required = {}) -> NetworkInterceptConfig {
         return NetworkInterceptConfig{
             .policy = NetworkInterceptPolicy::Custom,
-            .phases = std::move(phases_to_intercept),
+            .phases = phases_to_intercept,
             .contexts = std::nullopt,
             .url_patterns = std::nullopt,
             .before_request_handler = std::move(before_request),
@@ -210,6 +277,17 @@ class NetworkInterceptHandler {
         -> Task<std::shared_ptr<NetworkInterceptHandler>>;
 
     /**
+     * @brief Explicit asynchronous cleanup hook
+     *
+     * Removes the network intercept and surfaces any failures to the caller.
+     * Callers should co_await this before letting the handler go out of scope
+     * to guarantee deterministic teardown.
+     */
+    [[nodiscard]] auto
+    cleanup(const std::source_location &loc = std::source_location::current())
+        -> Task<void>;
+
+    /**
      * @brief Destructor: Remove intercept and unsubscribe
      *
      * RAII cleanup - must be noexcept (C.31)
@@ -217,9 +295,9 @@ class NetworkInterceptHandler {
     ~NetworkInterceptHandler() noexcept;
 
     // C.21: Move-only semantics
-    NetworkInterceptHandler(NetworkInterceptHandler &&other) noexcept = default;
+    NetworkInterceptHandler(NetworkInterceptHandler &&other) noexcept;
     auto operator=(NetworkInterceptHandler &&other) noexcept
-        -> NetworkInterceptHandler & = default;
+        -> NetworkInterceptHandler &;
     NetworkInterceptHandler(const NetworkInterceptHandler &) = delete;
     auto operator=(const NetworkInterceptHandler &)
         -> NetworkInterceptHandler & = delete;
@@ -270,6 +348,8 @@ class NetworkInterceptHandler {
     std::shared_ptr<Client> client_;
     NetworkInterceptConfig config_;
     types::network::InterceptId intercept_id_;
+    std::atomic<bool> cleanup_started_{false};
+    std::atomic<bool> cleanup_succeeded_{false};
 };
 
 } // namespace bidi
