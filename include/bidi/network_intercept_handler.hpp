@@ -16,6 +16,7 @@
  */
 
 #include "asyncx.hpp"
+#include "bidi/core.hpp"
 #include "bidi/types/network.hpp"
 #include <atomic>
 #include <cstdint>
@@ -216,10 +217,10 @@ struct NetworkInterceptConfig {
               typename AuthReqFn = AuthRequiredCallback>
         requires(std::same_as<BeforeReqFn, BeforeRequestCallback> ||
                  BeforeRequestCallable<BeforeReqFn>) &&
-                    (std::same_as<RespStartedFn, ResponseStartedCallback> ||
-                     ResponseStartedCallable<RespStartedFn>) &&
-                    (std::same_as<AuthReqFn, AuthRequiredCallback> ||
-                     AuthRequiredCallable<AuthReqFn>)
+                (std::same_as<RespStartedFn, ResponseStartedCallback> ||
+                 ResponseStartedCallable<RespStartedFn>) &&
+                (std::same_as<AuthReqFn, AuthRequiredCallback> ||
+                 AuthRequiredCallable<AuthReqFn>)
     static auto custom(
         const std::vector<types::network::InterceptPhase> &phases_to_intercept,
         BeforeReqFn before_request = {}, RespStartedFn response_started = {},
@@ -329,6 +330,14 @@ class NetworkInterceptHandler {
         return intercept_id_;
     }
 
+    // Event handlers (called by helper functions during event processing)
+    void handle_before_request(
+        const types::network::BeforeRequestSentParameters &params);
+    void handle_response_started(
+        const types::network::ResponseStartedParameters &params);
+    void
+    handle_auth_required(const types::network::AuthRequiredParameters &params);
+
   private:
     // Private constructor - use factory method
     explicit NetworkInterceptHandler(std::shared_ptr<Client> client,
@@ -337,17 +346,17 @@ class NetworkInterceptHandler {
         : client_(std::move(client)), config_(std::move(config)),
           intercept_id_(std::move(intercept_id)) {}
 
-    // Event handlers
-    void handle_before_request(
-        const types::network::BeforeRequestSentParameters &params);
-    void handle_response_started(
-        const types::network::ResponseStartedParameters &params);
-    void
-    handle_auth_required(const types::network::AuthRequiredParameters &params);
-
     std::shared_ptr<Client> client_;
     NetworkInterceptConfig config_;
     types::network::InterceptId intercept_id_;
+
+    // RAII subscriptions for event handlers
+    // When handler is destroyed, subscriptions are automatically cleaned up
+    std::shared_ptr<bidi::core::BiDiSession::Subscription> before_request_sub_;
+    std::shared_ptr<bidi::core::BiDiSession::Subscription>
+        response_started_sub_;
+    std::shared_ptr<bidi::core::BiDiSession::Subscription> auth_required_sub_;
+
     std::atomic<bool> cleanup_started_{false};
     std::atomic<bool> cleanup_succeeded_{false};
 };

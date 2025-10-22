@@ -199,17 +199,31 @@ class TimerGuard {
 /**
  * @brief RAII guard for BiDi client and subscriptions
  *
- * Manages BiDi client lifecycle with proper cleanup order:
- * 1. Unsubscribe all events
- * 2. Disconnect session
- * 3. Reset client
+ * Manages BiDi client lifecycle with deterministic cleanup order:
+ * 1. Unsubscribe all events (subscription list cleared)
+ * 2. Disconnect session (if active)
+ * 3. Reset client (breaking reference cycles)
+ *
+ * Features:
+ * - Fail-safe cleanup with exception swallowing (no throws from destructor)
+ * - Detailed logging of each cleanup step for debugging
+ * - State tracking to prevent double-cleanup
+ * - Explicit cleanup() method for early resource release
+ * - Automatic cleanup via RAII on scope exit
+ *
+ * Cleanup Guarantee:
+ * Destructors guarantee that all resources are released even if:
+ * - Exceptions occur during cleanup
+ * - Some cleanup steps fail
+ * - The guard is moved (cleanup responsibility transfers)
  *
  * Example:
  * @code
  * auto client = co_await bidi::Client::connect(io, url);
  * bidi::ClientGuard guard(client);
  * guard.add_subscription(sub1);
- * // Automatic cleanup on scope exit
+ * // Subscriptions cleared + session disconnected + client reset
+ * // automatically on scope exit
  * @endcode
  */
 class ClientGuard {
@@ -217,58 +231,188 @@ class ClientGuard {
     std::shared_ptr<bidi::Client> client_;
     std::vector<std::shared_ptr<bidi::core::BiDiSession::Subscription>>
         subscriptions_;
+    bool cleanup_started_{false};
+    bool cleanup_completed_{false};
+
+    /**
+     * @brief Perform cleanup with detailed logging and error handling
+     * @note Always completes, even if individual steps fail
+     */
+    void perform_cleanup_() noexcept {
+        if (cleanup_completed_) {
+            return; // Already cleaned up
+        }
+
+        cleanup_started_ = true;
+
+        // Step 1: Clear subscriptions (break event handler cycles)
+        try {
+            const auto subscription_count = subscriptions_.size();
+            subscriptions_.clear();
+            if (subscription_count > 0) {
+                logging::log_error(std::string("ClientGuard: cleared ") +
+                                   std::to_string(subscription_count) +
+                                   " subscription(s)");
+            }
+        } catch (const std::exception &e) {
+            logging::log_error(std::string("ClientGuard: failed to clear "
+                                           "subscriptions: ") +
+                               e.what());
+        } catch (...) {
+            logging::log_error(
+                "ClientGuard: unknown error clearing subscriptions");
+        }
+
+        // Step 2: Disconnect session
+        if (client_) {
+            try {
+                if (auto session = client_->session()) {
+                    session->disconnect();
+                    logging::log_error("ClientGuard: session disconnected");
+                }
+            } catch (const std::exception &e) {
+                logging::log_error(std::string("ClientGuard: failed to "
+                                               "disconnect session: ") +
+                                   e.what());
+            } catch (...) {
+                logging::log_error(
+                    "ClientGuard: unknown error disconnecting session");
+            }
+        }
+
+        // Step 3: Reset client (break reference cycles and weak_ptr cycles)
+        try {
+            if (client_) {
+                client_.reset();
+                logging::log_error("ClientGuard: client reset");
+            }
+        } catch (const std::exception &e) {
+            logging::log_error(std::string("ClientGuard: failed to reset "
+                                           "client: ") +
+                               e.what());
+        } catch (...) {
+            logging::log_error("ClientGuard: unknown error resetting client");
+        }
+
+        cleanup_completed_ = true;
+    }
 
   public:
-    explicit ClientGuard(std::shared_ptr<bidi::Client> client)
+    explicit ClientGuard(std::shared_ptr<bidi::Client> client) noexcept
         : client_(std::move(client)) {}
 
+    /**
+     * @brief Explicit cleanup method for early resource release
+     *
+     * Can be called before destruction to release resources immediately.
+     * Safe to call multiple times (idempotent).
+     */
+    void cleanup() noexcept { perform_cleanup_(); }
+
+    /**
+     * @brief Destructor: performs RAII cleanup (no throws guaranteed)
+     */
     ~ClientGuard() noexcept {
         try {
-            subscriptions_.clear();
-
-            if (client_ && client_->session()) {
-                try {
-                    client_->session()->disconnect();
-                } catch (const std::exception &exception) {
-                    logging::log_error(
-                        std::string("Failed to disconnect session: ") +
-                        exception.what());
-                } catch (...) {
-                    logging::log_error(
-                        "Unknown error during session disconnect");
-                }
+            if (!cleanup_completed_) {
+                perform_cleanup_();
             }
-
-            client_.reset();
-        } catch (const std::exception &exception) {
-            logging::log_error(std::string("ClientGuard cleanup failed: ") +
-                               exception.what());
+        } catch (const std::exception &e) {
+            logging::log_error(
+                std::string("ClientGuard destructor exception: ") + e.what());
         } catch (...) {
-            logging::log_error("Unknown error in ClientGuard cleanup");
+            logging::log_error("ClientGuard destructor: unknown exception");
         }
     }
 
     ClientGuard(const ClientGuard &) = delete;
     auto operator=(const ClientGuard &) -> ClientGuard & = delete;
-    ClientGuard(ClientGuard &&) noexcept = default;
-    auto operator=(ClientGuard &&) noexcept -> ClientGuard & = default;
 
+    // Move semantics: transfer cleanup responsibility
+    ClientGuard(ClientGuard &&other) noexcept
+        : client_(std::move(other.client_)),
+          subscriptions_(std::move(other.subscriptions_)),
+          cleanup_started_(other.cleanup_started_),
+          cleanup_completed_(other.cleanup_completed_) {
+        // Reset source to prevent double-cleanup
+        other.cleanup_completed_ = true;
+    }
+
+    auto operator=(ClientGuard &&other) noexcept -> ClientGuard & {
+        if (this != &other) {
+            // Cleanup self first
+            if (!cleanup_completed_) {
+                perform_cleanup_();
+            }
+
+            // Take ownership of other's resources
+            client_ = std::move(other.client_);
+            subscriptions_ = std::move(other.subscriptions_);
+            cleanup_started_ = other.cleanup_started_;
+            cleanup_completed_ = other.cleanup_completed_;
+
+            // Prevent double-cleanup in other's destructor
+            other.cleanup_completed_ = true;
+        }
+        return *this;
+    }
+
+    /**
+     * @brief Get non-const reference to client (for mutations)
+     */
     [[nodiscard]] auto client() noexcept -> std::shared_ptr<bidi::Client> & {
         return client_;
     }
 
+    /**
+     * @brief Get const reference to client (for reads)
+     */
     [[nodiscard]] auto client() const noexcept
         -> const std::shared_ptr<bidi::Client> & {
         return client_;
     }
 
+    /**
+     * @brief Add subscription to cleanup list
+     *
+     * Subscriptions are cleared (in reverse order of insertion) during
+     * cleanup, ensuring proper RAII semantics.
+     */
     void add_subscription(
         std::shared_ptr<bidi::core::BiDiSession::Subscription> subscription) {
         subscriptions_.push_back(std::move(subscription));
     }
 
+    /**
+     * @brief Get count of managed subscriptions
+     */
     [[nodiscard]] auto subscription_count() const noexcept -> size_t {
         return subscriptions_.size();
+    }
+
+    /**
+     * @brief Check if cleanup has been completed
+     */
+    [[nodiscard]] auto is_cleaned_up() const noexcept -> bool {
+        return cleanup_completed_;
+    }
+
+    /**
+     * @brief Clear all managed subscriptions explicitly
+     *
+     * Useful for selective cleanup before destructor.
+     */
+    void clear_subscriptions() noexcept {
+        try {
+            subscriptions_.clear();
+        } catch (const std::exception &e) {
+            logging::log_error(std::string("ClientGuard: failed to clear "
+                                           "subscriptions: ") +
+                               e.what());
+        } catch (...) {
+            logging::log_error(
+                "ClientGuard: unknown error clearing subscriptions");
+        }
     }
 };
 

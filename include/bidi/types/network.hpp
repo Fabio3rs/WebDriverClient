@@ -848,7 +848,14 @@ tag_invoke(value_to_tag<bidi::types::network::BaseParameters> /*unused*/,
     const auto &obj = jv.as_object();
     bidi::types::network::BaseParameters params;
 
-    params.request = value_to<std::string>(obj.at("request"));
+    // The "request" field might be a string (ID) or omitted in some events
+    // For events like beforeRequestSent, it's embedded in the event params
+    // separately
+    const auto *req_ptr = obj.if_contains("request");
+    if (req_ptr != nullptr && req_ptr->is_string()) {
+        params.request = value_to<std::string>(*req_ptr);
+    }
+
     params.timestamp = value_to<std::uint64_t>(obj.at("timestamp"));
     params.redirect_count = value_to<std::uint64_t>(obj.at("redirectCount"));
     params.is_blocked = value_to<bool>(obj.at("isBlocked"));
@@ -953,7 +960,11 @@ inline auto tag_invoke(
     const auto &obj = jv.as_object();
     bidi::types::network::BeforeRequestSentParameters params;
 
-    params.base.request = value_to<std::string>(obj.at("request"));
+    // Note: In beforeRequestSent events, "request" is an object (RequestData),
+    // not a string ID like in other network events. So we skip trying to parse
+    // it as string in base.request (which would fail).
+    // It will be parsed separately below as params.request (RequestData).
+
     params.base.timestamp = value_to<std::uint64_t>(obj.at("timestamp"));
     params.base.redirect_count =
         value_to<std::uint64_t>(obj.at("redirectCount"));

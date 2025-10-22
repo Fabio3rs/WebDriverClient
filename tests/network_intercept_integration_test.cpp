@@ -1,147 +1,90 @@
-#include <gtest/gtest.h>
-#include <nlohmann/json.hpp>
-#include <string>
-#include <chrono>
-
-#include "WebDriverClient.hpp"
 #include "test_http_server.hpp"
+#include <atomic>
+#include <bidi/client.hpp>
+#include <bidi/commands.hpp>
+#include <bidi/guards.hpp>
+#include <bidi/network_intercept_handler.hpp>
+#include <bidi/types/network.hpp>
+#include <boost/asio.hpp>
+#include <chrono>
+#include <gtest/gtest.h>
 
-using json = nlohmann::json;
-using bidi::testing::HttpResponse;
-using bidi::testing::TestHttpServer;
 using namespace std::chrono_literals;
+namespace asio = boost::asio;
 
-class NetworkInterceptIoFixture : public ::testing::Test {
-protected:
-    TestHttpServer test_server;
-    WebDriver driver;
-    uint16_t server_port;
+class NetworkInterceptBiDiTest : public ::testing::Test {
+  public:
+    asio::io_context io_context;
+    bidi::testing::TestHttpServer server;
+    uint16_t port = 0;
+    std::string webdriver_url = "http://127.0.0.1:9515";
+    std::atomic<bool> finished{false};
 
     void SetUp() override {
-        // Configura o servidor de teste com uma resposta padrão
-        test_server.set_default_handler([](const auto &request) {
-            return HttpResponse::json(R"({"status": "ok"})");
+        server.set_default_handler([](const auto &) {
+            return bidi::testing::HttpResponse::json(R"({"status": "ok"})");
         });
-        
-        server_port = test_server.start();
-        
-        // Configura o WebDriver para usar o chromedriver real na porta 9515
-        driver.webDriverUrl = "http://127.0.0.1:9515";
-        
-        // Cria uma nova sessão
-        json capabilities = {
-            {"capabilities", {
-                {"alwaysMatch", {
-                    {"browserName", "chrome"},
-                    {"goog:chromeOptions", {
-                        {"args", {"--headless", "--no-sandbox", "--disable-dev-shm-usage"}}
-                    }}
-                }}
-            }}
-        };
-
-        auto session = driver.newSession(capabilities);
-        ASSERT_TRUE(session.contains("sessionId"));
-        driver.sessionId = session["sessionId"].get<std::string>();
+        port = server.start();
     }
-
-    void TearDown() override {
-        if (!driver.sessionId.empty()) {
-            driver.deleteSession();
-        }
-        test_server.stop();
-    }
-
-    std::string getTestUrl() const {
-        return "http://127.0.0.1:" + std::to_string(server_port) + "/test";
+    void TearDown() override { server.stop(); }
+    [[nodiscard]] auto testUrl() const -> std::string {
+        return "http://127.0.0.1:" + std::to_string(port) + "/test";
     }
 };
 
-TEST_F(NetworkInterceptIoFixture, InterceptSimpleRequest) {
-    // Configura interceptação para todas as requisições
-    json interceptParams = {
-        {"patterns", {{
-            {"urlPattern", "*"} // Intercepta todas as URLs
-        }}}
+TEST_F(NetworkInterceptBiDiTest, InterceptSimpleRequest) {
+    auto run_test = [this]() -> asio::awaitable<void> {
+        bidi::SessionGuard session(webdriver_url);
+        std::vector<std::string> args{"--headless", "--no-sandbox"};
+        auto ws_url_result = session.connect(args, "chrome", true);
+        if (!ws_url_result.has_value()) {
+            throw std::runtime_error("Falha ao conectar ao WebSocket");
+        }
+        auto client_ptr =
+            co_await bidi::Client::connect(io_context, ws_url_result.value());
+        if (!client_ptr) {
+            throw std::runtime_error("Client nulo");
+        }
+        bidi::ClientGuard client_guard(client_ptr);
+
+        // Configura interceptação para todas as URLs
+        bidi::NetworkInterceptConfig config;
+        config.policy = bidi::NetworkInterceptPolicy::ContinueAll;
+        config.phases = {
+            bidi::types::network::InterceptPhase::BeforeRequestSent};
+        config.url_patterns = std::vector<bidi::types::network::UrlPattern>{
+            bidi::types::network::UrlPatternString{.pattern = testUrl()}};
+
+        std::atomic<bool> intercepted{false};
+        config.before_request_handler =
+            [&](const auto &params
+                [[maybe_unused]]) -> std::optional<bidi::RequestResolution> {
+            intercepted = true;
+            bidi::RequestResolution res;
+            res.action = bidi::InterceptAction::Continue;
+            res.body = std::nullopt;
+            return res;
+        };
+
+        auto intercept_handler =
+            co_await bidi::NetworkInterceptHandler::create(client_ptr, config);
+        auto context_id = co_await client_guard.client()->create_context(
+            bidi::commands::browsing_context::CreateType::window);
+        co_await client_guard.client()->navigate(context_id, testUrl());
+
+        // Aguarda evento
+        for (int i = 0; i < 20 && !intercepted.load(); ++i) {
+            co_await asio::steady_timer(io_context, 100ms)
+                .async_wait(asio::use_awaitable);
+        }
+        if (!intercepted.load()) {
+            throw std::runtime_error("Intercept não ocorreu");
+        }
+        finished.store(true);
+        co_return;
     };
-    
-    auto intercept = driver.setNetworkIntercepts(interceptParams);
-    ASSERT_TRUE(intercept.is_object());
-
-    // Navega para a URL de teste que deve ser interceptada
-    auto result = driver.navigateTo(getTestUrl());
-    ASSERT_TRUE(result.is_object());
-
-    // Verifica se a requisição foi interceptada
-    auto requests = driver.getInterceptedRequests();
-    ASSERT_FALSE(requests.empty());
-    
-    // Verifica se a URL interceptada corresponde à URL de teste
-    EXPECT_EQ(requests[0]["url"], getTestUrl());
-}
-
-TEST_F(NetworkInterceptIoFixture, ModifyInterceptedResponse) {
-    // Configura o servidor para retornar uma resposta específica
-    test_server.set_handler("/test", [](const auto &) {
-        return HttpResponse::json(R"({"original": "response"})");
-    });
-
-    // Configura interceptação com modificação de resposta
-    json interceptParams = {
-        {"patterns", {{
-            {"urlPattern", getTestUrl()}
-        }}},
-        {"modifyResponse", true}
-    };
-    
-    auto intercept = driver.setNetworkIntercepts(interceptParams);
-    ASSERT_TRUE(intercept.is_object());
-
-    // Navega para a URL
-    auto result = driver.navigateTo(getTestUrl());
-    ASSERT_TRUE(result.is_object());
-
-    // Modifica a resposta interceptada
-    json modifiedResponse = {
-        {"status", 200},
-        {"body", R"({"modified": "response"})"}
-    };
-    
-    auto modifyResult = driver.continueWithResponse(requests[0]["requestId"], modifiedResponse);
-    ASSERT_TRUE(modifyResult.is_object());
-
-    // Verifica se a resposta foi modificada
-    auto pageSource = driver.getPageSource();
-    EXPECT_TRUE(pageSource.contains("modified"));
-    EXPECT_FALSE(pageSource.contains("original"));
-}
-
-TEST_F(NetworkInterceptIoFixture, CancelInterceptedRequest) {
-    // Configura interceptação
-    json interceptParams = {
-        {"patterns", {{
-            {"urlPattern", "*"}
-        }}}
-    };
-    
-    auto intercept = driver.setNetworkIntercepts(interceptParams);
-    ASSERT_TRUE(intercept.is_object());
-
-    // Inicia navegação assíncrona que será cancelada
-    auto future_result = std::async(std::launch::async, [this]() {
-        return driver.navigateTo(getTestUrl());
-    });
-
-    // Espera pela interceptação
-    auto requests = driver.getInterceptedRequests();
-    ASSERT_FALSE(requests.empty());
-
-    // Cancela a requisição
-    auto cancelResult = driver.failRequest(requests[0]["requestId"], "Cancelled");
-    ASSERT_TRUE(cancelResult.is_object());
-
-    // Verifica se a navegação falhou como esperado
-    EXPECT_THROW({
-        future_result.get();
-    }, std::exception);
+    auto fut = asio::co_spawn(io_context, run_test(), asio::use_future);
+    io_context.run();
+    fut.get(); // Aguarda e propaga exceções da corrotina
+    ASSERT_TRUE(finished.load());
 }

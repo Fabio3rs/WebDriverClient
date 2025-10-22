@@ -40,8 +40,8 @@ class SubscriptionHandle {
     SubscriptionHandle(std::shared_ptr<detail::subscription_state> state,
                        std::uint64_t id) noexcept;
     SubscriptionHandle(SubscriptionHandle &&) noexcept = default;
-    auto
-    operator=(SubscriptionHandle &&) noexcept -> SubscriptionHandle & = default;
+    auto operator=(SubscriptionHandle &&) noexcept
+        -> SubscriptionHandle & = default;
     ~SubscriptionHandle();
 
     void cancel() noexcept;
@@ -65,11 +65,11 @@ class SubscriptionManager {
     explicit SubscriptionManager(boost::asio::io_context &context)
         : SubscriptionManager(context.get_executor()) {}
 
-    [[nodiscard]] auto
-    executor() const -> boost::asio::strand<boost::asio::any_io_executor>;
+    [[nodiscard]] auto executor() const
+        -> boost::asio::strand<boost::asio::any_io_executor>;
 
-    [[nodiscard]] auto subscribe(topic_t topic,
-                                 callback_t cb) -> SubscriptionHandle;
+    [[nodiscard]] auto subscribe(topic_t topic, callback_t cb)
+        -> SubscriptionHandle;
     void dispatch(std::string_view topic, std::string_view payload);
 
   private:
