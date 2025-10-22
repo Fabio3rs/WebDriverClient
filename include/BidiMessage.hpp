@@ -15,16 +15,16 @@ inline auto is_id_safe(std::uint64_t id) noexcept -> bool {
     return bidi::core::is_id_safe(id);
 }
 
-inline auto build_command(id_type id, std::string_view method,
-                          const boost::json::object &params = {})
-    -> std::string {
+inline auto
+build_command(id_type id, std::string_view method,
+              const boost::json::object &params = {}) -> std::string {
     return bidi::core::build_command(id, method, params);
 }
 
 enum class MessageKind { Response, Event, Unknown };
 
-inline auto detect_message_kind(std::string_view payload) noexcept
-    -> MessageKind {
+inline auto
+detect_message_kind(std::string_view payload) noexcept -> MessageKind {
     try {
         // Fast attempt: parse as object and check for "type" == "event" or
         // presence of "id"

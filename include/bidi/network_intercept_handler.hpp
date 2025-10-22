@@ -217,10 +217,10 @@ struct NetworkInterceptConfig {
               typename AuthReqFn = AuthRequiredCallback>
         requires(std::same_as<BeforeReqFn, BeforeRequestCallback> ||
                  BeforeRequestCallable<BeforeReqFn>) &&
-                (std::same_as<RespStartedFn, ResponseStartedCallback> ||
-                 ResponseStartedCallable<RespStartedFn>) &&
-                (std::same_as<AuthReqFn, AuthRequiredCallback> ||
-                 AuthRequiredCallable<AuthReqFn>)
+                    (std::same_as<RespStartedFn, ResponseStartedCallback> ||
+                     ResponseStartedCallable<RespStartedFn>) &&
+                    (std::same_as<AuthReqFn, AuthRequiredCallback> ||
+                     AuthRequiredCallable<AuthReqFn>)
     static auto custom(
         const std::vector<types::network::InterceptPhase> &phases_to_intercept,
         BeforeReqFn before_request = {}, RespStartedFn response_started = {},

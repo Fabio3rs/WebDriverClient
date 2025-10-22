@@ -1,0 +1,27 @@
+🚀 WebDriver Legacy + BiDi Integration Demo (Coroutines)
+=======================================================
+=== Initializing WebDriver Legacy Session ===
+{"capabilities":{"alwaysMatch":{"browserName":"chrome","goog:chromeOptions":{"args":["--headless","--no-sandbox"]},"webSocketUrl":true}}}
+Response: {"value":{"capabilities":{"acceptInsecureCerts":false,"browserName":"chrome","browserVersion":"140.0.7339.207","chrome":{"chromedriverVersion":"140.0.7339.207 (17230b545fd18b35aad49122e5af97a463bc7a9c-refs/branch-heads/7339@{#2364})","userDataDir":"/tmp/.org.chromium.Chromium.ipukho"},"fedcm:accounts":true,"goog:chromeOptions":{"debuggerAddress":"localhost:38801"},"networkConnectionEnabled":false,"pageLoadStrategy":"normal","platformName":"linux","proxy":{},"setWindowRect":true,"strictFileInteractability":false,"timeouts":{"implicit":0,"pageLoad":300000,"script":30000},"unhandledPromptBehavior":"dismiss and notify","webSocketUrl":"ws://localhost:9515/session/e21987b9ceabbbbb14e264bbd26c998c","webauthn:extension:credBlob":true,"webauthn:extension:largeBlob":true,"webauthn:extension:minPinLength":true,"webauthn:extension:prf":true,"webauthn:virtualAuthenticators":true},"sessionId":"e21987b9ceabbbbb14e264bbd26c998c"}}
+✓ Session created: e21987b9ceabbbbb14e264bbd26c998c
+✓ WebSocket URL extracted: ws://localhost:9515/session/e21987b9ceabbbbb14e264bbd26c998c
+
+=== Connecting BiDi Client (await) ===
+[await_async] handler -> success
+✓ BiDi client connected
+1. Creating browsing context...
+[await_async] handler -> success
+✓ Context: 4BE347359A0EEFEC8DE7584D183EEA3A
+2. Navigating...
+[await_async] handler -> success
+✓ Navigation OK: https://example.com/
+3. Evaluating document.title...
+[await_async] handler -> success
+✓ Title: {"realm":"-3475441769301381687.-6191579814166424586","result":{"type":"string","value":"Example Domain"},"type":"success"}
+4. Evaluating window.location.href...
+[await_async] handler -> success
+✓ Location: {"realm":"-3475441769301381687.-6191579814166424586","result":{"type":"string","value":"https://example.com/"},"type":"success"}
+
+🎉 Flow completed successfully (await-based)
+BiDiSession::disconnect cleared pending_responses (before=0, after=0)
+Response: 200

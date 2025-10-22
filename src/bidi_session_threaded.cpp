@@ -167,10 +167,9 @@ auto ThreadedBiDiSession::async_connect(const std::string &ws_url)
     return future;
 }
 
-auto ThreadedBiDiSession::send_command_await(const std::string &method,
-                                             const boost::json::object &params,
-                                             std::chrono::milliseconds timeout)
-    -> boost::json::object {
+auto ThreadedBiDiSession::send_command_await(
+    const std::string &method, const boost::json::object &params,
+    std::chrono::milliseconds timeout) -> boost::json::object {
 
     auto id = next_id_.fetch_add(1);
     auto entry = acquire_pending_entry();

@@ -79,8 +79,8 @@ class ScriptEvaluateException : public std::runtime_error {
         : std::runtime_error(details.text.empty() ? "script evaluate exception"
                                                   : details.text),
           details_(std::move(details)) {}
-    [[nodiscard]] auto details() const noexcept
-        -> const ScriptExceptionDetails & {
+    [[nodiscard]] auto
+    details() const noexcept -> const ScriptExceptionDetails & {
         return details_;
     }
 };
@@ -91,9 +91,8 @@ is_script_exception_result(const boost::json::object &result) noexcept -> bool;
 
 // Internal API: parse ScriptExceptionDetails from a result whose type ==
 // "exception"
-[[nodiscard]] auto
-parse_script_exception(const boost::json::object &result) noexcept
-    -> ScriptExceptionDetails;
+[[nodiscard]] auto parse_script_exception(
+    const boost::json::object &result) noexcept -> ScriptExceptionDetails;
 
 // Internal helper structure used by the evaluate overload to apply policy.
 struct PolicyApplicationResult {
@@ -103,8 +102,8 @@ struct PolicyApplicationResult {
     ScriptExceptionDetails exception; // valid when action == throw_exception
 };
 
-[[nodiscard]] auto apply_policy(const core::ParsedResponse &response,
-                                script_eval_policy policy) noexcept
-    -> PolicyApplicationResult;
+[[nodiscard]] auto
+apply_policy(const core::ParsedResponse &response,
+             script_eval_policy policy) noexcept -> PolicyApplicationResult;
 
 } // namespace bidi::script

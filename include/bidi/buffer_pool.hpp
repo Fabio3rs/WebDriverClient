@@ -75,8 +75,8 @@ class PooledBuffer {
     }
 
     // Get boost::asio::const_buffer for async_write (zero-copy)
-    [[nodiscard]] auto as_asio_buffer() const noexcept
-        -> boost::asio::const_buffer {
+    [[nodiscard]] auto
+    as_asio_buffer() const noexcept -> boost::asio::const_buffer {
         return boost::asio::buffer(data_.data(), used_size_);
     }
 
@@ -95,8 +95,8 @@ class PooledBuffer {
     void reset() noexcept { used_size_ = 0; }
 
     // Check if buffer can fit additional data
-    [[nodiscard]] auto can_fit(std::size_t additional_size) const noexcept
-        -> bool {
+    [[nodiscard]] auto
+    can_fit(std::size_t additional_size) const noexcept -> bool {
         return used_size_ + additional_size <= data_.size();
     }
 
@@ -183,8 +183,8 @@ class BufferPool {
   private:
     void return_buffer(std::shared_ptr<PooledBuffer> buffer, BufferSize size);
 
-    [[nodiscard]] static auto create_buffer(BufferSize size)
-        -> std::shared_ptr<PooledBuffer>;
+    [[nodiscard]] static auto
+    create_buffer(BufferSize size) -> std::shared_ptr<PooledBuffer>;
 
     // Size-specific buffer pools
     mutable std::mutex small_mutex_;
@@ -217,8 +217,8 @@ class StreamingBuffer {
     void write_chunk(std::string_view data);
 
     // Get all chunks for streaming write
-    [[nodiscard]] auto get_asio_buffers() const
-        -> std::vector<boost::asio::const_buffer>;
+    [[nodiscard]] auto
+    get_asio_buffers() const -> std::vector<boost::asio::const_buffer>;
 
     // Get total size across all chunks
     [[nodiscard]] auto total_size() const noexcept -> std::size_t;

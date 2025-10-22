@@ -511,9 +511,8 @@ template <class T = void> class Async {
     }
 
     template <class Fn>
-    auto on_error(Fn fn,
-                  std::source_location loc = std::source_location::current())
-        -> Async<T> {
+    auto on_error(Fn fn, std::source_location loc =
+                             std::source_location::current()) -> Async<T> {
         auto &a = *this;
         // Capture the executor from this Async. The executor is used to
         // create downstream Async objects and to post continuations.
@@ -701,9 +700,8 @@ template <class T = void> class Async {
     }
 
     template <class F>
-    auto recover(F f,
-                 std::source_location loc = std::source_location::current())
-        -> Async<T> {
+    auto recover(F f, std::source_location loc =
+                          std::source_location::current()) -> Async<T> {
         auto next = Async<T>::make(st_->ex, loc);
         auto cont = [st = st_, next, f = std::move(f), loc]() mutable {
             (void)loc; // Captured for GDB inspection (see CLAUDE.md debugging
@@ -756,9 +754,8 @@ template <class T = void> class Async {
         attach_or_run(std::move(cont));
     }
 
-    auto
-    await(const std::source_location &loc = std::source_location::current())
-        -> auto & {
+    auto await(const std::source_location &loc =
+                   std::source_location::current()) -> auto & {
         attach_or_run([loc]() {
             (void)loc; // Captured for GDB inspection (see CLAUDE.md debugging
                        // section)
@@ -1032,10 +1029,9 @@ template <class T = void> class Async {
     }
 
     template <class Initiator>
-    static auto
-    from_callback(net::any_io_executor ex, Initiator init,
-                  std::source_location loc = std::source_location::current())
-        -> Async<T> {
+    static auto from_callback(net::any_io_executor ex, Initiator init,
+                              std::source_location loc =
+                                  std::source_location::current()) -> Async<T> {
         auto a = Async<T>::make(ex, loc);
         init(
             [a](EC ec, T v) {
@@ -1338,9 +1334,8 @@ template <> class Async<void> {
     }
 
     template <class F>
-    auto recover(F f,
-                 std::source_location loc = std::source_location::current())
-        -> Async<void> {
+    auto recover(F f, std::source_location loc =
+                          std::source_location::current()) -> Async<void> {
         auto next = Async<void>::make(st_->ex, loc);
         auto cont = [st = st_, next, f = std::move(f), loc]() mutable {
             (void)loc; // Captured for GDB inspection (see CLAUDE.md debugging
@@ -1570,10 +1565,9 @@ auto race(net::any_io_executor ex, std::vector<Async<T>> vs,
 }
 
 template <class T, class Rep, class Per>
-auto timeout(Async<T> inA, net::any_io_executor ex,
-             std::chrono::duration<Rep, Per> d,
-             std::source_location loc = std::source_location::current())
-    -> Async<T> {
+auto timeout(
+    Async<T> inA, net::any_io_executor ex, std::chrono::duration<Rep, Per> d,
+    std::source_location loc = std::source_location::current()) -> Async<T> {
     auto out = Async<T>::make(ex, loc);
     auto done = std::make_shared<std::atomic_bool>(false);
     auto timer = std::make_shared<net::steady_timer>(ex);

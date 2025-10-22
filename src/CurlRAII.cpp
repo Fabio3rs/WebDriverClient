@@ -26,8 +26,8 @@ auto CurlRAII::instance() -> CurlRAII & {
     return inst;
 }
 
-auto CurlRAII::postJson(const std::string &url, const std::string &json)
-    -> curlCallBack {
+auto CurlRAII::postJson(const std::string &url,
+                        const std::string &json) -> curlCallBack {
 
     curlCallBack result;
     curlraii_t curl = make_curl_easy();

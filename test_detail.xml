@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="34" failures="0" disabled="0" errors="0" time="2.294" timestamp="2025-09-29T11:29:30.996" name="AllTests">
+  <testsuite name="BidiBuilders" tests="5" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2025-09-29T11:29:30.996">
+    <testcase name="SessionSubscribeUnsubscribeStatus" file="/mnt/projects/Projects/chromewebdriver/tests/bidi_builders_test.cpp" line="9" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:30.996" classname="BidiBuilders" />
+    <testcase name="BrowsingContextCommands" file="/mnt/projects/Projects/chromewebdriver/tests/bidi_builders_test.cpp" line="29" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:30.996" classname="BidiBuilders" />
+    <testcase name="ScriptCommands" file="/mnt/projects/Projects/chromewebdriver/tests/bidi_builders_test.cpp" line="58" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:30.996" classname="BidiBuilders" />
+    <testcase name="NetworkCommands" file="/mnt/projects/Projects/chromewebdriver/tests/bidi_builders_test.cpp" line="84" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:30.996" classname="BidiBuilders" />
+    <testcase name="EnumAndLocalValues" file="/mnt/projects/Projects/chromewebdriver/tests/bidi_builders_test.cpp" line="103" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:30.996" classname="BidiBuilders" />
+  </testsuite>
+  <testsuite name="BidiClientSpec" tests="6" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2025-09-29T11:29:30.997">
+    <testcase name="ParseSuccessResponseAccordingToSpec" file="/mnt/projects/Projects/chromewebdriver/tests/bidi_client_spec_test.cpp" line="46" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:30.997" classname="BidiClientSpec" />
+    <testcase name="ParseErrorResponseAccordingToSpec" file="/mnt/projects/Projects/chromewebdriver/tests/bidi_client_spec_test.cpp" line="58" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:30.997" classname="BidiClientSpec" />
+    <testcase name="ParseEventAccordingToSpec" file="/mnt/projects/Projects/chromewebdriver/tests/bidi_client_spec_test.cpp" line="68" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:30.997" classname="BidiClientSpec" />
+    <testcase name="RejectResponseMissingTypeIsOffSpec" file="/mnt/projects/Projects/chromewebdriver/tests/bidi_client_spec_test.cpp" line="79" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:30.997" classname="BidiClientSpec" />
+    <testcase name="RejectEventMissingTypeIsOffSpec" file="/mnt/projects/Projects/chromewebdriver/tests/bidi_client_spec_test.cpp" line="87" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:30.997" classname="BidiClientSpec" />
+    <testcase name="DetectMessageKindFastPath" file="/mnt/projects/Projects/chromewebdriver/tests/bidi_client_spec_test.cpp" line="94" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:30.997" classname="BidiClientSpec" />
+  </testsuite>
+  <testsuite name="BidiCompileTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2025-09-29T11:29:30.997">
+    <testcase name="ConstructCoreComponents" file="/mnt/projects/Projects/chromewebdriver/tests/bidi_compile_test.cpp" line="6" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:30.997" classname="BidiCompileTest" />
+  </testsuite>
+  <testsuite name="BidiMessage" tests="5" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2025-09-29T11:29:30.998">
+    <testcase name="IsIdSafe" file="/mnt/projects/Projects/chromewebdriver/tests/bidi_message_test.cpp" line="8" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:30.998" classname="BidiMessage" />
+    <testcase name="BuildAndDetect" file="/mnt/projects/Projects/chromewebdriver/tests/bidi_message_test.cpp" line="15" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:30.998" classname="BidiMessage" />
+    <testcase name="ParseResponse" file="/mnt/projects/Projects/chromewebdriver/tests/bidi_message_test.cpp" line="24" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:30.998" classname="BidiMessage" />
+    <testcase name="ParseEvent" file="/mnt/projects/Projects/chromewebdriver/tests/bidi_message_test.cpp" line="37" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:30.998" classname="BidiMessage" />
+    <testcase name="ParseErrorResponse" file="/mnt/projects/Projects/chromewebdriver/tests/bidi_message_test.cpp" line="49" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:30.998" classname="BidiMessage" />
+  </testsuite>
+  <testsuite name="BidiParsingNegative" tests="3" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2025-09-29T11:29:30.998">
+    <testcase name="DetectMessageKindVariants" file="/mnt/projects/Projects/chromewebdriver/tests/bidi_parsing_negative_test.cpp" line="6" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:30.998" classname="BidiParsingNegative" />
+    <testcase name="ParseResponseInvalidCases" file="/mnt/projects/Projects/chromewebdriver/tests/bidi_parsing_negative_test.cpp" line="25" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:30.998" classname="BidiParsingNegative" />
+    <testcase name="ParseEventInvalidCases" file="/mnt/projects/Projects/chromewebdriver/tests/bidi_parsing_negative_test.cpp" line="45" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:30.998" classname="BidiParsingNegative" />
+  </testsuite>
+  <testsuite name="BidiSessionRouting" tests="3" failures="0" disabled="0" skipped="0" errors="0" time="0.001" timestamp="2025-09-29T11:29:30.998">
+    <testcase name="PendingResponsesReordered" file="/mnt/projects/Projects/chromewebdriver/tests/bidi_session_routing_test.cpp" line="9" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:30.998" classname="BidiSessionRouting" />
+    <testcase name="EventDispatchAndUnsubscribe" file="/mnt/projects/Projects/chromewebdriver/tests/bidi_session_routing_test.cpp" line="35" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:30.999" classname="BidiSessionRouting" />
+    <testcase name="OnErrorClearsPending" file="/mnt/projects/Projects/chromewebdriver/tests/bidi_session_routing_test.cpp" line="70" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:30.999" classname="BidiSessionRouting" />
+  </testsuite>
+  <testsuite name="ExecuteScriptIntegration" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.003" timestamp="2025-09-29T11:29:31.000">
+    <testcase name="ExecuteSyncAndAsync" file="/mnt/projects/Projects/chromewebdriver/tests/execute_script_integration_test.cpp" line="255" status="run" result="completed" time="0.003" timestamp="2025-09-29T11:29:31.000" classname="ExecuteScriptIntegration" />
+  </testsuite>
+  <testsuite name="PoolInjection" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.004" timestamp="2025-09-29T11:29:31.003">
+    <testcase name="FromFutureRunsOnInjectedPoolThread" file="/mnt/projects/Projects/chromewebdriver/tests/pool_injection_test.cpp" line="10" status="run" result="completed" time="0.004" timestamp="2025-09-29T11:29:31.003" classname="PoolInjection" />
+  </testsuite>
+  <testsuite name="SubscriptionManager" tests="2" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2025-09-29T11:29:31.007">
+    <testcase name="SubscribeAndDispatch" file="/mnt/projects/Projects/chromewebdriver/tests/subscription_test.cpp" line="6" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:31.007" classname="SubscriptionManager" />
+    <testcase name="UnsubscribeOnDestroy" file="/mnt/projects/Projects/chromewebdriver/tests/subscription_test.cpp" line="14" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:31.007" classname="SubscriptionManager" />
+  </testsuite>
+  <testsuite name="SimpleTests" tests="5" failures="0" disabled="0" skipped="0" errors="0" time="2.283" timestamp="2025-09-29T11:29:31.007">
+    <testcase name="Test1" file="/mnt/projects/Projects/chromewebdriver/tests/test.cpp" line="31" status="run" result="completed" time="0.344" timestamp="2025-09-29T11:29:31.007" classname="SimpleTests" />
+    <testcase name="LocateClickMeButton" file="/mnt/projects/Projects/chromewebdriver/tests/test.cpp" line="39" status="run" result="completed" time="0.34" timestamp="2025-09-29T11:29:31.352" classname="SimpleTests" />
+    <testcase name="WaitForElement" file="/mnt/projects/Projects/chromewebdriver/tests/test.cpp" line="48" status="run" result="completed" time="0.815" timestamp="2025-09-29T11:29:31.692" classname="SimpleTests" />
+    <testcase name="WaitForElementTimeout" file="/mnt/projects/Projects/chromewebdriver/tests/test.cpp" line="56" status="run" result="completed" time="0.45" timestamp="2025-09-29T11:29:32.508" classname="SimpleTests" />
+    <testcase name="LocateMultipleElements" file="/mnt/projects/Projects/chromewebdriver/tests/test.cpp" line="65" status="run" result="completed" time="0.331" timestamp="2025-09-29T11:29:32.959" classname="SimpleTests" />
+  </testsuite>
+  <testsuite name="WaitHelpers" tests="2" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2025-09-29T11:29:33.291">
+    <testcase name="ScriptContainsFunctionName" file="/mnt/projects/Projects/chromewebdriver/tests/wait_helpers_test.cpp" line="6" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:33.291" classname="WaitHelpers" />
+    <testcase name="ScriptHasArgumentsPlaceholders" file="/mnt/projects/Projects/chromewebdriver/tests/wait_helpers_test.cpp" line="14" status="run" result="completed" time="0." timestamp="2025-09-29T11:29:33.291" classname="WaitHelpers" />
+  </testsuite>
+</testsuites>

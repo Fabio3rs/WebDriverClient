@@ -20,8 +20,8 @@ Client::Client(std::shared_ptr<core::BiDiSession> session)
     : session_(std::move(session)) {}
 
 auto Client::connect(boost::asio::io_context &ioc,
-                     std::string_view websocket_url, std::source_location loc)
-    -> Task<Client::Ptr> {
+                     std::string_view websocket_url,
+                     std::source_location loc) -> Task<Client::Ptr> {
     auto ex = ioc.get_executor();
     auto result = Task<Ptr>::make(ex, loc);
     auto ws_client = std::make_shared<core::WebSocketClient>(ioc);
@@ -158,8 +158,8 @@ auto Client::reload(std::string_view context, bool ignore_cache,
     return result;
 }
 
-auto Client::activate(std::string_view context, const std::source_location &loc)
-    -> Task<void> {
+auto Client::activate(std::string_view context,
+                      const std::source_location &loc) -> Task<void> {
     auto ex = get_executor();
     auto result = Task<void>::make(ex);
     auto params = commands::browsing_context::activate(context);
@@ -466,11 +466,10 @@ auto Client::evaluate(std::string_view expression, std::string_view context,
     return task;
 }
 
-auto Client::call_function(std::string_view function_declaration,
-                           std::string_view context,
-                           boost::json::array arguments, bool await_promise,
-                           const std::source_location &loc)
-    -> Task<boost::json::object> {
+auto Client::call_function(
+    std::string_view function_declaration, std::string_view context,
+    boost::json::array arguments, bool await_promise,
+    const std::source_location &loc) -> Task<boost::json::object> {
     auto ex = get_executor();
     auto result = Task<boost::json::object>::make(ex);
     commands::script::Target target{.context = context, .sandbox = {}};
@@ -491,12 +490,11 @@ auto Client::call_function(std::string_view function_declaration,
     return result;
 }
 
-auto Client::call_function(std::string_view function_declaration,
-                           std::string_view context,
-                           boost::json::array arguments,
-                           script::script_eval_policy policy,
-                           bool await_promise, const std::source_location &loc)
-    -> Task<script::ScriptEvalOutcome> {
+auto Client::call_function(
+    std::string_view function_declaration, std::string_view context,
+    boost::json::array arguments, script::script_eval_policy policy,
+    bool await_promise,
+    const std::source_location &loc) -> Task<script::ScriptEvalOutcome> {
     auto ex = get_executor();
     auto task = Task<script::ScriptEvalOutcome>::make(ex);
     commands::script::Target target{.context = context, .sandbox = {}};
@@ -557,11 +555,10 @@ auto Client::call_function(std::string_view function_declaration,
     return task;
 }
 
-auto Client::add_preload_script(std::string_view function_declaration,
-                                boost::json::array arguments,
-                                std::string_view sandbox,
-                                const std::source_location &loc)
-    -> Task<std::string> {
+auto Client::add_preload_script(
+    std::string_view function_declaration, boost::json::array arguments,
+    std::string_view sandbox,
+    const std::source_location &loc) -> Task<std::string> {
     auto ex = get_executor();
     auto result = Task<std::string>::make(ex, loc);
     auto params = commands::script::add_preload_script(
@@ -590,9 +587,8 @@ auto Client::add_preload_script(std::string_view function_declaration,
     return result;
 }
 
-auto Client::remove_preload_script(std::string_view script_id,
-                                   const std::source_location &loc)
-    -> Task<void> {
+auto Client::remove_preload_script(
+    std::string_view script_id, const std::source_location &loc) -> Task<void> {
     auto ex = get_executor();
     auto result = Task<void>::make(ex, loc);
     auto params = commands::script::remove_preload_script(script_id);
@@ -752,8 +748,8 @@ auto Client::continue_response(
     std::optional<types::network::AuthCredentials> credentials,
     std::optional<std::vector<types::network::Header>> headers,
     std::optional<std::string> reason_phrase,
-    std::optional<std::uint64_t> status_code, const std::source_location &loc)
-    -> Task<void> {
+    std::optional<std::uint64_t> status_code,
+    const std::source_location &loc) -> Task<void> {
     auto ex = get_executor();
     auto result = Task<void>::make(ex, loc);
 
@@ -788,8 +784,8 @@ auto Client::provide_response(
     std::optional<std::vector<types::network::SetCookieHeader>> cookies,
     std::optional<std::vector<types::network::Header>> headers,
     std::optional<std::string> reason_phrase,
-    std::optional<std::uint64_t> status_code, const std::source_location &loc)
-    -> Task<void> {
+    std::optional<std::uint64_t> status_code,
+    const std::source_location &loc) -> Task<void> {
     auto ex = get_executor();
     auto result = Task<void>::make(ex, loc);
 
@@ -886,10 +882,9 @@ auto Client::subscribe(const std::vector<std::string> &events,
     return result;
 }
 
-auto Client::set_event_handler(std::string_view method,
-                               std::function<void(boost::json::object)> handler,
-                               const std::source_location &loc)
-    -> boost::asio::awaitable<void> {
+auto Client::set_event_handler(
+    std::string_view method, std::function<void(boost::json::object)> handler,
+    const std::source_location &loc) -> boost::asio::awaitable<void> {
     auto sub_async = session_->subscribe_event(
         method, [handler = std::move(handler)](const core::ParsedEvent &event) {
             handler(event.params);
@@ -967,6 +962,175 @@ auto Client::Subscription::operator=(Subscription &&other) noexcept
         other.events_.clear();
     }
     return *this;
+}
+
+// ======================== Cleanup Methods ========================
+
+auto Client::pending_request_count() const -> std::size_t {
+    if (!session_) {
+        return 0;
+    }
+    return session_->test_pending_size();
+}
+
+void Client::clear_pending_requests() noexcept {
+    try {
+        if (!session_) {
+            return;
+        }
+
+        const auto count = session_->test_pending_size();
+        if (count == 0) {
+            return;
+        }
+
+        // Log warning about pending requests being discarded
+        logging::log_error(std::format("Client::clear_pending_requests: "
+                                       "discarding {} pending request(s)",
+                                       count));
+
+        // Access session's pending_responses through a posted task to the
+        // strand This ensures thread-safe access to the internal map
+        boost::asio::post(session_->get_executor(), [session = session_]() {
+            try {
+                // Clear pending responses (unsafe outside strand, but we're
+                // in the strand now)
+                session->test_pending_clear();
+            } catch (const std::exception &e) {
+                logging::log_error(std::format(
+                    "Client: exception clearing pending requests: {}",
+                    e.what()));
+            } catch (...) {
+                logging::log_error(
+                    "Client: unknown exception clearing pending requests");
+            }
+        });
+    } catch (const std::exception &e) {
+        logging::log_error(
+            std::format("Client::clear_pending_requests failed: {}", e.what()));
+    } catch (...) {
+        logging::log_error("Client::clear_pending_requests: unknown exception");
+    }
+}
+
+void Client::clear_event_handlers() noexcept {
+    try {
+        if (!session_) {
+            return;
+        }
+
+        // Access session's event handlers through a posted task to the strand
+        boost::asio::post(session_->get_executor(), [session = session_]() {
+            try {
+                session->test_clear_event_handlers();
+                logging::log_error("Client: cleared all event handlers");
+            } catch (const std::exception &e) {
+                logging::log_error(std::format(
+                    "Client: exception clearing event handlers: {}", e.what()));
+            } catch (...) {
+                logging::log_error(
+                    "Client: unknown exception clearing event handlers");
+            }
+        });
+    } catch (const std::exception &e) {
+        logging::log_error(
+            std::format("Client::clear_event_handlers failed: {}", e.what()));
+    } catch (...) {
+        logging::log_error("Client::clear_event_handlers: unknown exception");
+    }
+}
+
+void Client::drain_and_cleanup() noexcept {
+    try {
+        if (!session_) {
+            return;
+        }
+
+        logging::log_error(
+            "Client: starting drain_and_cleanup (comprehensive shutdown)");
+
+        // Step 1: Clear pending requests
+        try {
+            const auto pending_count = session_->test_pending_size();
+            if (pending_count > 0) {
+                logging::log_error(std::format(
+                    "Client: drain_and_cleanup - failing {} pending request(s)",
+                    pending_count));
+                session_->test_pending_clear();
+            }
+        } catch (const std::exception &e) {
+            logging::log_error(std::format(
+                "Client: drain_and_cleanup - failed to clear pending: {}",
+                e.what()));
+        } catch (...) {
+            logging::log_error("Client: drain_and_cleanup - unknown exception "
+                               "clearing pending");
+        }
+
+        // Step 2: Clear event handlers
+        try {
+            session_->test_clear_event_handlers();
+            logging::log_error(
+                "Client: drain_and_cleanup - cleared event handlers");
+        } catch (const std::exception &e) {
+            logging::log_error(std::format(
+                "Client: drain_and_cleanup - failed to clear handlers: {}",
+                e.what()));
+        } catch (...) {
+            logging::log_error("Client: drain_and_cleanup - unknown exception "
+                               "clearing handlers");
+        }
+
+        // Step 3: Disconnect session (closes WebSocket)
+        try {
+            session_->disconnect();
+            logging::log_error(
+                "Client: drain_and_cleanup - session disconnected");
+        } catch (const std::exception &e) {
+            logging::log_error(std::format(
+                "Client: drain_and_cleanup - failed to disconnect: {}",
+                e.what()));
+        } catch (...) {
+            logging::log_error(
+                "Client: drain_and_cleanup - unknown exception disconnecting");
+        }
+
+        // Step 4: Reset session reference
+        try {
+            session_.reset();
+            logging::log_error("Client: drain_and_cleanup - session reset");
+        } catch (const std::exception &e) {
+            logging::log_error(std::format(
+                "Client: drain_and_cleanup - failed to reset session: {}",
+                e.what()));
+        } catch (...) {
+            logging::log_error("Client: drain_and_cleanup - unknown exception "
+                               "resetting session");
+        }
+
+        logging::log_error("Client: drain_and_cleanup completed");
+    } catch (const std::exception &e) {
+        logging::log_error(
+            std::format("Client::drain_and_cleanup failed: {}", e.what()));
+    } catch (...) {
+        logging::log_error("Client::drain_and_cleanup: unknown exception");
+    }
+}
+
+void Client::disconnect() noexcept {
+    try {
+        if (!session_) {
+            return;
+        }
+
+        session_->disconnect();
+        logging::log_error("Client: disconnected");
+    } catch (const std::exception &e) {
+        logging::log_error(
+            std::format("Client::disconnect failed: {}", e.what()));
+    } catch (...) {
+        logging::log_error("Client::disconnect: unknown exception");
+    }
 }
 
 } // namespace bidi

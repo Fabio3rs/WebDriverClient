@@ -67,8 +67,8 @@ class MessageQueue {
     auto operator=(MessageQueue &&) -> MessageQueue & = delete;
 
     // Producer: enqueue message (lock-free)
-    [[nodiscard]] auto try_enqueue(std::string_view message, id_type id = 0)
-        -> bool {
+    [[nodiscard]] auto try_enqueue(std::string_view message,
+                                   id_type id = 0) -> bool {
         return queue_.push(QueuedMessage{message, id});
     }
 
@@ -79,9 +79,9 @@ class MessageQueue {
 
     // Consumer: dequeue batch of messages for efficient writing
     template <typename OutputIterator>
-    [[nodiscard]] auto try_dequeue_batch(OutputIterator out,
-                                         std::size_t max_count = 32)
-        -> std::size_t {
+    [[nodiscard]] auto
+    try_dequeue_batch(OutputIterator out,
+                      std::size_t max_count = 32) -> std::size_t {
         std::size_t count = 0;
         QueuedMessage msg{"", static_cast<id_type>(0)}; // Temporary for popping
 

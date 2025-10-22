@@ -88,8 +88,8 @@ template <class E> class EventStream {
 
     // functional operators — return new streams (copyable/movable)
 
-    auto take_until(const std::shared_ptr<StopToken> &stop) const
-        -> EventStream<E> {
+    auto
+    take_until(const std::shared_ptr<StopToken> &stop) const -> EventStream<E> {
         EventStream<E> out(st_->ex);
         auto sub = subscribe([out, stop](const E &e) mutable {
             if (!stop->stop.load(std::memory_order_relaxed)) {

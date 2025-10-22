@@ -403,6 +403,42 @@ Removed: cases tied to promise_pool (obsolete layer)
 
 ## 17. Recent Updates
 
+2025-10-22
+- **Memory Leak Fixes and Cleanup API Enhancement** - Resolved indirect memory leaks and improved resource cleanup patterns:
+  - **Weak Pointer Pattern for Event Callbacks** (`src/bidi_network_intercept_handler.cpp`):
+    - **Problem**: Event handler callbacks captured `shared_ptr<NetworkInterceptHandler>` creating reference cycles (536B BiDiSession + 336B NetworkInterceptHandler indirect leaks)
+    - **Root Cause**: Cyclic references between handler and event callbacks prevented proper RAII cleanup
+    - **Solution**: Replaced `shared_ptr` captures with `std::weak_ptr` + `.lock()` safety check in event handlers (before_request_callback, after_response_callback)
+    - **Pattern**: `auto handler_ptr = handler_weak.lock(); if (!handler_ptr) return;` safely handles destruction race
+    - **Verification**: Test `NetworkInterceptBiDiTest.InterceptSimpleRequest` now runs leak-free (ZERO indirect leaks detected by LeakSanitizer)
+  - **ClientGuard Enhancement** (`include/bidi/guards.hpp`):
+    - Added state tracking: `cleanup_started_` and `cleanup_completed_` flags prevent double-cleanup
+    - Enhanced destructor with deterministic cleanup order: subscriptions → session disconnect → client reset
+    - Move semantics transfer cleanup responsibility correctly
+    - Detailed logging shows each cleanup step (subscriptions cleared, session disconnected, client reset)
+    - Idempotent `cleanup()` method allows explicit early cleanup
+  - **Cleanup API for Client and BiDiSession** (defensive improvements for resource management):
+    - **Client methods** (`include/bidi/client.hpp`, `src/bidi_client.cpp`):
+      - `pending_request_count()`: Query number of in-flight requests
+      - `clear_pending_requests()`: Forcefully discard all pending responses (noexcept with full exception handling)
+      - `clear_event_handlers()`: Remove all registered event handler callbacks
+      - `drain_and_cleanup()`: Comprehensive shutdown with detailed logging (clears pending → clears handlers → disconnects → resets session)
+      - Enhanced `disconnect()`: Added logging and exception handling
+    - **BiDiSession methods** (`include/bidi/core.hpp`):
+      - `test_pending_size()`: Get count of pending requests (for diagnostics and testing)
+      - `test_pending_clear()`: Forcefully clear pending_responses_ map (for cleanup/shutdown)
+      - `test_clear_event_handlers()`: Clear all event handlers and refcount maps (for cleanup/shutdown)
+    - **Design**: All methods strand-safe via `boost::asio::post()`, noexcept with comprehensive try/catch blocks
+    - **Use Case**: Enables manual resource inspection/cleanup during shutdown, recovery from protocol errors, and improved testability
+  - **Files Affected**: 
+    - `src/bidi_network_intercept_handler.cpp` (weak_ptr callbacks)
+    - `include/bidi/guards.hpp` (ClientGuard enhanced)
+    - `include/bidi/client.hpp` (new cleanup API declarations)
+    - `src/bidi_client.cpp` (cleanup API implementations)
+    - `include/bidi/core.hpp` (BiDiSession test methods, removed `#ifdef BIDI_TESTING` to make always available)
+  - **Test Status**: All 36 build targets compile successfully; NetworkInterceptBiDiTest passes (344ms) with zero leaks
+  - **Impact**: Eliminates indirect memory leaks, provides explicit cleanup control for shutdown scenarios, improves RAII guard patterns, enables better resource diagnostics
+
 2025-10-21
 - **Test Infrastructure Improvements** - Extracted and enhanced HTTP test server for reusability:
   - **TestHttpServer** (`tests/test_http_server.hpp`): Reusable HTTP/1.1 test server extracted from `execute_script_integration_test.cpp`

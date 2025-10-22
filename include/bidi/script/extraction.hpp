@@ -98,8 +98,8 @@ template <typename T>
  * @endcode
  */
 template <typename T>
-[[nodiscard]] auto extract_value_opt(const boost::json::object &result)
-    -> std::optional<T> {
+[[nodiscard]] auto
+extract_value_opt(const boost::json::object &result) -> std::optional<T> {
     try {
         return extract_value<T>(result);
     } catch (...) {
@@ -140,8 +140,8 @@ template <typename T>
  * }
  * @endcode
  */
-[[nodiscard]] inline auto has_value(const boost::json::object &result) noexcept
-    -> bool {
+[[nodiscard]] inline auto
+has_value(const boost::json::object &result) noexcept -> bool {
     try {
         return result.contains("result") && result.at("result").is_object() &&
                result.at("result").as_object().contains("value");
@@ -177,8 +177,8 @@ template <typename T>
  * @endcode
  */
 template <typename T>
-[[nodiscard]] auto extract_value_from_outcome(const ScriptEvalOutcome &outcome)
-    -> T {
+[[nodiscard]] auto
+extract_value_from_outcome(const ScriptEvalOutcome &outcome) -> T {
     // Check for script exception first
     if (outcome.has_exception()) {
         throw ScriptEvaluateException(*outcome.exception);
@@ -214,9 +214,8 @@ template <typename T>
  * @note Requires including "bidi/script_eval.hpp" before use
  */
 template <typename T>
-[[nodiscard]] auto
-extract_value_from_outcome_opt(const ScriptEvalOutcome &outcome)
-    -> std::optional<T> {
+[[nodiscard]] auto extract_value_from_outcome_opt(
+    const ScriptEvalOutcome &outcome) -> std::optional<T> {
     try {
         return extract_value_from_outcome<T>(outcome);
     } catch (...) {
@@ -238,8 +237,8 @@ extract_value_from_outcome_opt(const ScriptEvalOutcome &outcome)
  */
 template <typename T>
 [[nodiscard]] auto
-extract_value_from_outcome_or(const ScriptEvalOutcome &outcome, T fallback)
-    -> T {
+extract_value_from_outcome_or(const ScriptEvalOutcome &outcome,
+                              T fallback) -> T {
     return extract_value_from_outcome_opt<T>(outcome).value_or(
         std::move(fallback));
 }

@@ -32,8 +32,8 @@ enum class ClientWindowState : std::uint8_t {
     Normal
 };
 
-[[nodiscard]] constexpr auto to_string(ClientWindowState value) noexcept
-    -> std::string_view {
+[[nodiscard]] constexpr auto
+to_string(ClientWindowState value) noexcept -> std::string_view {
     using enum ClientWindowState;
     switch (value) {
     case Fullscreen:
@@ -49,9 +49,8 @@ enum class ClientWindowState : std::uint8_t {
     }
 }
 
-[[nodiscard]] constexpr auto
-parse_client_window_state(std::string_view text) noexcept
-    -> std::optional<ClientWindowState> {
+[[nodiscard]] constexpr auto parse_client_window_state(
+    std::string_view text) noexcept -> std::optional<ClientWindowState> {
     using enum ClientWindowState;
     if (text == "fullscreen") {
         return Fullscreen;

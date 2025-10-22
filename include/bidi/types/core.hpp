@@ -108,8 +108,8 @@ enum class ErrorCode : std::uint8_t {
  * @note noexcept guarantees no exceptions (lookup table)
  * @note [[nodiscard]] prevents ignoring return value
  */
-[[nodiscard]] constexpr auto to_string(ErrorCode code) noexcept
-    -> std::string_view {
+[[nodiscard]] constexpr auto
+to_string(ErrorCode code) noexcept -> std::string_view {
     using enum ErrorCode;
     switch (code) {
     case InvalidArgument:
@@ -234,8 +234,8 @@ enum class ErrorCode : std::uint8_t {
  * }
  * @endcode
  */
-[[nodiscard]] constexpr auto parse_error_code(std::string_view text) noexcept
-    -> std::optional<ErrorCode> {
+[[nodiscard]] constexpr auto
+parse_error_code(std::string_view text) noexcept -> std::optional<ErrorCode> {
     using enum ErrorCode;
 
     // Sorted alphabetically for binary search optimization
@@ -421,8 +421,8 @@ enum class ErrorCode : std::uint8_t {
 /**
  * @brief Check if error code represents an "invalid X" category
  */
-[[nodiscard]] constexpr auto is_invalid_argument_error(ErrorCode code) noexcept
-    -> bool {
+[[nodiscard]] constexpr auto
+is_invalid_argument_error(ErrorCode code) noexcept -> bool {
     using enum ErrorCode;
     switch (code) {
     case InvalidArgument:
@@ -461,8 +461,8 @@ enum class MessageType : std::uint8_t { Success, Error, Event };
 /**
  * @brief Convert MessageType to string
  */
-[[nodiscard]] constexpr auto to_string(MessageType type) noexcept
-    -> std::string_view {
+[[nodiscard]] constexpr auto
+to_string(MessageType type) noexcept -> std::string_view {
     using enum MessageType;
     switch (type) {
     case Success:

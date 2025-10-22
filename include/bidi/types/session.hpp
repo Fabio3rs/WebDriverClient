@@ -36,8 +36,8 @@ struct SocksProxyConfiguration {
  */
 enum class ProxyType : std::uint8_t { Autodetect, Direct, Manual, Pac, System };
 
-[[nodiscard]] constexpr auto to_string(ProxyType type) noexcept
-    -> std::string_view {
+[[nodiscard]] constexpr auto
+to_string(ProxyType type) noexcept -> std::string_view {
     using enum ProxyType;
     switch (type) {
     case Autodetect:
@@ -55,8 +55,8 @@ enum class ProxyType : std::uint8_t { Autodetect, Direct, Manual, Pac, System };
     }
 }
 
-[[nodiscard]] constexpr auto parse_proxy_type(std::string_view text) noexcept
-    -> std::optional<ProxyType> {
+[[nodiscard]] constexpr auto
+parse_proxy_type(std::string_view text) noexcept -> std::optional<ProxyType> {
     using enum ProxyType;
     if (text == "autodetect") {
         return Autodetect;
@@ -97,8 +97,8 @@ struct ProxyConfiguration {
  */
 enum class UserPromptAction : std::uint8_t { Accept, Dismiss, Ignore };
 
-[[nodiscard]] constexpr auto to_string(UserPromptAction action) noexcept
-    -> std::string_view {
+[[nodiscard]] constexpr auto
+to_string(UserPromptAction action) noexcept -> std::string_view {
     using enum UserPromptAction;
     switch (action) {
     case Accept:
@@ -112,9 +112,8 @@ enum class UserPromptAction : std::uint8_t { Accept, Dismiss, Ignore };
     }
 }
 
-[[nodiscard]] constexpr auto
-parse_user_prompt_action(std::string_view text) noexcept
-    -> std::optional<UserPromptAction> {
+[[nodiscard]] constexpr auto parse_user_prompt_action(
+    std::string_view text) noexcept -> std::optional<UserPromptAction> {
     using enum UserPromptAction;
     if (text == "accept") {
         return Accept;

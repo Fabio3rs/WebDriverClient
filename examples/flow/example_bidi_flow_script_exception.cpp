@@ -21,8 +21,8 @@ namespace asio = boost::asio;
 
 namespace {
 
-auto run_script_test(bidi::ClientGuard &guard, const std::string &ctx)
-    -> asio::awaitable<int> {
+auto run_script_test(bidi::ClientGuard &guard,
+                     const std::string &ctx) -> asio::awaitable<int> {
     using namespace std::chrono_literals;
     using bidi::script::script_eval_policy::throw_on_script_exception;
 

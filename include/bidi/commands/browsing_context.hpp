@@ -33,9 +33,9 @@ enum class ReadinessState { none, interactive, complete };
  * @param reference_context Optional reference context ID
  * @return Params object for browsingContext.create command
  */
-[[nodiscard]] auto create(CreateType type,
-                          std::string_view reference_context = {})
-    -> boost::json::object;
+[[nodiscard]] auto
+create(CreateType type,
+       std::string_view reference_context = {}) -> boost::json::object;
 
 /**
  * @brief Build browsingContext.navigate params
@@ -44,9 +44,9 @@ enum class ReadinessState { none, interactive, complete };
  * @param wait Readiness state to wait for
  * @return Params object for browsingContext.navigate command
  */
-[[nodiscard]] auto navigate(std::string_view context, std::string_view url,
-                            ReadinessState wait = ReadinessState::complete)
-    -> boost::json::object;
+[[nodiscard]] auto
+navigate(std::string_view context, std::string_view url,
+         ReadinessState wait = ReadinessState::complete) -> boost::json::object;
 
 /**
  * @brief Build browsingContext.close params
@@ -61,8 +61,8 @@ enum class ReadinessState { none, interactive, complete };
  * @param max_depth Maximum depth to traverse (-1 for unlimited)
  * @return Params object for browsingContext.getTree command
  */
-[[nodiscard]] auto get_tree(std::string_view root = {}, int max_depth = -1)
-    -> boost::json::object;
+[[nodiscard]] auto get_tree(std::string_view root = {},
+                            int max_depth = -1) -> boost::json::object;
 
 /**
  * @brief Build browsingContext.reload params
@@ -71,9 +71,9 @@ enum class ReadinessState { none, interactive, complete };
  * @param wait Readiness state to wait for
  * @return Params object for browsingContext.reload command
  */
-[[nodiscard]] auto reload(std::string_view context, bool ignore_cache = false,
-                          ReadinessState wait = ReadinessState::complete)
-    -> boost::json::object;
+[[nodiscard]] auto
+reload(std::string_view context, bool ignore_cache = false,
+       ReadinessState wait = ReadinessState::complete) -> boost::json::object;
 
 /**
  * @brief Build browsingContext.activate params

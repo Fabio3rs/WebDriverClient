@@ -1,0 +1,107 @@
+--- gptx.py	2025-10-17
++++ gptx.py	2025-10-17
+@@
+-DEFAULT_MODEL = os.getenv("GPTX_MODEL", "gpt-5-mini")  # ajuste aqui
++DEFAULT_MODEL = os.getenv("GPTX_MODEL", "gpt-4o-mini")  # mais estável p/ texto
+@@
+-def agent(
++def agent(
+@@
+-    # 1ª rodada
+-    resp = client.responses.create(model=model, input=msgs, tools=tools)
+-
+-    # imprime texto (se houver)
+-    if resp.output_text:
+-        console.print(Markdown(resp.output_text))
+-
+-    # trata chamadas de ferramenta (uma rodada simples; pode-se iterar até convergir)
+-    # OBS: a estrutura exata de tool calls pode variar; mantemos verificação defensiva.
+-    pending_calls = [
+-        item
+-        for item in getattr(resp, "output", [])
+-        if getattr(item, "type", "").endswith("tool_call")
+-    ]
+-    for call in pending_calls:
+-        name = getattr(call, "name", None) or getattr(call, "tool_name", None)
+-        args = json.loads(getattr(call, "arguments", "{}"))
+-        result = call_tool(name, args)
+-        # devolver o resultado ao modelo para síntese final
+-        resp = client.responses.create(
+-            model=model,
+-            previous_response_id=resp.id,
+-            input=[
+-                {
+-                    "role": "tool",
+-                    "content": json.dumps(result),
+-                    "tool_call_id": getattr(call, "id", None),
+-                }
+-            ],
+-        )
+-    if resp.output_text:
+-        console.print(Markdown(resp.output_text))
++    resp = client.responses.create(
++        model=model,
++        input=msgs,
++        tools=tools,
++        max_output_tokens=1024,
++    )
++
++    def print_any_text(r) -> bool:
++        shown = False
++        txt = getattr(r, "output_text", None)
++        if txt:
++            console.print(Markdown(txt))
++            return True
++        try:
++            data = r.model_dump()
++        except Exception:
++            data = {}
++        outs = []
++        for item in data.get("output", []) or []:
++            if item.get("type") == "message":
++                for part in item.get("content", []) or []:
++                    if part.get("type") == "output_text" and part.get("text"):
++                        outs.append(part["text"])
++        if outs:
++            console.print(Markdown("\n\n".join(outs)))
++            shown = True
++        return shown
++
++    def iter_calls(r):
++        try:
++            data = r.model_dump()
++        except Exception:
++            data = {}
++        for it in data.get("output", []) or []:
++            t = str(it.get("type", ""))
++            if ("function_call" in t) or ("tool_call" in t):
++                yield {
++                    "id": it.get("id"),
++                    "name": it.get("name") or it.get("tool_name"),
++                    "arguments": it.get("arguments") or "{}",
++                }
++
++    while True:
++        printed = print_any_text(resp)
++        calls = list(iter_calls(resp))
++        if not calls:
++            if not printed:
++                try:
++                    console.print_json(data=resp.model_dump())
++                except Exception:
++                    console.print(repr(resp))
++            break
++        for call in calls:
++            name = call["name"]
++            args = json.loads(call["arguments"] or "{}")
++            result = call_tool(name, args)
++            resp = client.responses.create(
++                model=model,
++                previous_response_id=resp.id,
++                input=[{
++                    "role": "tool",
++                    "content": json.dumps(result, ensure_ascii=False),
++                    "tool_call_id": call["id"],
++                }],
++                max_output_tokens=1024,
++            )

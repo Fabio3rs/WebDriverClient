@@ -55,10 +55,10 @@ class Client : public std::enable_shared_from_this<Client> {
     explicit Client(std::shared_ptr<core::BiDiSession> session);
 
     // Factory: connect to BiDi WebSocket directly
-    static auto
-    connect(boost::asio::io_context &ioc, std::string_view websocket_url,
-            std::source_location loc = std::source_location::current())
-        -> Task<Ptr>;
+    static auto connect(boost::asio::io_context &ioc,
+                        std::string_view websocket_url,
+                        std::source_location loc =
+                            std::source_location::current()) -> Task<Ptr>;
 
     // Generic zero-overhead async_send (CompletionToken based)
     template <class CompletionToken>
@@ -73,11 +73,11 @@ class Client : public std::enable_shared_from_this<Client> {
         -> Task<std::string>;
 
     // Create new browsing context (tab/window)
-    [[nodiscard]] auto create_context(
-        commands::browsing_context::CreateType type =
-            commands::browsing_context::CreateType::window,
-        const std::source_location &loc = std::source_location::current())
-        -> Task<std::string>;
+    [[nodiscard]] auto
+    create_context(commands::browsing_context::CreateType type =
+                       commands::browsing_context::CreateType::window,
+                   const std::source_location &loc =
+                       std::source_location::current()) -> Task<std::string>;
 
     // Navigate to URL
     [[nodiscard]] auto
@@ -102,10 +102,10 @@ class Client : public std::enable_shared_from_this<Client> {
         -> Task<void>;
 
     // Close browsing context
-    [[nodiscard]] auto close_context(
-        std::string_view context,
-        const std::source_location &loc = std::source_location::current())
-        -> Task<bool>;
+    [[nodiscard]] auto
+    close_context(std::string_view context,
+                  const std::source_location &loc =
+                      std::source_location::current()) -> Task<bool>;
 
     // Get browsing context tree
     [[nodiscard]] auto get_context_tree(
@@ -241,10 +241,10 @@ class Client : public std::enable_shared_from_this<Client> {
         -> Task<std::string>;
 
     // Remove preload script
-    [[nodiscard]] auto remove_preload_script(
-        std::string_view script_id,
-        const std::source_location &loc = std::source_location::current())
-        -> Task<void>;
+    [[nodiscard]] auto
+    remove_preload_script(std::string_view script_id,
+                          const std::source_location &loc =
+                              std::source_location::current()) -> Task<void>;
 
     // ======================== Network Interception API
     // ========================
@@ -279,10 +279,10 @@ class Client : public std::enable_shared_from_this<Client> {
      * @see
      * https://w3c.github.io/webdriver-bidi/#command-network-removeIntercept
      */
-    [[nodiscard]] auto remove_intercept(
-        types::network::InterceptId intercept_id,
-        const std::source_location &loc = std::source_location::current())
-        -> Task<void>;
+    [[nodiscard]] auto
+    remove_intercept(types::network::InterceptId intercept_id,
+                     const std::source_location &loc =
+                         std::source_location::current()) -> Task<void>;
 
     /**
      * @brief Continue intercepted request (possibly modified)
@@ -320,10 +320,10 @@ class Client : public std::enable_shared_from_this<Client> {
      *
      * @see https://w3c.github.io/webdriver-bidi/#command-network-failRequest
      */
-    [[nodiscard]] auto fail_request(
-        types::network::RequestId request_id,
-        const std::source_location &loc = std::source_location::current())
-        -> Task<void>;
+    [[nodiscard]] auto
+    fail_request(types::network::RequestId request_id,
+                 const std::source_location &loc =
+                     std::source_location::current()) -> Task<void>;
 
     /**
      * @brief Continue intercepted response (possibly modified)
@@ -457,12 +457,66 @@ class Client : public std::enable_shared_from_this<Client> {
     // Get executor for async operations
     auto get_executor() const -> boost::asio::any_io_executor;
 
-    // Graceful disconnect (releases pending responses and closes websocket)
-    void disconnect() {
-        if (session_) {
-            session_->disconnect();
-        }
-    }
+    /**
+     * @brief Get count of pending requests
+     *
+     * Useful for debugging and monitoring request lifecycle.
+     * Returns the number of in-flight requests awaiting responses.
+     */
+    [[nodiscard]] auto pending_request_count() const -> std::size_t;
+
+    /**
+     * @brief Clear all pending requests (dangerous - can lose request data)
+     *
+     * Clears the pending_responses map without waiting for actual responses.
+     * WARNING: This may leave requests in-flight on the server. Use only when:
+     * - Forcefully shutting down the client
+     * - Recovering from a protocol error
+     * - Running cleanup in destructors
+     *
+     * Safe to call multiple times (idempotent).
+     */
+    void clear_pending_requests() noexcept;
+
+    /**
+     * @brief Clear all event handlers
+     *
+     * Removes all registered event handlers without unsubscribing from the
+     * server. This prevents further events from being delivered locally
+     * but does NOT send unsubscribe commands to the server.
+     *
+     * Useful for cleanup when disconnecting or recovering from errors.
+     * Safe to call multiple times (idempotent).
+     */
+    void clear_event_handlers() noexcept;
+
+    /**
+     * @brief Drain pending operations and gracefully disconnect
+     *
+     * Performs comprehensive cleanup in this order:
+     * 1. Cancel/fail all pending requests
+     * 2. Clear event handler registry
+     * 3. Close WebSocket connection
+     * 4. Reset session
+     *
+     * Provides detailed logging of each cleanup step.
+     * Safe to call multiple times (idempotent).
+     *
+     * @note This is more aggressive than disconnect() and should be used
+     *       when you need guaranteed cleanup even if the server is unreachable.
+     */
+    void drain_and_cleanup() noexcept;
+
+    /**
+     * @brief Graceful disconnect (minimal cleanup)
+     *
+     * Releases pending responses and closes WebSocket connection.
+     * This is a lightweight disconnect that assumes normal operation.
+     * For more comprehensive cleanup, use drain_and_cleanup().
+     *
+     * Safe to call multiple times (idempotent).
+     */
+    void disconnect() noexcept;
 
   private:
     std::shared_ptr<core::BiDiSession> session_;

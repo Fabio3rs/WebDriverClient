@@ -206,10 +206,10 @@ class AutomationSession {
      * @endcode
      */
     template <typename T>
-    [[nodiscard]] auto evaluate_as(
-        std::string_view expression,
-        const std::source_location &loc = std::source_location::current())
-        -> Task<T> {
+    [[nodiscard]] auto
+    evaluate_as(std::string_view expression,
+                const std::source_location &loc =
+                    std::source_location::current()) -> Task<T> {
         return evaluate(expression, loc)
             .map([expr = std::string(expression)](
                      boost::json::object result) -> T {
@@ -240,10 +240,10 @@ class AutomationSession {
      * @endcode
      */
     template <typename T>
-    [[nodiscard]] auto evaluate_as_or(
-        std::string_view expression, T fallback,
-        const std::source_location &loc = std::source_location::current())
-        -> Task<T> {
+    [[nodiscard]] auto
+    evaluate_as_or(std::string_view expression, T fallback,
+                   const std::source_location &loc =
+                       std::source_location::current()) -> Task<T> {
         return evaluate(expression, loc)
             .map([fallback =
                       std::move(fallback)](boost::json::object result) -> T {
@@ -315,12 +315,12 @@ class AutomationSession {
      * @endcode
      */
     template <typename T>
-    [[nodiscard]] auto evaluate_as_outcome(
-        std::string_view expression,
-        script::script_eval_policy policy =
-            script::script_eval_policy::return_outcome,
-        const std::source_location &loc = std::source_location::current())
-        -> Task<T> {
+    [[nodiscard]] auto
+    evaluate_as_outcome(std::string_view expression,
+                        script::script_eval_policy policy =
+                            script::script_eval_policy::return_outcome,
+                        const std::source_location &loc =
+                            std::source_location::current()) -> Task<T> {
         return evaluate_outcome(expression, policy, loc)
             .map([expr = std::string(expression)](
                      script::ScriptEvalOutcome outcome) -> T {

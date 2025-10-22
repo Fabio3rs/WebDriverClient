@@ -93,8 +93,8 @@ inline auto make_arg_json(const char *str) -> boost::json::object {
 }
 
 // Already a LocalValue object
-inline auto make_arg_json(const boost::json::object &obj)
-    -> boost::json::object {
+inline auto
+make_arg_json(const boost::json::object &obj) -> boost::json::object {
     return obj;
 }
 

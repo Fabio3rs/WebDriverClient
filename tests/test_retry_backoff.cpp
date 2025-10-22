@@ -24,10 +24,9 @@ constexpr auto kCancelWait = std::chrono::milliseconds(10);
 // Helper fake async which fails first N times with a retryable EC, then
 // succeeds
 template <class T>
-auto make_fail_then_succeed(const net::any_io_executor &executor,
-                            int fail_times,
-                            std::shared_ptr<std::atomic<int>> &attempt_counter)
-    -> Async<T> {
+auto make_fail_then_succeed(
+    const net::any_io_executor &executor, int fail_times,
+    std::shared_ptr<std::atomic<int>> &attempt_counter) -> Async<T> {
     return Async<T>::from_callback(
         executor, [fail_times, attempt_counter](auto callback_fn,
                                                 const auto &stop_token) {
