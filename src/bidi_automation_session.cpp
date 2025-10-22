@@ -10,10 +10,9 @@ namespace bidi {
 // Private constructor
 AutomationSession::AutomationSession(
     std::unique_ptr<IoContextRunner> runner,
-    std::unique_ptr<SessionGuard> session_guard, std::shared_ptr<Client> client,
-    std::string context_id)
-    : runner_(std::move(runner)), session_guard_(std::move(session_guard)),
-      client_(std::move(client)), context_id_(std::move(context_id)) {}
+    std::unique_ptr<ClientGuard> client_guard, std::string context_id)
+    : runner_(std::move(runner)), client_guard_(std::move(client_guard)),
+      context_id_(std::move(context_id)) {}
 
 // Static factory (blocking)
 auto AutomationSession::start(std::string_view webdriver_url,
@@ -48,31 +47,27 @@ auto AutomationSession::start(std::string_view webdriver_url,
             "Failed to create browsing context: empty context ID returned");
     }
 
-    // Phase 4: Extract SessionGuard from ConnectionBuilder's capture
-    // Note: We rely on SessionGuard being kept alive by ConnectionBuilder's map
-    // continuation.
-    // For now, we create a new SessionGuard to manage the session lifecycle.
-    auto session_guard =
-        std::make_unique<SessionGuard>(std::string(webdriver_url));
+    // Phase 4: Wrap client in ClientGuard for BiDi lifecycle management
+    // ClientGuard ensures proper cleanup: subscriptions → disconnect → reset
+    auto client_guard = std::make_unique<ClientGuard>(client);
 
     bidi::logging::log_info("AutomationSession started: context=" + context_id);
 
-    return {std::move(runner), std::move(session_guard), client,
-            std::move(context_id)};
+    return {std::move(runner), std::move(client_guard), std::move(context_id)};
 }
 
 // Navigate (async, returns lazy Task)
 auto AutomationSession::navigate(
     std::string_view url, commands::browsing_context::ReadinessState wait,
     const std::source_location &loc) -> Task<std::string> {
-    return client_->navigate(context_id_, url, wait, loc);
+    return client_guard_->client()->navigate(context_id_, url, wait, loc);
 }
 
 // Evaluate (async, returns lazy Task)
 auto AutomationSession::evaluate(std::string_view expression,
                                  const std::source_location &loc)
     -> Task<boost::json::object> {
-    return client_->evaluate(expression, context_id_, true, loc);
+    return client_guard_->client()->evaluate(expression, context_id_, true, loc);
 }
 
 // Get page title (convenience wrapper)

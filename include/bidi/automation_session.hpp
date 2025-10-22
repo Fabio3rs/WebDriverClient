@@ -284,7 +284,7 @@ class AutomationSession {
             script::script_eval_policy::return_outcome,
         const std::source_location &loc = std::source_location::current())
         -> Task<script::ScriptEvalOutcome> {
-        return client_->evaluate(expression, context_id_, policy, true, loc);
+        return client_guard_->client()->evaluate(expression, context_id_, policy, true, loc);
     }
 
     /**
@@ -391,7 +391,7 @@ class AutomationSession {
         -> script::FunctionBidi<Result, Args...> {
         (void)loc; // Available for debugging via GDB
         return script::make_function_caller<Result, Args...>(
-            client_, context_id_, std::move(function_declaration), policy);
+            client_guard_->client(), context_id_, std::move(function_declaration), policy);
     }
 
     /**
@@ -467,7 +467,9 @@ class AutomationSession {
      *
      * @return Reference to shared_ptr<Client>
      */
-    [[nodiscard]] auto client() -> std::shared_ptr<Client> & { return client_; }
+    [[nodiscard]] auto client() -> std::shared_ptr<Client> & { 
+        return client_guard_->client(); 
+    }
 
     /**
      * @brief Access the underlying Client (const, escape hatch for advanced
@@ -476,7 +478,28 @@ class AutomationSession {
      * @return Const reference to shared_ptr<Client>
      */
     [[nodiscard]] auto client() const -> const std::shared_ptr<Client> & {
-        return client_;
+        return client_guard_->client();
+    }
+
+    /**
+     * @brief Explicitly cleanup BiDi resources (subscriptions, connections)
+     *
+     * Can be called before destruction for early cleanup. Safe to call
+     * multiple times (idempotent).
+     *
+     * @note Automatically called by destructor via ClientGuard
+     */
+    void cleanup() noexcept { 
+        client_guard_->cleanup(); 
+    }
+
+    /**
+     * @brief Check if cleanup has been completed
+     *
+     * @return true if cleanup() has been called
+     */
+    [[nodiscard]] auto is_cleaned_up() const noexcept -> bool {
+        return client_guard_->is_cleaned_up();
     }
 
     /**
@@ -508,12 +531,11 @@ class AutomationSession {
   private:
     // Private constructor - use start() factory
     AutomationSession(std::unique_ptr<IoContextRunner> runner,
-                      std::unique_ptr<SessionGuard> session_guard,
-                      std::shared_ptr<Client> client, std::string context_id);
+                      std::unique_ptr<ClientGuard> client_guard,
+                      std::string context_id);
 
     std::unique_ptr<IoContextRunner> runner_;
-    std::unique_ptr<SessionGuard> session_guard_;
-    std::shared_ptr<Client> client_;
+    std::unique_ptr<ClientGuard> client_guard_;
     std::string context_id_;
 };
 
