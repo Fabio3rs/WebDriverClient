@@ -870,10 +870,10 @@ tag_invoke(value_to_tag<bidi::types::network::BaseParameters> /*unused*/,
     params.redirect_count = value_to<std::uint64_t>(obj.at("redirectCount"));
     params.is_blocked = value_to<bool>(obj.at("isBlocked"));
 
-    if (obj.contains("navigation")) {
+    if (obj.contains("navigation") && !obj.at("navigation").is_null()) {
         params.navigation = value_to<std::string>(obj.at("navigation"));
     }
-    if (obj.contains("context")) {
+    if (obj.contains("context") && !obj.at("context").is_null()) {
         params.context = value_to<std::string>(obj.at("context"));
     }
     if (obj.contains("intercepts")) {
@@ -976,10 +976,10 @@ inline auto tag_invoke(
         value_to<std::uint64_t>(obj.at("redirectCount"));
     params.base.is_blocked = value_to<bool>(obj.at("isBlocked"));
 
-    if (obj.contains("navigation")) {
+    if (obj.contains("navigation") && !obj.at("navigation").is_null()) {
         params.base.navigation = value_to<std::string>(obj.at("navigation"));
     }
-    if (obj.contains("context")) {
+    if (obj.contains("context") && !obj.at("context").is_null()) {
         params.base.context = value_to<std::string>(obj.at("context"));
     }
     if (obj.contains("intercepts")) {

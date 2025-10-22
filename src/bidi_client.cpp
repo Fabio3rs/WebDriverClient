@@ -891,9 +891,11 @@ auto Client::set_event_handler(std::string_view method,
                                const std::source_location &loc)
     -> boost::asio::awaitable<void> {
     auto sub_async = session_->subscribe_event(
-        method, [handler = std::move(handler)](const core::ParsedEvent &event) {
+        method,
+        [handler = std::move(handler)](const core::ParsedEvent &event) {
             handler(event.params);
-        });
+        },
+        loc);
     // Convert asyncx::Async to awaitable and co_await
     co_await asyncx::as_awaitable(std::move(sub_async));
     co_return;

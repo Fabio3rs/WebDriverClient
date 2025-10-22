@@ -282,7 +282,7 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
         -> boost::asio::awaitable<ParsedResponse>;
 
     // default timeout used across BiDi core for request operations
-    static constexpr std::chrono::milliseconds kDefaultTimeout{5000};
+    static constexpr std::chrono::milliseconds kDefaultTimeout{60000};
 
     // Transport sender injection for async non-blocking sends used by core
     using TransportSender = std::function<void(
