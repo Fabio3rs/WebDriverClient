@@ -714,10 +714,11 @@ void BiDiSession::send_command(std::string_view method,
 /// @note Uses Async<T> for zero busy-wait suspension (event-driven wakeup)
 /// @see NASA P10 Rule: No pointer/reference lifetime assumptions across async
 /// boundaries
-auto BiDiSession::send_command_awaitable(
-    std::string_view method, boost::json::object params,
-    std::chrono::milliseconds timeout,
-    std::source_location loc) -> boost::asio::awaitable<ParsedResponse> {
+auto BiDiSession::send_command_awaitable(std::string_view method,
+                                         boost::json::object params,
+                                         std::chrono::milliseconds timeout,
+                                         std::source_location loc)
+    -> boost::asio::awaitable<ParsedResponse> {
     auto id = next_id_.fetch_add(1, std::memory_order_relaxed);
     auto start_tp = std::chrono::steady_clock::now();
     auto trace_id = bidi::logging::make_trace_id();

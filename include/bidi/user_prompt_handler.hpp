@@ -137,8 +137,8 @@ struct UserPromptHandlerConfig {
      * @param callback Function to invoke for each prompt
      * @return Config with Custom policy and provided callback
      */
-    [[nodiscard]] static auto
-    custom(UserPromptCallback callback) -> UserPromptHandlerConfig {
+    [[nodiscard]] static auto custom(UserPromptCallback callback)
+        -> UserPromptHandlerConfig {
         return UserPromptHandlerConfig{.policy = UserPromptPolicy::Custom,
                                        .custom_handler = std::move(callback)};
     }
@@ -253,8 +253,8 @@ class UserPromptHandler {
     /**
      * @brief Move assignment operator (C.21 - move-only semantics)
      */
-    auto
-    operator=(UserPromptHandler &&) noexcept -> UserPromptHandler & = default;
+    auto operator=(UserPromptHandler &&) noexcept
+        -> UserPromptHandler & = default;
 
     /**
      * @brief Deleted copy constructor (move-only resource)

@@ -288,8 +288,8 @@ auto scrape_multiple_products(std::shared_ptr<bidi::Client> client,
 // ============================================================================
 
 auto get_product_price_with_fallback(
-    const std::shared_ptr<bidi::Client> &client,
-    std::string_view context) -> asyncx::Async<std::string> {
+    const std::shared_ptr<bidi::Client> &client, std::string_view context)
+    -> asyncx::Async<std::string> {
     auto executor = client->get_executor();
 
     // Try premium selector (detailed price breakdown)

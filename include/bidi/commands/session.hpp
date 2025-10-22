@@ -18,9 +18,9 @@ namespace bidi::commands::session {
  * @param contexts Optional list of browsing context IDs to filter events
  * @return Params object for session.subscribe command
  */
-[[nodiscard]] auto
-subscribe(const std::vector<std::string> &events,
-          const std::vector<std::string> &contexts = {}) -> boost::json::object;
+[[nodiscard]] auto subscribe(const std::vector<std::string> &events,
+                             const std::vector<std::string> &contexts = {})
+    -> boost::json::object;
 
 /**
  * @brief Build session.unsubscribe params

@@ -56,8 +56,8 @@ using BytesValue = std::variant<StringBytes, Base64Bytes>;
  */
 enum class SameSite : std::uint8_t { None, Lax, Strict };
 
-[[nodiscard]] constexpr auto
-to_string(SameSite value) noexcept -> std::string_view {
+[[nodiscard]] constexpr auto to_string(SameSite value) noexcept
+    -> std::string_view {
     using enum SameSite;
     switch (value) {
     case None:
@@ -71,8 +71,8 @@ to_string(SameSite value) noexcept -> std::string_view {
     }
 }
 
-[[nodiscard]] constexpr auto
-parse_same_site(std::string_view text) noexcept -> std::optional<SameSite> {
+[[nodiscard]] constexpr auto parse_same_site(std::string_view text) noexcept
+    -> std::optional<SameSite> {
     using enum SameSite;
     if (text == "none") {
         return None;
@@ -227,8 +227,8 @@ enum class InterceptPhase : std::uint8_t {
     AuthRequired
 };
 
-[[nodiscard]] constexpr auto
-to_string(InterceptPhase phase) noexcept -> std::string_view {
+[[nodiscard]] constexpr auto to_string(InterceptPhase phase) noexcept
+    -> std::string_view {
     using enum InterceptPhase;
     switch (phase) {
     case BeforeRequestSent:
@@ -241,8 +241,9 @@ to_string(InterceptPhase phase) noexcept -> std::string_view {
     return "beforeRequestSent"; // Default
 }
 
-[[nodiscard]] constexpr auto parse_intercept_phase(
-    std::string_view text) noexcept -> std::optional<InterceptPhase> {
+[[nodiscard]] constexpr auto
+parse_intercept_phase(std::string_view text) noexcept
+    -> std::optional<InterceptPhase> {
     using enum InterceptPhase;
     if (text == "beforeRequestSent") {
         return BeforeRequestSent;
@@ -293,8 +294,8 @@ struct SetCookieHeader {
  */
 enum class AuthAction : std::uint8_t { ProvideCredentials, Default, Cancel };
 
-[[nodiscard]] constexpr auto
-to_string(AuthAction action) noexcept -> std::string_view {
+[[nodiscard]] constexpr auto to_string(AuthAction action) noexcept
+    -> std::string_view {
     using enum AuthAction;
     switch (action) {
     case ProvideCredentials:
@@ -307,8 +308,8 @@ to_string(AuthAction action) noexcept -> std::string_view {
     return "default";
 }
 
-[[nodiscard]] constexpr auto
-parse_auth_action(std::string_view text) noexcept -> std::optional<AuthAction> {
+[[nodiscard]] constexpr auto parse_auth_action(std::string_view text) noexcept
+    -> std::optional<AuthAction> {
     using enum AuthAction;
     if (text == "provideCredentials") {
         return ProvideCredentials;
@@ -397,8 +398,8 @@ struct ContinueWithAuthCredentials {
     AuthAction action{AuthAction::ProvideCredentials};
     AuthCredentials credentials;
 
-    auto
-    operator==(const ContinueWithAuthCredentials &) const -> bool = default;
+    auto operator==(const ContinueWithAuthCredentials &) const
+        -> bool = default;
 };
 
 /**
@@ -407,8 +408,8 @@ struct ContinueWithAuthCredentials {
 struct ContinueWithAuthNoCredentials {
     AuthAction action; // Default or Cancel
 
-    auto
-    operator==(const ContinueWithAuthNoCredentials &) const -> bool = default;
+    auto operator==(const ContinueWithAuthNoCredentials &) const
+        -> bool = default;
 };
 
 /**
@@ -469,8 +470,8 @@ struct BeforeRequestSentParameters {
     BaseParameters base;
     RequestData request;
 
-    auto
-    operator==(const BeforeRequestSentParameters &) const -> bool = default;
+    auto operator==(const BeforeRequestSentParameters &) const
+        -> bool = default;
 };
 
 /**
@@ -847,12 +848,22 @@ tag_invoke(value_to_tag<bidi::types::network::BaseParameters> /*unused*/,
     const auto &obj = jv.as_object();
     bidi::types::network::BaseParameters params;
 
-    // The "request" field might be a string (ID) or omitted in some events
-    // For events like beforeRequestSent, it's embedded in the event params
-    // separately
+    // The "request" field might be a string (ID) or object (RequestData in
+    // beforeRequestSent) For events like beforeRequestSent, Chrome includes the
+    // request object with the ID inside
     const auto *req_ptr = obj.if_contains("request");
-    if (req_ptr != nullptr && req_ptr->is_string()) {
-        params.request = value_to<std::string>(*req_ptr);
+    if (req_ptr != nullptr) {
+        if (req_ptr->is_string()) {
+            // Direct ID (used in some events)
+            params.request = value_to<std::string>(*req_ptr);
+        } else if (req_ptr->is_object()) {
+            // RequestData object (used in beforeRequestSent)
+            const auto &req_obj = req_ptr->as_object();
+            const auto *id_ptr = req_obj.if_contains("request");
+            if (id_ptr != nullptr && id_ptr->is_string()) {
+                params.request = value_to<std::string>(*id_ptr);
+            }
+        }
     }
 
     params.timestamp = value_to<std::uint64_t>(obj.at("timestamp"));
@@ -959,11 +970,7 @@ inline auto tag_invoke(
     const auto &obj = jv.as_object();
     bidi::types::network::BeforeRequestSentParameters params;
 
-    // Note: In beforeRequestSent events, "request" is an object (RequestData),
-    // not a string ID like in other network events. So we skip trying to parse
-    // it as string in base.request (which would fail).
-    // It will be parsed separately below as params.request (RequestData).
-
+    // Parse basic parameters
     params.base.timestamp = value_to<std::uint64_t>(obj.at("timestamp"));
     params.base.redirect_count =
         value_to<std::uint64_t>(obj.at("redirectCount"));
@@ -980,9 +987,13 @@ inline auto tag_invoke(
             value_to<std::vector<std::string>>(obj.at("intercepts"));
     }
 
+    // Parse RequestData and extract request_id for base
     if (obj.contains("request")) {
         params.request =
             value_to<bidi::types::network::RequestData>(obj.at("request"));
+        // Copy request_id from RequestData to BaseParameters for command
+        // execution
+        params.base.request = params.request.request_id;
     }
 
     return params;

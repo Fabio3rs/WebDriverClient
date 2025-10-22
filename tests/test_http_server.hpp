@@ -379,8 +379,8 @@ class TestHttpServer {
         close(client_fd);
     }
 
-    static auto
-    parse_request(const std::string &req_str) -> std::optional<HttpRequest> {
+    static auto parse_request(const std::string &req_str)
+        -> std::optional<HttpRequest> {
         std::istringstream stream(req_str);
         std::string request_line;
         std::getline(stream, request_line);
@@ -421,10 +421,10 @@ class TestHttpServer {
         return req;
     }
 
-    static auto
-    check_auth(const HttpRequest &req,
-               [[maybe_unused]] const std::string &username,
-               [[maybe_unused]] const std::string &password) -> bool {
+    static auto check_auth(const HttpRequest &req,
+                           [[maybe_unused]] const std::string &username,
+                           [[maybe_unused]] const std::string &password)
+        -> bool {
         if (!req.headers.contains("Authorization")) {
             return false;
         }

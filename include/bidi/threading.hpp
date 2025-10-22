@@ -60,13 +60,13 @@ class ThreadingContext {
     auto operator=(ThreadingContext &&) -> ThreadingContext & = delete;
 
     // Get executors for different workloads
-    [[nodiscard]] auto
-    get_io_executor() noexcept -> boost::asio::io_context::executor_type {
+    [[nodiscard]] auto get_io_executor() noexcept
+        -> boost::asio::io_context::executor_type {
         return io_context_->get_executor();
     }
 
-    [[nodiscard]] auto
-    get_cpu_executor() noexcept -> boost::asio::thread_pool::executor_type {
+    [[nodiscard]] auto get_cpu_executor() noexcept
+        -> boost::asio::thread_pool::executor_type {
         return cpu_pool_->get_executor();
     }
 

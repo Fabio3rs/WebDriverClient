@@ -50,9 +50,10 @@ auto process_heavy_data(const boost::json::object &input)
 
 // Coroutine that offloads work to CPU pool
 // Pass context_id by value to avoid lifetime issues
-auto process_with_cpu_offload(
-    std::shared_ptr<bidi::Client> client, std::string context_id,
-    std::shared_ptr<asio::thread_pool> cpu_pool) -> asio::awaitable<void> {
+auto process_with_cpu_offload(std::shared_ptr<bidi::Client> client,
+                              std::string context_id,
+                              std::shared_ptr<asio::thread_pool> cpu_pool)
+    -> asio::awaitable<void> {
 
     bidi::logging::log_info(
         std::format("I/O thread {}: Starting command", get_thread_info()));

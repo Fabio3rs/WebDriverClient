@@ -70,8 +70,8 @@ enum class RealmType : std::uint8_t {
     Worklet
 };
 
-[[nodiscard]] constexpr auto
-to_string(RealmType type) noexcept -> std::string_view {
+[[nodiscard]] constexpr auto to_string(RealmType type) noexcept
+    -> std::string_view {
     using enum RealmType;
     switch (type) {
     case Window:
@@ -100,8 +100,8 @@ to_string(RealmType type) noexcept -> std::string_view {
  */
 enum class ResultOwnership : std::uint8_t { Root, None };
 
-[[nodiscard]] constexpr auto
-to_string(ResultOwnership ownership) noexcept -> std::string_view {
+[[nodiscard]] constexpr auto to_string(ResultOwnership ownership) noexcept
+    -> std::string_view {
     using enum ResultOwnership;
     switch (ownership) {
     case Root:

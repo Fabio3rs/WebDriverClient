@@ -73,8 +73,8 @@ enum class MessageKind {
 };
 
 // Spec: Fast message kind detection (no full JSON parse)
-[[nodiscard]] auto
-detect_message_kind(std::string_view payload) noexcept -> MessageKind;
+[[nodiscard]] auto detect_message_kind(std::string_view payload) noexcept
+    -> MessageKind;
 
 // Spec: Check if ID is within safe integer range
 [[nodiscard]] constexpr auto is_id_safe(std::uint64_t id) noexcept -> bool {
@@ -82,9 +82,9 @@ detect_message_kind(std::string_view payload) noexcept -> MessageKind;
 }
 
 // Spec: Build command message {id, method, params}
-[[nodiscard]] auto
-build_command(id_type id_value, std::string_view method,
-              const boost::json::object &params = {}) -> std::string;
+[[nodiscard]] auto build_command(id_type id_value, std::string_view method,
+                                 const boost::json::object &params = {})
+    -> std::string;
 
 // Spec: Parsed response structure
 struct ParsedResponse {
@@ -106,8 +106,8 @@ struct ParsedResponse {
     bool timeout_expired{false}; // true if locally constructed due to timeout
 };
 
-[[nodiscard]] auto
-parse_response(std::string_view payload) -> std::optional<ParsedResponse>;
+[[nodiscard]] auto parse_response(std::string_view payload)
+    -> std::optional<ParsedResponse>;
 
 // Spec: Parsed event structure
 struct ParsedEvent {
@@ -115,8 +115,8 @@ struct ParsedEvent {
     boost::json::object params;
 };
 
-[[nodiscard]] auto
-parse_event(std::string_view payload) -> std::optional<ParsedEvent>;
+[[nodiscard]] auto parse_event(std::string_view payload)
+    -> std::optional<ParsedEvent>;
 
 // ======================== WebSocket Transport ========================
 
@@ -234,13 +234,13 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
         [[nodiscard]] auto is_active() const noexcept -> bool {
             return active_;
         }
-        [[nodiscard]] auto
-        subscription_id() const noexcept -> const std::string & {
+        [[nodiscard]] auto subscription_id() const noexcept
+            -> const std::string & {
             return subscription_id_;
         }
 
-        [[nodiscard]] auto
-        get_source_location() const noexcept -> const std::source_location & {
+        [[nodiscard]] auto get_source_location() const noexcept
+            -> const std::source_location & {
             return loc_;
         }
 

@@ -14,8 +14,8 @@ class ConnectionBuilder {
         return builder;
     }
 
-    [[nodiscard]] auto
-    with_capabilities(WebDriver::json caps) const -> ConnectionBuilder {
+    [[nodiscard]] auto with_capabilities(WebDriver::json caps) const
+        -> ConnectionBuilder {
         ConnectionBuilder out = *this;
         out.capabilities_ = std::move(caps);
         return out;
@@ -48,8 +48,8 @@ class ConnectionBuilder {
         return out;
     }
 
-    [[nodiscard]] auto
-    with_args(std::vector<std::string> args) const -> ConnectionBuilder {
+    [[nodiscard]] auto with_args(std::vector<std::string> args) const
+        -> ConnectionBuilder {
         ConnectionBuilder out = *this;
         out.browser_args_ = std::move(args);
         return out;

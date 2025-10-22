@@ -20,8 +20,8 @@ Client::Client(std::shared_ptr<core::BiDiSession> session)
     : session_(std::move(session)) {}
 
 auto Client::connect(boost::asio::io_context &ioc,
-                     std::string_view websocket_url,
-                     std::source_location loc) -> Task<Client::Ptr> {
+                     std::string_view websocket_url, std::source_location loc)
+    -> Task<Client::Ptr> {
     auto ex = ioc.get_executor();
     auto result = Task<Ptr>::make(ex, loc);
     auto ws_client = std::make_shared<core::WebSocketClient>(ioc);
@@ -158,8 +158,8 @@ auto Client::reload(std::string_view context, bool ignore_cache,
     return result;
 }
 
-auto Client::activate(std::string_view context,
-                      const std::source_location &loc) -> Task<void> {
+auto Client::activate(std::string_view context, const std::source_location &loc)
+    -> Task<void> {
     auto ex = get_executor();
     auto result = Task<void>::make(ex);
     auto params = commands::browsing_context::activate(context);
@@ -466,10 +466,11 @@ auto Client::evaluate(std::string_view expression, std::string_view context,
     return task;
 }
 
-auto Client::call_function(
-    std::string_view function_declaration, std::string_view context,
-    boost::json::array arguments, bool await_promise,
-    const std::source_location &loc) -> Task<boost::json::object> {
+auto Client::call_function(std::string_view function_declaration,
+                           std::string_view context,
+                           boost::json::array arguments, bool await_promise,
+                           const std::source_location &loc)
+    -> Task<boost::json::object> {
     auto ex = get_executor();
     auto result = Task<boost::json::object>::make(ex);
     commands::script::Target target{.context = context, .sandbox = {}};
@@ -490,11 +491,12 @@ auto Client::call_function(
     return result;
 }
 
-auto Client::call_function(
-    std::string_view function_declaration, std::string_view context,
-    boost::json::array arguments, script::script_eval_policy policy,
-    bool await_promise,
-    const std::source_location &loc) -> Task<script::ScriptEvalOutcome> {
+auto Client::call_function(std::string_view function_declaration,
+                           std::string_view context,
+                           boost::json::array arguments,
+                           script::script_eval_policy policy,
+                           bool await_promise, const std::source_location &loc)
+    -> Task<script::ScriptEvalOutcome> {
     auto ex = get_executor();
     auto task = Task<script::ScriptEvalOutcome>::make(ex);
     commands::script::Target target{.context = context, .sandbox = {}};
@@ -555,10 +557,11 @@ auto Client::call_function(
     return task;
 }
 
-auto Client::add_preload_script(
-    std::string_view function_declaration, boost::json::array arguments,
-    std::string_view sandbox,
-    const std::source_location &loc) -> Task<std::string> {
+auto Client::add_preload_script(std::string_view function_declaration,
+                                boost::json::array arguments,
+                                std::string_view sandbox,
+                                const std::source_location &loc)
+    -> Task<std::string> {
     auto ex = get_executor();
     auto result = Task<std::string>::make(ex, loc);
     auto params = commands::script::add_preload_script(
@@ -587,8 +590,9 @@ auto Client::add_preload_script(
     return result;
 }
 
-auto Client::remove_preload_script(
-    std::string_view script_id, const std::source_location &loc) -> Task<void> {
+auto Client::remove_preload_script(std::string_view script_id,
+                                   const std::source_location &loc)
+    -> Task<void> {
     auto ex = get_executor();
     auto result = Task<void>::make(ex, loc);
     auto params = commands::script::remove_preload_script(script_id);
@@ -748,8 +752,8 @@ auto Client::continue_response(
     std::optional<types::network::AuthCredentials> credentials,
     std::optional<std::vector<types::network::Header>> headers,
     std::optional<std::string> reason_phrase,
-    std::optional<std::uint64_t> status_code,
-    const std::source_location &loc) -> Task<void> {
+    std::optional<std::uint64_t> status_code, const std::source_location &loc)
+    -> Task<void> {
     auto ex = get_executor();
     auto result = Task<void>::make(ex, loc);
 
@@ -784,8 +788,8 @@ auto Client::provide_response(
     std::optional<std::vector<types::network::SetCookieHeader>> cookies,
     std::optional<std::vector<types::network::Header>> headers,
     std::optional<std::string> reason_phrase,
-    std::optional<std::uint64_t> status_code,
-    const std::source_location &loc) -> Task<void> {
+    std::optional<std::uint64_t> status_code, const std::source_location &loc)
+    -> Task<void> {
     auto ex = get_executor();
     auto result = Task<void>::make(ex, loc);
 
@@ -882,9 +886,10 @@ auto Client::subscribe(const std::vector<std::string> &events,
     return result;
 }
 
-auto Client::set_event_handler(
-    std::string_view method, std::function<void(boost::json::object)> handler,
-    const std::source_location &loc) -> boost::asio::awaitable<void> {
+auto Client::set_event_handler(std::string_view method,
+                               std::function<void(boost::json::object)> handler,
+                               const std::source_location &loc)
+    -> boost::asio::awaitable<void> {
     auto sub_async = session_->subscribe_event(
         method, [handler = std::move(handler)](const core::ParsedEvent &event) {
             handler(event.params);

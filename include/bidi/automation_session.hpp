@@ -206,10 +206,10 @@ class AutomationSession {
      * @endcode
      */
     template <typename T>
-    [[nodiscard]] auto
-    evaluate_as(std::string_view expression,
-                const std::source_location &loc =
-                    std::source_location::current()) -> Task<T> {
+    [[nodiscard]] auto evaluate_as(
+        std::string_view expression,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<T> {
         return evaluate(expression, loc)
             .map([expr = std::string(expression)](
                      boost::json::object result) -> T {
@@ -240,10 +240,10 @@ class AutomationSession {
      * @endcode
      */
     template <typename T>
-    [[nodiscard]] auto
-    evaluate_as_or(std::string_view expression, T fallback,
-                   const std::source_location &loc =
-                       std::source_location::current()) -> Task<T> {
+    [[nodiscard]] auto evaluate_as_or(
+        std::string_view expression, T fallback,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<T> {
         return evaluate(expression, loc)
             .map([fallback =
                       std::move(fallback)](boost::json::object result) -> T {
@@ -284,7 +284,8 @@ class AutomationSession {
             script::script_eval_policy::return_outcome,
         const std::source_location &loc = std::source_location::current())
         -> Task<script::ScriptEvalOutcome> {
-        return client_guard_->client()->evaluate(expression, context_id_, policy, true, loc);
+        return client_guard_->client()->evaluate(expression, context_id_,
+                                                 policy, true, loc);
     }
 
     /**
@@ -315,12 +316,12 @@ class AutomationSession {
      * @endcode
      */
     template <typename T>
-    [[nodiscard]] auto
-    evaluate_as_outcome(std::string_view expression,
-                        script::script_eval_policy policy =
-                            script::script_eval_policy::return_outcome,
-                        const std::source_location &loc =
-                            std::source_location::current()) -> Task<T> {
+    [[nodiscard]] auto evaluate_as_outcome(
+        std::string_view expression,
+        script::script_eval_policy policy =
+            script::script_eval_policy::return_outcome,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<T> {
         return evaluate_outcome(expression, policy, loc)
             .map([expr = std::string(expression)](
                      script::ScriptEvalOutcome outcome) -> T {
@@ -391,7 +392,8 @@ class AutomationSession {
         -> script::FunctionBidi<Result, Args...> {
         (void)loc; // Available for debugging via GDB
         return script::make_function_caller<Result, Args...>(
-            client_guard_->client(), context_id_, std::move(function_declaration), policy);
+            client_guard_->client(), context_id_,
+            std::move(function_declaration), policy);
     }
 
     /**
@@ -467,8 +469,8 @@ class AutomationSession {
      *
      * @return Reference to shared_ptr<Client>
      */
-    [[nodiscard]] auto client() -> std::shared_ptr<Client> & { 
-        return client_guard_->client(); 
+    [[nodiscard]] auto client() -> std::shared_ptr<Client> & {
+        return client_guard_->client();
     }
 
     /**
@@ -489,9 +491,7 @@ class AutomationSession {
      *
      * @note Automatically called by destructor via ClientGuard
      */
-    void cleanup() noexcept { 
-        client_guard_->cleanup(); 
-    }
+    void cleanup() noexcept { client_guard_->cleanup(); }
 
     /**
      * @brief Check if cleanup has been completed

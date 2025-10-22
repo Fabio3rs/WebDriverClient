@@ -75,8 +75,8 @@ class IoContextRunner {
     [[nodiscard]] auto get() const -> boost::asio::io_context & {
         return *ioc_;
     }
-    [[nodiscard]] auto
-    get_executor() const -> boost::asio::io_context::executor_type {
+    [[nodiscard]] auto get_executor() const
+        -> boost::asio::io_context::executor_type {
         return ioc_->get_executor();
     }
 

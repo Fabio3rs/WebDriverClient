@@ -29,8 +29,8 @@ namespace bidi::types::log {
  */
 enum class Level : std::uint8_t { Debug, Info, Warn, Error };
 
-[[nodiscard]] constexpr auto
-to_string(Level level) noexcept -> std::string_view {
+[[nodiscard]] constexpr auto to_string(Level level) noexcept
+    -> std::string_view {
     using enum Level;
     switch (level) {
     case Debug:
@@ -46,8 +46,8 @@ to_string(Level level) noexcept -> std::string_view {
     }
 }
 
-[[nodiscard]] constexpr auto
-parse_level(std::string_view text) noexcept -> std::optional<Level> {
+[[nodiscard]] constexpr auto parse_level(std::string_view text) noexcept
+    -> std::optional<Level> {
     using enum Level;
     if (text == "debug") {
         return Debug;

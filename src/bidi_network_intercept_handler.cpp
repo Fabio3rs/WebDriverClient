@@ -381,14 +381,13 @@ void NetworkInterceptHandler::handle_before_request(
             switch (resolution.action) {
             case InterceptAction::Continue: {
                 auto task = client_->continue_request(
-                    params.request.request_id, resolution.body,
-                    resolution.cookies, resolution.headers, resolution.method,
-                    resolution.url);
+                    params.base.request, resolution.body, resolution.cookies,
+                    resolution.headers, resolution.method, resolution.url);
                 task.finally([](auto &&...) {});
                 break;
             }
             case InterceptAction::Fail: {
-                auto task = client_->fail_request(params.request.request_id);
+                auto task = client_->fail_request(params.base.request);
                 task.finally([](auto &&...) {});
                 break;
             }
@@ -435,19 +434,18 @@ void NetworkInterceptHandler::handle_before_request(
     }
 
     // Execute appropriate command based on action
-    // Note: For beforeRequestSent, params.request contains the RequestData with
-    // request_id
+    // Note: For beforeRequestSent, params.base.request contains the RequestId
     using enum InterceptAction;
     switch (resolution->action) {
     case Continue: {
         auto task = client_->continue_request(
-            params.request.request_id, resolution->body, resolution->cookies,
+            params.base.request, resolution->body, resolution->cookies,
             resolution->headers, resolution->method, resolution->url);
         task.finally([](auto &&...) {});
         break;
     }
     case Fail: {
-        auto task = client_->fail_request(params.request.request_id);
+        auto task = client_->fail_request(params.base.request);
         task.finally([](auto &&...) {});
         break;
     }

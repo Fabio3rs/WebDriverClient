@@ -15,9 +15,10 @@ using namespace std::chrono_literals;
 // SPA Pattern: Wait for framework hydration
 // ============================================================================
 
-auto wait_for_react_hydration(
-    const std::shared_ptr<bidi::Client> &client, std::string_view context,
-    std::chrono::milliseconds timeout = 10s) -> asyncx::Async<void> {
+auto wait_for_react_hydration(const std::shared_ptr<bidi::Client> &client,
+                              std::string_view context,
+                              std::chrono::milliseconds timeout = 10s)
+    -> asyncx::Async<void> {
     auto executor = client->get_executor();
 
     // Check multiple hydration signals
@@ -51,10 +52,11 @@ auto wait_for_react_hydration(
 // Infinite scroll: Scrape all items while scrolling
 // ============================================================================
 
-auto scrape_infinite_scroll(
-    std::shared_ptr<bidi::Client> client, std::string_view context,
-    std::string_view item_selector,
-    int max_scrolls = 50) -> boost::asio::awaitable<std::vector<std::string>> {
+auto scrape_infinite_scroll(std::shared_ptr<bidi::Client> client,
+                            std::string_view context,
+                            std::string_view item_selector,
+                            int max_scrolls = 50)
+    -> boost::asio::awaitable<std::vector<std::string>> {
     std::vector<std::string> all_items;
     int consecutive_no_new_items = 0;
 
@@ -245,9 +247,10 @@ auto wait_for_api_requests_complete(const std::shared_ptr<bidi::Client> &client,
 // Modal/Popup handling: Try to close, fallback if doesn't exist
 // ============================================================================
 
-auto dismiss_popup_if_exists(
-    const std::shared_ptr<bidi::Client> &client, std::string_view context,
-    const std::vector<std::string> &close_selectors) -> asyncx::Async<void> {
+auto dismiss_popup_if_exists(const std::shared_ptr<bidi::Client> &client,
+                             std::string_view context,
+                             const std::vector<std::string> &close_selectors)
+    -> asyncx::Async<void> {
     auto executor = client->get_executor();
 
     std::vector<asyncx::Async<void>> attempts;

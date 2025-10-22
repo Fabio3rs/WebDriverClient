@@ -8,15 +8,15 @@
 namespace bidi {
 
 // Private constructor
-AutomationSession::AutomationSession(
-    std::unique_ptr<IoContextRunner> runner,
-    std::unique_ptr<ClientGuard> client_guard, std::string context_id)
+AutomationSession::AutomationSession(std::unique_ptr<IoContextRunner> runner,
+                                     std::unique_ptr<ClientGuard> client_guard,
+                                     std::string context_id)
     : runner_(std::move(runner)), client_guard_(std::move(client_guard)),
       context_id_(std::move(context_id)) {}
 
 // Static factory (blocking)
-auto AutomationSession::start(std::string_view webdriver_url,
-                              bool headless) -> AutomationSession {
+auto AutomationSession::start(std::string_view webdriver_url, bool headless)
+    -> AutomationSession {
 
     // Phase 1: Start background io_context thread
     auto runner = std::make_unique<IoContextRunner>();
@@ -67,7 +67,8 @@ auto AutomationSession::navigate(
 auto AutomationSession::evaluate(std::string_view expression,
                                  const std::source_location &loc)
     -> Task<boost::json::object> {
-    return client_guard_->client()->evaluate(expression, context_id_, true, loc);
+    return client_guard_->client()->evaluate(expression, context_id_, true,
+                                             loc);
 }
 
 // Get page title (convenience wrapper)

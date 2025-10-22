@@ -47,10 +47,11 @@ struct Target {
  * @param ownership Result ownership mode
  * @return Params object for script.callFunction command
  */
-[[nodiscard]] auto call_function(
-    std::string_view function_declaration, const Target &target,
-    boost::json::array arguments = {}, bool await_promise = true,
-    ResultOwnership ownership = ResultOwnership::root) -> boost::json::object;
+[[nodiscard]] auto
+call_function(std::string_view function_declaration, const Target &target,
+              boost::json::array arguments = {}, bool await_promise = true,
+              ResultOwnership ownership = ResultOwnership::root)
+    -> boost::json::object;
 
 /**
  * @brief Build script.callFunction params (variadic convenience overload)
@@ -84,17 +85,17 @@ auto call_function(const Target &target, std::string_view function_declaration,
  * @param sandbox Optional sandbox name
  * @return Params object for script.addPreloadScript command
  */
-[[nodiscard]] auto
-add_preload_script(std::string_view function_declaration,
-                   boost::json::array arguments = {},
-                   std::string_view sandbox = {}) -> boost::json::object;
+[[nodiscard]] auto add_preload_script(std::string_view function_declaration,
+                                      boost::json::array arguments = {},
+                                      std::string_view sandbox = {})
+    -> boost::json::object;
 
 /**
  * @brief Build script.removePreloadScript params
  * @param script Preload script identifier to remove
  * @return Params object for script.removePreloadScript command
  */
-[[nodiscard]] auto
-remove_preload_script(std::string_view script) -> boost::json::object;
+[[nodiscard]] auto remove_preload_script(std::string_view script)
+    -> boost::json::object;
 
 } // namespace bidi::commands::script

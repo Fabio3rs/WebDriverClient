@@ -367,8 +367,8 @@ class ClientGuard {
     /**
      * @brief Get const reference to client (for reads)
      */
-    [[nodiscard]] auto
-    client() const noexcept -> const std::shared_ptr<bidi::Client> & {
+    [[nodiscard]] auto client() const noexcept
+        -> const std::shared_ptr<bidi::Client> & {
         return client_;
     }
 

@@ -45,8 +45,8 @@ enum class UserPromptType : std::uint8_t {
     Prompt
 };
 
-[[nodiscard]] constexpr auto
-to_string(UserPromptType type) noexcept -> std::string_view {
+[[nodiscard]] constexpr auto to_string(UserPromptType type) noexcept
+    -> std::string_view {
     using enum UserPromptType;
     switch (type) {
     case Alert:
@@ -62,8 +62,9 @@ to_string(UserPromptType type) noexcept -> std::string_view {
     }
 }
 
-[[nodiscard]] constexpr auto parse_user_prompt_type(
-    std::string_view text) noexcept -> std::optional<UserPromptType> {
+[[nodiscard]] constexpr auto
+parse_user_prompt_type(std::string_view text) noexcept
+    -> std::optional<UserPromptType> {
     using enum UserPromptType;
     if (text == "alert") {
         return Alert;
@@ -85,8 +86,8 @@ to_string(UserPromptType type) noexcept -> std::string_view {
  */
 enum class LocateMatchType : std::uint8_t { Full, Partial };
 
-[[nodiscard]] constexpr auto
-to_string(LocateMatchType type) noexcept -> std::string_view {
+[[nodiscard]] constexpr auto to_string(LocateMatchType type) noexcept
+    -> std::string_view {
     using enum LocateMatchType;
     switch (type) {
     case Full:
@@ -103,8 +104,8 @@ to_string(LocateMatchType type) noexcept -> std::string_view {
  */
 enum class CreateType : std::uint8_t { Tab, Window };
 
-[[nodiscard]] constexpr auto
-to_string(CreateType type) noexcept -> std::string_view {
+[[nodiscard]] constexpr auto to_string(CreateType type) noexcept
+    -> std::string_view {
     using enum CreateType;
     switch (type) {
     case Tab:
@@ -121,8 +122,8 @@ to_string(CreateType type) noexcept -> std::string_view {
  */
 enum class ReadinessState : std::uint8_t { None, Interactive, Complete };
 
-[[nodiscard]] constexpr auto
-to_string(ReadinessState state) noexcept -> std::string_view {
+[[nodiscard]] constexpr auto to_string(ReadinessState state) noexcept
+    -> std::string_view {
     using enum ReadinessState;
     switch (state) {
     case None:

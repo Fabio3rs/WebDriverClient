@@ -56,14 +56,14 @@ class JsonArenaPool {
         auto operator=(Arena &&) -> Arena & = delete;
 
         // Get boost::json::memory_resource for parsing
-        [[nodiscard]] auto
-        resource() noexcept -> boost::json::memory_resource * {
+        [[nodiscard]] auto resource() noexcept
+            -> boost::json::memory_resource * {
             return &resource_;
         }
 
         // Parse JSON using arena memory (zero heap fragmentation)
-        [[nodiscard]] auto
-        parse(std::string_view json_text) -> boost::json::value;
+        [[nodiscard]] auto parse(std::string_view json_text)
+            -> boost::json::value;
 
         // Reset arena for reuse (much faster than delete + new)
         void reset() noexcept;
@@ -134,9 +134,9 @@ class JsonParser {
     auto operator=(JsonParser &&) -> JsonParser & = delete;
 
     // Factory method for cleaner syntax
-    [[nodiscard]] static auto
-    create(std::string_view json_text,
-           std::size_t estimated_size = 0) -> JsonParser {
+    [[nodiscard]] static auto create(std::string_view json_text,
+                                     std::size_t estimated_size = 0)
+        -> JsonParser {
         return JsonParser{json_text, estimated_size};
     }
 

@@ -15,8 +15,8 @@ struct ListeningPort {
     uint16_t port{};
 };
 
-inline auto operator<<(std::ostream &os,
-                       const ListeningPort &port) -> std::ostream & {
+inline auto operator<<(std::ostream &os, const ListeningPort &port)
+    -> std::ostream & {
     os << "Protocol: " << port.protocol
        << ", Local Address: " << port.localAddress << ", Port: " << port.port;
     return os;

@@ -55,10 +55,10 @@ class Client : public std::enable_shared_from_this<Client> {
     explicit Client(std::shared_ptr<core::BiDiSession> session);
 
     // Factory: connect to BiDi WebSocket directly
-    static auto connect(boost::asio::io_context &ioc,
-                        std::string_view websocket_url,
-                        std::source_location loc =
-                            std::source_location::current()) -> Task<Ptr>;
+    static auto
+    connect(boost::asio::io_context &ioc, std::string_view websocket_url,
+            std::source_location loc = std::source_location::current())
+        -> Task<Ptr>;
 
     // Generic zero-overhead async_send (CompletionToken based)
     template <class CompletionToken>
@@ -73,11 +73,11 @@ class Client : public std::enable_shared_from_this<Client> {
         -> Task<std::string>;
 
     // Create new browsing context (tab/window)
-    [[nodiscard]] auto
-    create_context(commands::browsing_context::CreateType type =
-                       commands::browsing_context::CreateType::window,
-                   const std::source_location &loc =
-                       std::source_location::current()) -> Task<std::string>;
+    [[nodiscard]] auto create_context(
+        commands::browsing_context::CreateType type =
+            commands::browsing_context::CreateType::window,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<std::string>;
 
     // Navigate to URL
     [[nodiscard]] auto
@@ -102,10 +102,10 @@ class Client : public std::enable_shared_from_this<Client> {
         -> Task<void>;
 
     // Close browsing context
-    [[nodiscard]] auto
-    close_context(std::string_view context,
-                  const std::source_location &loc =
-                      std::source_location::current()) -> Task<bool>;
+    [[nodiscard]] auto close_context(
+        std::string_view context,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<bool>;
 
     // Get browsing context tree
     [[nodiscard]] auto get_context_tree(
@@ -241,10 +241,10 @@ class Client : public std::enable_shared_from_this<Client> {
         -> Task<std::string>;
 
     // Remove preload script
-    [[nodiscard]] auto
-    remove_preload_script(std::string_view script_id,
-                          const std::source_location &loc =
-                              std::source_location::current()) -> Task<void>;
+    [[nodiscard]] auto remove_preload_script(
+        std::string_view script_id,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<void>;
 
     // ======================== Network Interception API
     // ========================
@@ -279,10 +279,10 @@ class Client : public std::enable_shared_from_this<Client> {
      * @see
      * https://w3c.github.io/webdriver-bidi/#command-network-removeIntercept
      */
-    [[nodiscard]] auto
-    remove_intercept(types::network::InterceptId intercept_id,
-                     const std::source_location &loc =
-                         std::source_location::current()) -> Task<void>;
+    [[nodiscard]] auto remove_intercept(
+        types::network::InterceptId intercept_id,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<void>;
 
     /**
      * @brief Continue intercepted request (possibly modified)
@@ -320,10 +320,10 @@ class Client : public std::enable_shared_from_this<Client> {
      *
      * @see https://w3c.github.io/webdriver-bidi/#command-network-failRequest
      */
-    [[nodiscard]] auto
-    fail_request(types::network::RequestId request_id,
-                 const std::source_location &loc =
-                     std::source_location::current()) -> Task<void>;
+    [[nodiscard]] auto fail_request(
+        types::network::RequestId request_id,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<void>;
 
     /**
      * @brief Continue intercepted response (possibly modified)

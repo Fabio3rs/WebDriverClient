@@ -19,20 +19,20 @@ namespace bidi::commands {
 /**
  * @brief Convert browsing_context::CreateType to string
  */
-[[nodiscard]] auto
-to_string(browsing_context::CreateType type) noexcept -> std::string_view;
+[[nodiscard]] auto to_string(browsing_context::CreateType type) noexcept
+    -> std::string_view;
 
 /**
  * @brief Convert browsing_context::ReadinessState to string
  */
-[[nodiscard]] auto
-to_string(browsing_context::ReadinessState state) noexcept -> std::string_view;
+[[nodiscard]] auto to_string(browsing_context::ReadinessState state) noexcept
+    -> std::string_view;
 
 /**
  * @brief Convert script::ResultOwnership to string
  */
-[[nodiscard]] auto
-to_string(script::ResultOwnership ownership) noexcept -> std::string_view;
+[[nodiscard]] auto to_string(script::ResultOwnership ownership) noexcept
+    -> std::string_view;
 
 /**
  * @brief Convert log::Level to string
@@ -44,8 +44,8 @@ to_string(script::ResultOwnership ownership) noexcept -> std::string_view;
 /**
  * @brief Create BiDi LocalValue from string
  */
-[[nodiscard]] auto
-local_value_string(std::string_view value) -> boost::json::object;
+[[nodiscard]] auto local_value_string(std::string_view value)
+    -> boost::json::object;
 
 /**
  * @brief Create BiDi LocalValue from number
