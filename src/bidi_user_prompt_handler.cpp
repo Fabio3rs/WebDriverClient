@@ -213,27 +213,29 @@ auto UserPromptHandler::create(std::shared_ptr<Client> client,
                             bidi::ids::events::bc_userPromptClosed,
                             closed_callback);
                     })
-                .finally([handler_ptr, result](
-                             std::optional<std::shared_ptr<
-                                 bidi::core::BiDiSession::Subscription>>
-                                 subs,
-                             const std::optional<boost::system::error_code> &ec,
-                             const std::exception_ptr &eptr) mutable {
-                    if (subs) {
-                        handler_ptr->closed_subscription_ = std::move(*subs);
-                    }
-                    if (eptr) {
-                        result.fail(eptr);
-                        return;
-                    }
-                    if (ec && *ec) {
-                        result.fail(
-                            std::make_exception_ptr(std::system_error(*ec)));
-                        return;
-                    }
-                    // Successfully registered both handlers
-                    result.fulfill(handler_ptr);
-                });
+                .finally(
+                    [handler_ptr, result](
+                        std::optional<std::shared_ptr<
+                            bidi::core::BiDiSession::Subscription>>
+                            subs,
+                        const std::optional<boost::system::error_code> &ecc,
+                        const std::exception_ptr &erptr) mutable {
+                        if (subs) {
+                            handler_ptr->closed_subscription_ =
+                                std::move(*subs);
+                        }
+                        if (erptr) {
+                            result.fail(erptr);
+                            return;
+                        }
+                        if (ecc && *ecc) {
+                            result.fail(std::make_exception_ptr(
+                                std::system_error(*ecc)));
+                            return;
+                        }
+                        // Successfully registered both handlers
+                        result.fulfill(handler_ptr);
+                    });
         });
 
     return result;

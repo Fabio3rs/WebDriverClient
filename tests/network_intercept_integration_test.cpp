@@ -381,9 +381,15 @@ TEST_F(NetworkInterceptBiDiTest, RemoveIntercept) {
         }
 
         intercepted = false;
+
+        // Explicitly cleanup handler and wait for completion
+        // This ensures remove_intercept completes before second navigation
+        if (handler) {
+            co_await handler->cleanup();
+        }
         handler.reset();
 
-        co_await asio::steady_timer(io_context, 500ms)
+        co_await asio::steady_timer(io_context, 100ms)
             .async_wait(asio::use_awaitable);
 
         co_await client_guard.client()->navigate(context_id, testUrl());

@@ -18,8 +18,9 @@ TEST(SubscriptionManager, SubscribeAndDispatch) {
             called = true;
             EXPECT_EQ(payload, "hello");
         });
-        mgr.dispatch("topic1", "hello");
     });
+
+    boost::asio::post(mgr.executor(), [&] { mgr.dispatch("topic1", "hello"); });
 
     io.run();
     EXPECT_TRUE(called);
@@ -36,8 +37,9 @@ TEST(SubscriptionManager, UnsubscribeOnDestroy) {
                 "topic2", [&](std::string_view) { called = true; });
             (void)handle;
         }
-        mgr.dispatch("topic2", "x");
     });
+
+    boost::asio::post(mgr.executor(), [&] { mgr.dispatch("topic2", "x"); });
 
     io.run();
     EXPECT_FALSE(called);
