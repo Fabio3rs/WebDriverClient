@@ -1218,6 +1218,71 @@ template <> class Async<void> {
         return Weak{std::weak_ptr<State<void>>(st_)};
     }
 
+    using signature_t = void(boost::system::error_code);
+
+    // Setup cancellation propagation from handler's slot to this Async
+    template <class CancellationSlot>
+    void setup_cancellation_propagation(CancellationSlot &slot) const {
+        if (!slot.is_connected()) {
+            return;
+        }
+
+        slot.assign([weak = this->weak()](boost::asio::cancellation_type) {
+            weak.try_request_stop();
+        });
+    }
+
+    // Create and attach the finally callback for void result type
+    template <class Handler>
+    void attach_void_completion_handler(
+        std::shared_ptr<Handler> handler_ptr, net::any_io_executor executor,
+        boost::asio::associated_allocator_t<Handler> allocator) const {
+
+        auto finally_cb = [sp = handler_ptr, ex = std::move(executor),
+                           alloc = allocator](
+                              std::optional<boost::system::error_code> ec,
+                              const std::exception_ptr &) mutable {
+            auto completion = make_void_completion_callback(sp, ec);
+            boost::asio::dispatch(
+                ex, boost::asio::bind_allocator(alloc, std::move(completion)));
+        };
+
+        this->finally(std::move(finally_cb));
+    }
+
+#if defined(BOOST_ASIO_HAS_CONCEPTS)
+    template <boost::asio::completion_token_for<signature_t> CompletionToken>
+#else
+    template <BOOST_ASIO_COMPLETION_TOKEN_FOR(signature_t) CompletionToken>
+#endif
+    auto operator()(CompletionToken token) const {
+        // Signature depends on T: void(error_code) or void(error_code, T)
+
+        auto initiation = [self = *this]<class Handler>(Handler &&handler) {
+            using handler_t = std::decay_t<Handler>;
+
+            // Extract associated objects from handler
+            auto executor = boost::asio::get_associated_executor(
+                handler, boost::asio::system_executor());
+            auto allocator = boost::asio::get_associated_allocator(handler);
+            auto cancel_slot =
+                boost::asio::get_associated_cancellation_slot(handler);
+
+            // Wrap handler in shared_ptr for lambda capture
+            auto handler_ptr =
+                std::make_shared<handler_t>(std::forward<Handler>(handler));
+
+            // Setup cancellation propagation
+            self.setup_cancellation_propagation(cancel_slot);
+
+            self.attach_void_completion_handler(handler_ptr, executor,
+                                                allocator);
+        };
+
+        return boost::asio::async_initiate<CompletionToken, signature_t>(
+            initiation, token);
+    }
+
     // Adapt Async<void> into a boost::asio::awaitable<void>
     auto operator()(std::source_location loc = std::source_location::current())
         -> boost::asio::awaitable<void> {
