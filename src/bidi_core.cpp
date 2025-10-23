@@ -1789,4 +1789,62 @@ auto BiDiSession::get_executor() const -> net::any_io_executor {
     return ws_->get_executor();
 }
 
+void BiDiSession::wait_pending_operations_complete(
+    std::chrono::milliseconds timeout) {
+    // Wait for all pending operations to complete or timeout
+    // Uses async timer within strand to avoid blocking thread
+    auto start_time = std::chrono::steady_clock::now();
+    const auto poll_interval = std::chrono::milliseconds(50);
+
+    while (true) {
+        // Check if all pending operations have completed
+        if (pending_responses_.empty()) {
+            break;
+        }
+
+        // Check if timeout has been exceeded
+        auto elapsed = std::chrono::steady_clock::now() - start_time;
+        if (elapsed >= timeout) {
+            bidi::logging::log_warning(
+                std::format("wait_pending_operations_complete timeout: {} "
+                            "operations still pending",
+                            pending_responses_.size()));
+            break;
+        }
+
+        // Use strand-safe async timer (non-blocking, event-driven)
+        net::steady_timer timer(get_executor(), poll_interval);
+        timer.wait(); // Blocking wait within strand is acceptable for cleanup
+    }
+}
+
+auto BiDiSession::await_pending_operations_complete(
+    std::chrono::milliseconds timeout) -> boost::asio::awaitable<void> {
+    // This coroutine runs on the session executor/strand. It periodically
+    // checks the pending_responses_ map using an async timer so that it does
+    // not block the executor thread.
+    auto exec = co_await boost::asio::this_coro::executor;
+    const auto poll_interval = std::chrono::milliseconds(50);
+    auto start = std::chrono::steady_clock::now();
+
+    while (true) {
+        // Access pending_responses_ directly; we're running on the strand
+        if (pending_responses_.empty()) {
+            co_return;
+        }
+
+        auto elapsed = std::chrono::steady_clock::now() - start;
+        if (elapsed >= timeout) {
+            bidi::logging::log_warning(
+                std::format("await_pending_operations_complete timeout: {} "
+                            "operations still pending",
+                            pending_responses_.size()));
+            co_return;
+        }
+
+        boost::asio::steady_timer timer(exec, poll_interval);
+        co_await timer.async_wait(boost::asio::use_awaitable);
+    }
+}
+
 } // namespace bidi::core

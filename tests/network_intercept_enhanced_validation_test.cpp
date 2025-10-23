@@ -15,11 +15,10 @@ namespace asio = boost::asio;
 
 /**
  * @file network_intercept_enhanced_validation_test.cpp
- * @brief Exemplos de testes REFORÇADOS com validação comportamental via
- * JavaScript
+ * @brief Examples of REINFORCED tests with behavioral validation via JavaScript
  *
- * Estes testes mostram como validar REALMENTE que as customizações
- * foram aplicadas no browser, não apenas que os eventos dispararam.
+ * These tests show how to REALLY validate that customizations
+ * were applied in the browser, not just that events fired.
  */
 
 class NetworkInterceptEnhancedTest : public ::testing::Test {
@@ -43,15 +42,15 @@ class NetworkInterceptEnhancedTest : public ::testing::Test {
 };
 
 /**
- * TESTE REFORÇADO #1: ProvideCustomResponse + Validação JavaScript
+ * REINFORCED TEST #1: ProvideCustomResponse + JavaScript Validation
  *
- * Antes (INVÁLIDO):
- *   - Apenas verifica que evento disparou
- *   - Não valida que response foi customizada
+ * Before (INVALID):
+ *   - Only verifies that event fired
+ *   - Does not validate that response was customized
  *
- * Depois (VÁLIDO):
- *   - Valida que headers customizados aparecem em JavaScript
- *   - Valida que body customizado é retornado
+ * After (VALID):
+ *   - Validates that custom headers appear in JavaScript
+ *   - Validates that custom body is returned
  */
 TEST_F(NetworkInterceptEnhancedTest, ProvideCustomResponseValidated) {
     auto run_test = [this]() -> asio::awaitable<void> {
@@ -70,7 +69,7 @@ TEST_F(NetworkInterceptEnhancedTest, ProvideCustomResponseValidated) {
 
         std::atomic<bool> response_intercepted{false};
 
-        // ========== SETUP: Configurar interceptação ==========
+        // ========== SETUP: Configure interception ==========
         bidi::NetworkInterceptConfig config;
         config.policy = bidi::NetworkInterceptPolicy::Custom;
         config.phases = {bidi::types::network::InterceptPhase::ResponseStarted};
@@ -87,13 +86,13 @@ TEST_F(NetworkInterceptEnhancedTest, ProvideCustomResponseValidated) {
             bidi::ResponseResolution res;
             res.action = bidi::InterceptAction::Continue;
 
-            // ✓ Adicionar header customizado
+            // ✓ Add custom header
             res.headers = std::vector<bidi::types::network::Header>{
                 {.name = "X-Custom-Header",
                  .value =
                      bidi::types::network::StringBytes{"custom-value-123"}}};
 
-            // ✓ Modificar status code
+            // ✓ Modify status code
             res.status_code = 201; // 201 Created
 
             return res;
@@ -105,10 +104,10 @@ TEST_F(NetworkInterceptEnhancedTest, ProvideCustomResponseValidated) {
         auto context_id = co_await client_guard.client()->create_context(
             bidi::commands::browsing_context::CreateType::window);
 
-        // ========== EXECUTAR: Fazer request ==========
+        // ========== EXECUTE: Make request ==========
         co_await client_guard.client()->navigate(context_id, testUrl());
 
-        // Aguarda evento disparar
+        // Wait for event to fire
         for (int i = 0; i < 20 && !response_intercepted.load(); ++i) {
             co_await asio::steady_timer(io_context, 100ms)
                 .async_wait(asio::use_awaitable);
@@ -117,10 +116,10 @@ TEST_F(NetworkInterceptEnhancedTest, ProvideCustomResponseValidated) {
             throw std::runtime_error("Response intercept não ocorreu");
         }
 
-        // ========== VALIDAR: Verificar que customizações foram aplicadas
+        // ========== VALIDATE: Verify customizations were applied
         // ==========
 
-        // ✓ Teste 1: Validar que headers customizados existem
+        // ✓ Test 1: Validate that custom headers exist
         auto headers_valid =
             co_await bidi::testing::make_verify_response_headers(
                 client_ptr, context_id, testUrl(),
@@ -130,7 +129,7 @@ TEST_F(NetworkInterceptEnhancedTest, ProvideCustomResponseValidated) {
                 "Headers customizados não encontrados na response!");
         }
 
-        // ✓ Teste 2: Validar que status code foi modificado
+        // ✓ Test 2: Validate that status code was modified
         auto status_valid = co_await bidi::testing::make_verify_response_status(
             client_ptr, context_id, testUrl(), 201);
         if (!status_valid) {
@@ -149,15 +148,15 @@ TEST_F(NetworkInterceptEnhancedTest, ProvideCustomResponseValidated) {
 }
 
 /**
- * TESTE REFORÇADO #2: FailRequest + Validação que Request foi BLOQUEADO
+ * REINFORCED TEST #2: FailRequest + Validation that Request was BLOCKED
  *
- * Antes (INVÁLIDO):
- *   - Apenas verifica que evento disparou
- *   - Não valida que request foi realmente bloqueado
+ * Before (INVALID):
+ *   - Only verifies that event fired
+ *   - Does not validate that request was actually blocked
  *
- * Depois (VÁLIDO):
- *   - Valida que JavaScript recebe erro quando tenta fazer fetch
- *   - Valida que request nunca chega ao servidor
+ * After (VALID):
+ *   - Validates that JavaScript receives error when trying to fetch
+ *   - Validates that request never reaches server
  */
 TEST_F(NetworkInterceptEnhancedTest, FailRequestValidated) {
     auto run_test = [this]() -> asio::awaitable<void> {
@@ -188,7 +187,7 @@ TEST_F(NetworkInterceptEnhancedTest, FailRequestValidated) {
             [&](const auto &) -> std::optional<bidi::RequestResolution> {
             request_failed = true;
             bidi::RequestResolution res;
-            res.action = bidi::InterceptAction::Fail; // ✓ BLOQUEIA
+            res.action = bidi::InterceptAction::Fail; // ✓ BLOCK
             return res;
         };
 
@@ -198,28 +197,76 @@ TEST_F(NetworkInterceptEnhancedTest, FailRequestValidated) {
         auto context_id = co_await client_guard.client()->create_context(
             bidi::commands::browsing_context::CreateType::window);
 
-        // ========== EXECUTAR: Tentar fazer request ==========
-        EXPECT_ANY_THROW(
-            co_await client_guard.client()->navigate(context_id, testUrl()););
+        // ========== EXECUTE: Try to make request ==========
+        try {
+            EXPECT_ANY_THROW(co_await client_guard.client()->navigate(
+                context_id, testUrl()););
+        } catch (const std::exception &e) {
+            // Expected: navigation fails with net::ERR_FAILED
+            bidi::logging::log_info("Navigate failed as expected: " +
+                                    std::string(e.what()));
+        }
 
         for (int i = 0; i < 20 && !request_failed.load(); ++i) {
             co_await asio::steady_timer(io_context, 100ms)
                 .async_wait(asio::use_awaitable);
         }
         if (!request_failed.load()) {
-            throw std::runtime_error("Request não foi falhado");
+            throw std::runtime_error("Request was not failed");
         }
 
-        // ========== VALIDAR: Verificar que request foi REALMENTE bloqueado
+        // ========== VALIDATE: Verify request was REALLY blocked
         // ==========
+        // IMPORTANT: The first context had its execution contexts
+        // destroyed when navigation failed. We need a new context
+        // to do verification via fetch.
 
-        // ✓ Teste 1: Fazer fetch via JavaScript e verificar que falha
-        auto is_blocked = co_await bidi::testing::make_verify_request_blocked(
-            client_ptr, context_id, testUrl());
+        // Create new context to make fetch verification
+        auto verify_context_id = co_await client_guard.client()->create_context(
+            bidi::commands::browsing_context::CreateType::window);
+
+        // Navigate to simple HTML page (without URL-specific interception)
+        // before making fetch
+        try {
+            co_await client_guard.client()->navigate(verify_context_id,
+                                                     "about:blank");
+        } catch (const std::exception &e) {
+            bidi::logging::log_info("Navigate to about:blank failed: " +
+                                    std::string(e.what()));
+        }
+
+        // Wait a bit for context to stabilize
+        co_await asio::steady_timer(io_context, 200ms)
+            .async_wait(asio::use_awaitable);
+
+        // ✓ Test 1: Make fetch via JavaScript in new context and verify
+        // that it fails
+        bool is_blocked = false;
+        try {
+            is_blocked = co_await bidi::testing::make_verify_request_blocked(
+                client_ptr, verify_context_id, testUrl());
+        } catch (const std::exception &e) {
+            // If it fails here, probably context was still unstable
+            // This is acceptable since verification via handler.request_failed
+            // already confirms that request was blocked
+            bidi::logging::log_info("make_verify_request_blocked failed "
+                                    "(expected if context unstable): " +
+                                    std::string(e.what()));
+            is_blocked =
+                true; // Consider as blocked since request_failed = true
+            EXPECT_FALSE(true); // Mark test failure for visibility
+        }
+
+        co_await handler->cleanup();
+        if (is_blocked) {
+            bidi::logging::log_info(
+                "Request was correctly blocked by C++ interceptor");
+        }
+
         if (!is_blocked) {
             throw std::runtime_error(
-                "Request foi bloqueado pelo interceptor no C++, mas JavaScript "
-                "conseguiu fazer fetch! Interceptador não funciona!");
+                "Request was blocked by C++ interceptor, but JavaScript "
+                "was able to fetch! Interceptor does not work!");
         }
 
         finished.store(true);
@@ -233,10 +280,10 @@ TEST_F(NetworkInterceptEnhancedTest, FailRequestValidated) {
 }
 
 /**
- * TESTE REFORÇADO #3: ContinueRequest com Modificações
+ * REINFORCED TEST #3: ContinueRequest with Modifications
  *
- * Valida que quando continuamos request com modificações,
- * as modificações são REALMENTE aplicadas no servidor
+ * Validates that when we continue request with modifications,
+ * modifications are REALLY applied on server
  */
 TEST_F(NetworkInterceptEnhancedTest, ContinueRequestModificationsValidated) {
     auto run_test = [this]() -> asio::awaitable<void> {
@@ -255,7 +302,7 @@ TEST_F(NetworkInterceptEnhancedTest, ContinueRequestModificationsValidated) {
 
         std::atomic<bool> request_intercepted{false};
 
-        // ========== SETUP: Interceptar e modificar request ==========
+        // ========== SETUP: Intercept and modify request ==========
         bidi::NetworkInterceptConfig config;
         config.policy = bidi::NetworkInterceptPolicy::ContinueAll;
         config.phases = {
@@ -271,7 +318,7 @@ TEST_F(NetworkInterceptEnhancedTest, ContinueRequestModificationsValidated) {
             bidi::RequestResolution res;
             res.action = bidi::InterceptAction::Continue;
 
-            // ✓ MODIFICAÇÃO: Adicionar header customizado ao request
+            // ✓ MODIFICATION: Add custom header to request
             res.headers = std::vector<bidi::types::network::Header>{
                 {.name = "X-Request-Modified",
                  .value = bidi::types::network::StringBytes{"yes"}}};
@@ -285,7 +332,7 @@ TEST_F(NetworkInterceptEnhancedTest, ContinueRequestModificationsValidated) {
         auto context_id = co_await client_guard.client()->create_context(
             bidi::commands::browsing_context::CreateType::window);
 
-        // ========== EXECUTAR ==========
+        // ========== EXECUTE ==========
         co_await client_guard.client()->navigate(context_id, testUrl());
 
         for (int i = 0; i < 20 && !request_intercepted.load(); ++i) {
@@ -293,15 +340,15 @@ TEST_F(NetworkInterceptEnhancedTest, ContinueRequestModificationsValidated) {
                 .async_wait(asio::use_awaitable);
         }
 
-        // ========== VALIDAR: Verificar que modificações chegaram ao servidor
-        // ========== (Seria necessário server que echo headers para validar
-        // isso) Por enquanto, apenas verificar que request completou OK
+        // ========== VALIDATE: Verify that modifications reached server
+        // ========== (Would need server that echo headers to validate
+        // this) For now, just verify that request completed OK
 
         auto result = co_await bidi::testing::make_fetch_request(
             client_ptr, context_id, testUrl());
         if (result.status_code != 200) {
             throw std::runtime_error(
-                "Request modificado não completou com sucesso!");
+                "Modified request did not complete successfully!");
         }
 
         finished.store(true);

@@ -359,16 +359,18 @@ auto make_verify_request_blocked(const std::shared_ptr<bidi::Client> &client,
                 } catch (...) {
                 }
             })
-        .and_then([client, context_id = std::string(context_id), arguments,
-                   logs](std::shared_ptr<void> subscription)
-                      -> decltype(client->call_function(
-                          detail::verify_blocked_js_impl, context_id, arguments,
-                          bidi::script::script_eval_policy::return_outcome)) {
-            (void)subscription;
-            return client->call_function(
-                detail::verify_blocked_js_impl, context_id, arguments,
-                bidi::script::script_eval_policy::return_outcome);
-        })
+        .and_then(
+            [client, context_id = std::string(context_id), arguments,
+             logs](const std::shared_ptr<bidi::core::BiDiSession::Subscription>
+                       &subscription)
+                -> decltype(client->call_function(
+                    detail::verify_blocked_js_impl, context_id, arguments,
+                    bidi::script::script_eval_policy::return_outcome)) {
+                subscription->release();
+                return client->call_function(
+                    detail::verify_blocked_js_impl, context_id, arguments,
+                    bidi::script::script_eval_policy::return_outcome);
+            })
         .map([](script::ScriptEvalOutcome outcome) -> bool {
             std::cout << "Log entry: " << boost::json::serialize(outcome.raw)
                       << std::endl;
@@ -378,7 +380,19 @@ auto make_verify_request_blocked(const std::shared_ptr<bidi::Client> &client,
             if (!outcome.result.is_object()) {
                 return false;
             }
-            return extract_blocked_value(outcome.result.as_object());
+
+            const auto &result_obj = outcome.result.as_object();
+
+            // The result has structure: {realm, result: {type, value, handle},
+            // type} We need to extract the nested 'result' object
+            if (const auto *result_ptr = result_obj.if_contains("result")) {
+                if (result_ptr->is_object()) {
+                    return extract_blocked_value(result_ptr->as_object());
+                }
+            }
+
+            // Fallback: treat as direct object (for testing purposes)
+            return extract_blocked_value(result_obj);
         });
 }
 

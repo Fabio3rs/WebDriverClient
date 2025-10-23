@@ -213,51 +213,26 @@ auto NetworkInterceptHandler::cleanup(const std::source_location &loc)
     auto result = Task<void>::make(exec, loc);
 
     if (!client_ || intercept_id_.empty()) {
+        logging::log_info(
+            "NetworkInterceptHandler cleanup: no intercept to remove");
         cleanup_succeeded_.store(true, std::memory_order_relaxed);
         result.fulfill();
         return result;
     }
 
+    logging::log_info(
+        std::format("NetworkInterceptHandler cleanup: removing intercept {}",
+                    intercept_id_));
+
     auto intercept = intercept_id_;
     auto remove_task = client_->remove_intercept(intercept, loc);
 
-    remove_task.finally([this, result,
-                         intercept](std::optional<asyncx::EC> ec,
-                                    std::exception_ptr ep) mutable {
-        if (ec && *ec) {
-            cleanup_succeeded_.store(false, std::memory_order_relaxed);
-            logging::log_error(std::format(
-                "NetworkInterceptHandler cleanup failed for intercept {}: {}",
-                intercept, ec->message()));
-            result.fail(*ec);
-            return;
-        }
-        if (ep) {
-            cleanup_succeeded_.store(false, std::memory_order_relaxed);
-            try {
-                std::rethrow_exception(ep);
-            } catch (const std::exception &e) {
-                logging::log_error(
-                    std::format("NetworkInterceptHandler cleanup failed for "
-                                "intercept {}: {}",
-                                intercept, e.what()));
-            } catch (...) {
-                logging::log_error(
-                    std::format("NetworkInterceptHandler cleanup failed for "
-                                "intercept {} with "
-                                "unknown exception",
-                                intercept));
-            }
-            result.fail(ep);
-            return;
-        }
-
+    return remove_task.map([this, intercept]() mutable {
+        logging::log_info(
+            std::format("network.removeIntercept succeeded for {}", intercept));
         intercept_id_.clear();
         cleanup_succeeded_.store(true, std::memory_order_relaxed);
-        result.fulfill();
     });
-
-    return result;
 }
 
 NetworkInterceptHandler::NetworkInterceptHandler(

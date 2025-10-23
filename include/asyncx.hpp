@@ -1321,7 +1321,12 @@ template <> class Async<void> {
                        // section)
             if (std::holds_alternative<std::monostate>(st->result)) {
                 try {
-                    next.fulfill(std::invoke(f));
+                    if constexpr (std::is_void_v<U>) {
+                        std::invoke(f);
+                        next.fulfill();
+                    } else {
+                        next.fulfill(std::invoke(f));
+                    }
                 } catch (...) {
                     next.fail(std::current_exception());
                 }

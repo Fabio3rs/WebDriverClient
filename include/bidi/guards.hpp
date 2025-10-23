@@ -414,6 +414,78 @@ class ClientGuard {
                 "ClientGuard: unknown error clearing subscriptions");
         }
     }
+
+    /**
+     * @brief Synchronous graceful cleanup helper
+     *
+     * This method can be called from non-io threads to perform a graceful
+     * shutdown: it will run an awaitable on the session executor to wait for
+     * pending operations to complete (up to a timeout) and then disconnect.
+     *
+     * WARNING: Do NOT call this from the io_context/strand thread; it will
+     * block waiting for the async shutdown and deadlock the executor.
+     */
+    void cleanup_graceful(std::chrono::milliseconds timeout =
+                              std::chrono::milliseconds(5000)) noexcept {
+        if (cleanup_completed_) {
+            return;
+        }
+
+        try {
+            if (!client_) {
+                perform_cleanup_();
+                return;
+            }
+
+            if (auto session = client_->session()) {
+                // Launch coroutine on session executor and wait via future
+                std::promise<void> p;
+                auto f = p.get_future();
+
+                boost::asio::post(session->get_executor(), [session, timeout,
+                                                            prom = std::move(
+                                                                p)]() mutable {
+                    // co_spawn a coroutine that awaits pending operations then
+                    // sets promise
+                    boost::asio::co_spawn(
+                        session->get_executor(),
+                        [session, timeout, prom = std::move(prom)]() mutable
+                            -> boost::asio::awaitable<void> {
+                            co_await session->await_pending_operations_complete(
+                                timeout);
+                            session->disconnect();
+                            try {
+                                prom.set_value();
+                            } catch (...) { // NOLINT: promise may be already
+                                            // satisfied or broken - ignore
+                            }
+                            co_return;
+                        },
+                        boost::asio::detached);
+                });
+
+                // Wait for completion (caller must not be on io_context thread)
+                if (f.valid()) {
+                    if (f.wait_for(timeout + std::chrono::milliseconds(100)) ==
+                        std::future_status::timeout) {
+                        logging::log_warning(
+                            "ClientGuard::cleanup_graceful timed out waiting "
+                            "for async shutdown");
+                    }
+                }
+            }
+        } catch (const std::exception &e) {
+            logging::log_error(
+                std::string("ClientGuard::cleanup_graceful exception: ") +
+                e.what());
+        } catch (...) {
+            logging::log_error(
+                "ClientGuard::cleanup_graceful unknown exception");
+        }
+
+        // Final cleanup of local resources
+        perform_cleanup_();
+    }
 };
 
 /**

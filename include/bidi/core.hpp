@@ -463,7 +463,7 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
      * @brief TEST ONLY: Get pending responses count
      * @return Number of pending requests
      */
-    [[nodiscard]] std::size_t test_pending_size() const {
+    [[nodiscard]] auto test_pending_size() const -> std::size_t {
         return pending_responses_.size();
     }
 
@@ -515,6 +515,13 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
             // Silently ignore - we're cleaning up anyway
         }
     }
+
+    void wait_pending_operations_complete(std::chrono::milliseconds timeout);
+    // Asynchronous variant that can be co_awaited on the session's executor.
+    // This should be used when calling from within the io_context/strand so
+    // the executor is not blocked.
+    auto await_pending_operations_complete(std::chrono::milliseconds timeout)
+        -> boost::asio::awaitable<void>;
 };
 
 // ======================== Template Implementations ========================
