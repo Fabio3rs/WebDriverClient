@@ -335,9 +335,15 @@ WebSocketClient::WebSocketClient(net::io_context &ioc)
 void WebSocketClient::start_read_loop() { do_read(); }
 
 void WebSocketClient::do_read() {
-    auto readCb = [self = shared_from_this()](
+    auto readCb = [weak_self = weak_from_this()](
                       const boost::system::error_code &error_code,
                       std::size_t bytes_transferred) {
+        // Check if WebSocketClient is still alive before accessing members
+        auto self = weak_self.lock();
+        if (!self) {
+            return; // Object destroyed, handler should not execute
+        }
+
         if (error_code) {
             if (self->on_error_) {
                 self->on_error_(error_code);
@@ -385,9 +391,15 @@ void WebSocketClient::do_write() {
     auto [payload, completion_handler] = std::move(write_queue_.front());
 
     auto writeCompletionHandler =
-        [self = shared_from_this(),
+        [weak_self = weak_from_this(),
          on_write_complete = std::move(completion_handler)](
             const boost::system::error_code &error_code, std::size_t) mutable {
+            // Check if WebSocketClient is still alive
+            auto self = weak_self.lock();
+            if (!self) {
+                return; // Object destroyed, don't access members
+            }
+
             self->is_writing_ = false;
 
             // Invoke stored completion handler with real result
@@ -434,7 +446,13 @@ void WebSocketClient::on_resolve(
 
     beast::get_lowest_layer(ws_).async_connect(
         results,
-        [self = shared_from_this()](auto connect_ec, const auto &endpoint) {
+        [weak_self = weak_from_this()](auto connect_ec, const auto &endpoint) {
+            // Check if WebSocketClient is still alive
+            auto self = weak_self.lock();
+            if (!self) {
+                return; // Object destroyed, don't access members
+            }
+
             if (connect_ec) {
                 // ensure on_connect is informed and propagate via on_error_
                 if (self->connect_handler_) {

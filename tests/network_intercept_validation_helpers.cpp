@@ -272,15 +272,6 @@ auto make_fetch_request(const std::shared_ptr<bidi::Client> &client,
         .map([logs](script::ScriptEvalOutcome outcome) {
             FetchResult res;
             if (!outcome.result.is_null() && outcome.result.is_object()) {
-                std::cout << std::endl
-                          << std::endl
-                          << std::endl
-                          << std::endl
-                          << "Fetch result: "
-                          << boost::json::serialize(outcome.result) << std::endl
-                          << std::endl
-                          << std::endl
-                          << std::endl;
                 res = detail::json_to_fetch_result(outcome.result.as_object());
             }
             if (!logs->empty()) {

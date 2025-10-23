@@ -101,6 +101,8 @@ auto main() -> int {
                 // Rich exception details available
                 std::cout << "Expected script exception caught: " << e.what()
                           << "\n";
+            } catch (const std::exception &e) {
+                std::cerr << "Unexpected error: " << e.what() << "\n";
             }
 
             co_return 0; // Success

@@ -18,8 +18,8 @@ struct FetchResult {
     // headers stored as vector of pairs (name, value)
     std::vector<std::pair<std::string, std::string>> headers;
 
-    [[nodiscard]] bool has_header(const std::string &name,
-                                  const std::string &value) const {
+    [[nodiscard]] auto has_header(const std::string &name,
+                                  const std::string &value) const -> bool {
         for (const auto &entry : headers) {
             // Case-insensitive comparison for header names
             if (std::ranges::equal(entry.first, name,

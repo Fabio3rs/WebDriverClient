@@ -1,7 +1,7 @@
 #include "network_intercept_validation_helpers.hpp"
 #include "test_http_server.hpp"
 #include <atomic>
-#include <bidi/client.hpp>
+#include <bidi/automation_session.hpp>
 #include <bidi/commands.hpp>
 #include <bidi/guards.hpp>
 #include <bidi/network_intercept_handler.hpp>
@@ -53,20 +53,11 @@ class NetworkInterceptEnhancedTest : public ::testing::Test {
  *   - Validates that custom body is returned
  */
 TEST_F(NetworkInterceptEnhancedTest, ProvideCustomResponseValidated) {
-    auto run_test = [this]() -> asio::awaitable<void> {
-        bidi::SessionGuard session(webdriver_url);
-        std::vector<std::string> args{"--headless", "--no-sandbox"};
-        auto ws_url_result = session.connect(args, "chrome", true);
-        if (!ws_url_result.has_value()) {
-            throw std::runtime_error("Falha ao conectar ao WebSocket");
-        }
-        auto client_ptr =
-            co_await bidi::Client::connect(io_context, ws_url_result.value());
-        if (!client_ptr) {
-            throw std::runtime_error("Client nulo");
-        }
-        bidi::ClientGuard client_guard(client_ptr);
+    auto session = bidi::AutomationSession::start();
 
+    session.run([&session, this]() -> asio::awaitable<int> {
+        auto client_ptr = session.client();
+        auto context_id = session.context_id();
         std::atomic<bool> response_intercepted{false};
 
         // ========== SETUP: Configure interception ==========
@@ -78,8 +69,7 @@ TEST_F(NetworkInterceptEnhancedTest, ProvideCustomResponseValidated) {
 
         // Handler que customiza a response
         config.response_started_handler =
-            [&](const auto &params
-                [[maybe_unused]]) -> std::optional<bidi::ResponseResolution> {
+            [&](const auto &) -> std::optional<bidi::ResponseResolution> {
             response_intercepted = true;
 
             // CUSTOMIZAR response
@@ -101,15 +91,14 @@ TEST_F(NetworkInterceptEnhancedTest, ProvideCustomResponseValidated) {
         auto handler =
             co_await bidi::NetworkInterceptHandler::create(client_ptr, config);
 
-        auto context_id = co_await client_guard.client()->create_context(
-            bidi::commands::browsing_context::CreateType::window);
-
         // ========== EXECUTE: Make request ==========
-        co_await client_guard.client()->navigate(context_id, testUrl());
+        co_await client_ptr->navigate(context_id, testUrl());
 
         // Wait for event to fire
         for (int i = 0; i < 20 && !response_intercepted.load(); ++i) {
-            co_await asio::steady_timer(io_context, 100ms)
+            co_await asio::steady_timer(
+                asio::get_associated_executor(*client_ptr->get_executor()),
+                100ms)
                 .async_wait(asio::use_awaitable);
         }
         if (!response_intercepted.load()) {
@@ -138,13 +127,8 @@ TEST_F(NetworkInterceptEnhancedTest, ProvideCustomResponseValidated) {
         }
 
         finished.store(true);
-        co_return;
-    };
-
-    auto fut = asio::co_spawn(io_context, run_test(), asio::use_future);
-    io_context.run();
-    fut.get();
-    ASSERT_TRUE(finished.load());
+        co_return 0;
+    });
 }
 
 /**

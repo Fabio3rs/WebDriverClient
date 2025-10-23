@@ -7,59 +7,55 @@
 
 namespace bidi {
 
-// Private constructor
+// Phase 1 constructor: HTTP-only initialization (before WebSocket connect)
+AutomationSession::AutomationSession(
+    std::unique_ptr<IoContextRunner> runner, std::string websocket_url,
+    std::shared_ptr<SessionGuard> session_guard)
+    : runner_(std::move(runner)), client_guard_(nullptr), context_id_(""),
+      websocket_url_(std::move(websocket_url)),
+      session_guard_(std::move(session_guard)) {}
+
+// Phase 2 constructor: Full initialization (after WebSocket connect)
 AutomationSession::AutomationSession(std::unique_ptr<IoContextRunner> runner,
                                      std::unique_ptr<ClientGuard> client_guard,
                                      std::string context_id)
     : runner_(std::move(runner)), client_guard_(std::move(client_guard)),
-      context_id_(std::move(context_id)) {}
+      context_id_(std::move(context_id)), websocket_url_(""),
+      session_guard_(nullptr) {}
 
-// Static factory (blocking)
+// Static factory (blocking HTTP handshake only, WebSocket deferred to run())
 auto AutomationSession::start(std::string_view webdriver_url, bool headless)
     -> AutomationSession {
 
     // Phase 1: Start background io_context thread
     auto runner = std::make_unique<IoContextRunner>();
 
-    // Phase 2: Connect via HTTP handshake and BiDi WebSocket (blocking)
+    // Phase 2: HTTP handshake only (blocking, synchronous, NO WebSocket yet)
     auto builder = connect_to(webdriver_url);
     if (headless) {
         builder = builder.headless();
     }
     builder = builder.no_sandbox();
 
-    // Execute the connection (blocking)
-    auto client_task = std::move(builder).connect(runner->get());
-    auto client = client_task.get(); // Blocking call via Task<T>::get()
+    // Get WebSocket URL via HTTP handshake (blocking)
+    auto [ws_url, session_guard] = std::move(builder).get_websocket_url();
 
-    if (!client) {
-        throw std::runtime_error(
-            "Failed to establish BiDi connection to WebDriver server");
-    }
+    bidi::logging::log_info("AutomationSession HTTP handshake complete: ws=" +
+                            ws_url);
 
-    // Phase 3: Create default browsing context (blocking)
-    auto context_task = client->create_context();
-    auto context_id = context_task.get(); // Blocking call via Task<T>::get()
-
-    // Validate context creation
-    if (context_id.empty()) {
-        throw std::runtime_error(
-            "Failed to create browsing context: empty context ID returned");
-    }
-
-    // Phase 4: Wrap client in ClientGuard for BiDi lifecycle management
-    // ClientGuard ensures proper cleanup: subscriptions → disconnect → reset
-    auto client_guard = std::make_unique<ClientGuard>(client);
-
-    bidi::logging::log_info("AutomationSession started: context=" + context_id);
-
-    return {std::move(runner), std::move(client_guard), std::move(context_id)};
+    // Return with deferred WebSocket connection
+    // Phase 2 (WebSocket connect + context creation) will happen in run()
+    return {std::move(runner), std::move(ws_url), std::move(session_guard)};
 }
 
 // Navigate (async, returns lazy Task)
 auto AutomationSession::navigate(
     std::string_view url, commands::browsing_context::ReadinessState wait,
     const std::source_location &loc) -> Task<std::string> {
+    if (!client_guard_) {
+        throw std::runtime_error(
+            "Navigate called before run() - WebSocket not connected");
+    }
     return client_guard_->client()->navigate(context_id_, url, wait, loc);
 }
 
@@ -67,6 +63,10 @@ auto AutomationSession::navigate(
 auto AutomationSession::evaluate(std::string_view expression,
                                  const std::source_location &loc)
     -> Task<boost::json::object> {
+    if (!client_guard_) {
+        throw std::runtime_error(
+            "Evaluate called before run() - WebSocket not connected");
+    }
     return client_guard_->client()->evaluate(expression, context_id_, true,
                                              loc);
 }

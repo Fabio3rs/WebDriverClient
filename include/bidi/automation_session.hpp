@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bidi/client.hpp"
+#include "bidi/connection_builder.hpp"
 #include "bidi/guards.hpp"
 #include "bidi/io_context_runner.hpp"
 #include "bidi/script/extraction.hpp"
@@ -211,16 +212,19 @@ class AutomationSession {
         const std::source_location &loc = std::source_location::current())
         -> Task<T> {
         return evaluate(expression, loc)
-            .map([expr = std::string(expression)](
-                     boost::json::object result) -> T {
-                try {
-                    return bidi::script::extract_value<T>(result);
-                } catch (const std::exception &e) {
-                    throw std::runtime_error(std::format(
-                        "evaluate_as failed for expression '{}': {}", expr,
-                        e.what()));
-                }
-            });
+            .map(
+                [expr = std::string(expression),
+                 loc](boost::json::object result) -> T {
+                    (void)loc; // suppress unused parameter warning
+                    try {
+                        return bidi::script::extract_value<T>(result);
+                    } catch (const std::exception &e) {
+                        throw std::runtime_error(std::format(
+                            "evaluate_as failed for expression '{}': {}", expr,
+                            e.what()));
+                    }
+                },
+                loc);
     }
 
     /**
@@ -245,8 +249,9 @@ class AutomationSession {
         const std::source_location &loc = std::source_location::current())
         -> Task<T> {
         return evaluate(expression, loc)
-            .map([fallback =
-                      std::move(fallback)](boost::json::object result) -> T {
+            .map([fallback = std::move(fallback),
+                  loc](boost::json::object result) -> T {
+                (void)loc; // suppress unused parameter warning
                 return bidi::script::extract_value_or(result, fallback);
             });
     }
@@ -430,29 +435,166 @@ class AutomationSession {
 
         runner_->arm_work(); // Ensure guard is held
 
+        // RAII scope guard: guarantee cleanup even if workflow throws
+        struct ScopeGuard {
+            AutomationSession *self;
+
+            explicit ScopeGuard(AutomationSession *session) : self(session) {}
+
+            ScopeGuard(const ScopeGuard &) = delete;
+            auto operator=(const ScopeGuard &) -> ScopeGuard & = delete;
+            ScopeGuard(ScopeGuard &&) = delete;
+            auto operator=(ScopeGuard &&) -> ScopeGuard & = delete;
+
+            ~ScopeGuard() {
+                // Phase 1: Clear all pending async operations and close
+                // WebSocket
+                if (self && self->client_guard_) {
+                    try {
+                        self->client_guard_->cleanup();
+                    } catch (const std::exception &e) {
+                        bidi::logging::log_error(
+                            std::string("cleanup() exception: ") + e.what());
+                    }
+                }
+                // Phase 2: Reset io_context to initial state for next run()
+                if (self && self->runner_) {
+                    try {
+                        self->runner_->restart();
+                        self->runner_->arm_work();
+                    } catch (const std::exception &e) {
+                        bidi::logging::log_error(
+                            std::string("restart() exception: ") + e.what());
+                    }
+                }
+            }
+        } scope_guard{this};
+
+        auto full_workflow = [this,
+                              workflow = std::forward<WorkflowFunc>(
+                                  workflow)]() -> boost::asio::awaitable<int> {
+            auto *self = this;
+
+            // Connect WebSocket if deferred from start()
+            if (!self->client_guard_ && !self->websocket_url_.empty()) {
+                bidi::logging::log_info("Connecting WebSocket: " +
+                                        self->websocket_url_);
+
+                // Connect WebSocket with co_await (proper async)
+                auto client =
+                    co_await ConnectionBuilder::to(self->websocket_url_)
+                        .use_existing_websocket(self->websocket_url_)
+                        .connect(self->runner_->get());
+
+                if (!client) {
+                    throw std::runtime_error(
+                        "Failed to establish BiDi WebSocket connection");
+                }
+
+                // Create default browsing context with co_await
+                auto context_id = co_await client->create_context();
+
+                if (context_id.empty()) {
+                    throw std::runtime_error(
+                        "Failed to create browsing context: empty context ID "
+                        "returned");
+                }
+
+                // Now fully initialized
+                self->client_guard_ = std::make_unique<ClientGuard>(client);
+                self->context_id_ = std::move(context_id);
+                self->websocket_url_.clear();
+                // Keep session_guard alive! Don't reset it!
+                // self->session_guard_.reset();
+
+                bidi::logging::log_info(
+                    "AutomationSession fully initialized: context=" +
+                    self->context_id_);
+            }
+
+            if (!self->client_guard_) {
+                throw std::runtime_error(
+                    "run() called without proper initialization from start()");
+            }
+
+            // Execute user workflow
+            try {
+                co_return co_await workflow();
+            } catch (...) {
+                bidi::logging::log_error("Workflow execution failed");
+                throw; // Let outer handler deal with it
+            }
+        };
+
         boost::asio::co_spawn(
-            runner_->get(), std::forward<WorkflowFunc>(workflow),
-            [&exit_code, &stored_exception, this](const std::exception_ptr &exc,
+            runner_->get(), std::move(full_workflow),
+            [this, &exit_code, &stored_exception](const std::exception_ptr &exc,
                                                   int result) {
+                // Ensure io_context is released and stopped so
+                // runner_->get().run() (the blocking call below) will
+                // return after workflow completion.
+                try {
+                    if (exc) {
+                        try {
+                            std::rethrow_exception(exc);
+                        } catch (const std::exception &e) {
+                            bidi::logging::log_error(
+                                std::string("Workflow exception: ") + e.what());
+                        }
+                        stored_exception = exc;
+                        exit_code = 1;
+                    } else {
+                        exit_code = result;
+                    }
+                } catch (...) {
+                    // Preserve existing behavior: store exception and set
+                    // non-zero exit code.
+                    stored_exception = std::current_exception();
+                    exit_code = 1;
+                }
+
+                // Drop the work guard and request the io_context to stop.
+                // This unblocks any threads currently running
+                // io_context::run().
+                try {
+                    runner_->release_work();
+                    runner_->stop();
+                } catch (const std::exception &e) {
+                    bidi::logging::log_error(
+                        std::string("Failed to stop runner: ") + e.what());
+                }
+            });
+
+        // Execute workflow (blocking until completion)
+        runner_->get().run();
+
+        /*boost::asio::co_spawn(
+            runner_->get(),
+            // NOLINTNEXTLINE
+            [this]() -> boost::asio::awaitable<void> {
+                co_await client_guard_->client()
+                    ->session()
+                    ->await_pending_operations_complete(
+                        std::chrono::milliseconds(1000));
+                co_return;
+            },
+            [&exit_code, &stored_exception,
+             this](const std::exception_ptr &exc) {
                 if (exc) {
                     try {
                         std::rethrow_exception(exc);
                     } catch (const std::exception &e) {
                         bidi::logging::log_error(
-                            std::string("Workflow exception: ") + e.what());
+                            std::string("Finalization exception: ") + e.what());
                     }
                     stored_exception = exc;
                     exit_code = 1;
-                } else {
-                    exit_code = result;
                 }
                 runner_->release_work(); // Drop guard
                 runner_->stop();         // Unblock run()
-            });
+            });*/
 
-        runner_->get().run();
-        runner_->restart();  // Prepare for reuse
-        runner_->arm_work(); // Re-arm for future runs
+        // ScopeGuard destructor runs here, ensuring cleanup always happens
 
         if (stored_exception) {
             std::rethrow_exception(stored_exception); // Let caller handle
@@ -526,10 +668,35 @@ class AutomationSession {
     AutomationSession(const AutomationSession &) = delete;
     auto operator=(const AutomationSession &) -> AutomationSession & = delete;
 
-    ~AutomationSession() = default;
+    // Explicit destructor: ensures cleanup before member destruction
+    ~AutomationSession() {
+        // Cleanup BiDi session (disconnect WebSocket, clear subscriptions)
+        // NOTE: Only cleanup client, NOT io_context
+        // The io_context thread should continue running until explicitly
+        // stopped
+        if (client_guard_) {
+            try {
+                client_guard_->cleanup();
+            } catch (const std::exception &e) {
+                bidi::logging::log_error(
+                    std::string(
+                        "AutomationSession destructor cleanup failed: ") +
+                    e.what());
+            }
+        }
+        // NOTE: Do NOT call runner_->stop() here
+        // The io_context should remain alive for pending async operations
+        // It will be stopped when the IoContextRunner is destroyed (RAII)
+    }
 
   private:
     // Private constructor - use start() factory
+    // Phase 1: HTTP-only initialization (before WebSocket connect)
+    AutomationSession(std::unique_ptr<IoContextRunner> runner,
+                      std::string websocket_url,
+                      std::shared_ptr<SessionGuard> session_guard);
+
+    // Phase 2: Full initialization (after WebSocket connect)
     AutomationSession(std::unique_ptr<IoContextRunner> runner,
                       std::unique_ptr<ClientGuard> client_guard,
                       std::string context_id);
@@ -537,6 +704,10 @@ class AutomationSession {
     std::unique_ptr<IoContextRunner> runner_;
     std::unique_ptr<ClientGuard> client_guard_;
     std::string context_id_;
+
+    // Deferred WebSocket connection (populated by start(), consumed by run())
+    std::string websocket_url_;
+    std::shared_ptr<SessionGuard> session_guard_;
 };
 
 } // namespace bidi

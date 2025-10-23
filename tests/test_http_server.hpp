@@ -47,6 +47,33 @@ struct HttpRequest {
     std::string version; // HTTP/1.1
     std::map<std::string, std::string> headers;
     std::string body;
+
+    // Convenience method to get header value (case-insensitive)
+    [[nodiscard]] auto get_header(std::string_view name) const
+        -> std::optional<std::string> {
+        auto it = std::ranges::find_if(headers, [&](const auto &pair) {
+            return std::equal(pair.first.begin(), pair.first.end(),
+                              name.begin(), name.end(),
+                              [](unsigned char a, unsigned char b) {
+                                  return std::tolower(a) == std::tolower(b);
+                              });
+        });
+        if (it != headers.end()) {
+            return it->second;
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] auto stringify() const -> std::string {
+        std::ostringstream oss;
+        oss << method << " " << path << " " << version << "\r\n";
+        for (const auto &header : headers) {
+            oss << header.first << ": " << header.second << "\r\n";
+        }
+        oss << "\r\n";
+        oss << body;
+        return oss.str();
+    }
 };
 
 /**

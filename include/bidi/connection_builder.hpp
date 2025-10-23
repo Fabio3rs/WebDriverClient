@@ -55,6 +55,35 @@ class ConnectionBuilder {
         return out;
     }
 
+    // Phase 1: HTTP handshake only (blocks, returns webSocketUrl and
+    // SessionGuard for lifecycle management)
+    [[nodiscard]] auto get_websocket_url()
+        && -> std::pair<std::string, std::shared_ptr<SessionGuard>> {
+        WebDriver::json args = WebDriver::json::array();
+        for (const auto &arg : browser_args_) {
+            args.push_back(arg);
+        }
+
+        if (existing_websocket_.has_value()) {
+            // If existing websocket URL provided, use dummy SessionGuard
+            auto dummy_guard = std::make_shared<SessionGuard>(webdriver_url_);
+            return {*existing_websocket_, dummy_guard};
+        }
+
+        auto session_guard = std::make_shared<SessionGuard>(webdriver_url_);
+        std::expected<std::string, std::string> ws;
+        if (capabilities_.has_value()) {
+            ws = session_guard->connect_with_payload(*capabilities_);
+        } else {
+            ws = session_guard->connect(args, browser_type_, true);
+        }
+        if (!ws) {
+            throw std::runtime_error("Session connect failed: " + ws.error());
+        }
+
+        return {*ws, session_guard};
+    }
+
     [[nodiscard]] auto
     connect(boost::asio::io_context &ioc) && -> Task<Client::Ptr> {
         // Perform the two-phase connect: SessionGuard HTTP handshake then

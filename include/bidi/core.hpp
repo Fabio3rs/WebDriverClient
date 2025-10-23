@@ -166,6 +166,10 @@ class WebSocketClient : public std::enable_shared_from_this<WebSocketClient> {
     // Close the websocket (best-effort)
     void close();
 
+    // Async close with full buffer cleanup (awaitable)
+    template <typename CompletionToken>
+    auto async_close(CompletionToken &&token);
+
     // Get executor for posting callbacks
     /**
      * @brief Get executor for async operations
@@ -340,6 +344,10 @@ class BiDiSession : public std::enable_shared_from_this<BiDiSession> {
 
     // Graceful disconnect/close of the underlying WebSocket (non-blocking)
     void disconnect();
+
+    // Async disconnect with full cleanup of WebSocket buffers
+    template <typename CompletionToken>
+    auto async_disconnect(CompletionToken &&token);
 
     // Pending requests: id -> response handler
     struct PendingEntry {
@@ -591,6 +599,50 @@ auto WebSocketClient::async_send(std::string message, CompletionToken &&token) {
 }
 
 template <class CompletionToken>
+auto WebSocketClient::async_close(CompletionToken &&token) {
+    auto wrapper = [this](auto &&handler) {
+        net::post(strand_, [this, handler = std::forward<decltype(handler)>(
+                                      handler)]() mutable {
+            // Close WebSocket (signals end of communication)
+            boost::system::error_code close_ec;
+            ws_.close(ws::close_code::normal, close_ec);
+
+            // Explicitly clear buffers to release memory
+            try {
+                beast::flat_buffer empty_buffer;
+                read_buffer_ = std::move(empty_buffer);
+            } catch (...) {
+                // Best-effort buffer cleanup
+            }
+
+            // Clear write queue and callbacks
+            try {
+                std::deque<std::pair<std::string, WriteCompletionHandler>>
+                    empty_queue;
+                write_queue_.swap(empty_queue);
+            } catch (...) {
+                // Best-effort queue cleanup
+            }
+
+            // Clear all event handlers (break reference cycles)
+            try {
+                on_message_ = {};
+                on_error_ = {};
+                connect_handler_ = {};
+            } catch (...) {
+                // Best-effort handler cleanup
+            }
+
+            // Invoke completion handler with result
+            handler(close_ec);
+        });
+    };
+
+    return net::async_initiate<CompletionToken,
+                               void(boost::system::error_code)>(wrapper, token);
+}
+
+template <class CompletionToken>
 auto BiDiSession::async_start(std::string_view websocket_url,
                               CompletionToken &&token) {
     auto wrapper = [this, websocket_url = std::string(websocket_url)](
@@ -609,6 +661,55 @@ auto BiDiSession::async_start(std::string_view websocket_url,
                                }
                                handler(ec);
                            });
+    };
+
+    return net::async_initiate<CompletionToken,
+                               void(boost::system::error_code)>(wrapper, token);
+}
+
+template <typename CompletionToken>
+auto BiDiSession::async_disconnect(CompletionToken &&token) {
+    auto wrapper = [this](auto &&handler) {
+        // Step 1: Clear pending responses
+        for (auto it = pending_responses_.begin();
+             it != pending_responses_.end();) {
+            auto id = it->first;
+            auto &entry = it->second;
+            boost::system::error_code timer_ec;
+            entry.timer.cancel(timer_ec);
+
+            ParsedResponse resp;
+            resp.id = id;
+            resp.is_success = false;
+            resp.error_code = bidi::ErrorCode::UnknownError;
+            resp.error_code_raw = "shutdown";
+            resp.error_message = "session disconnecting";
+            resp.trace_id = entry.trace_id;
+            resp.trace_location = entry.trace_location;
+            auto response_handler = std::move(entry.handler);
+            it = pending_responses_.erase(it);
+            if (response_handler) {
+                response_handler(std::move(resp));
+            }
+        }
+
+        // Step 2: Perform async WebSocket close with full buffer cleanup
+        if (ws_) {
+            ws_->async_close(
+                [handler = std::forward<decltype(handler)>(handler),
+                 self = shared_from_this()](
+                    const boost::system::error_code &ec) mutable {
+                    // Step 3: Reset WebSocket pointer after async close
+                    if (self->ws_) {
+                        self->ws_.reset();
+                    }
+                    handler(ec);
+                });
+        } else {
+            // No WebSocket to close, just invoke handler
+            boost::system::error_code no_error;
+            handler(no_error);
+        }
     };
 
     return net::async_initiate<CompletionToken,
