@@ -430,7 +430,7 @@ Removed: cases tied to promise_pool (obsolete layer)
     - Update constructor signature: `(runner, client_guard, context_id)` instead of `(runner, session_guard, client, context_id)`
   - **Benefits**:
     - ✅ Proper BiDi cleanup: subscriptions cleared, session disconnected, client reset
-    - ✅ No more orphaned SessionGuard 
+    - ✅ No more orphaned SessionGuard
     - ✅ ClientGuard logging visible during destruction (verified via test output)
     - ✅ Clean separation: HTTP cleanup separated from BiDi cleanup
     - ✅ Single cleanup pattern: RAII guarantees resources freed on scope exit
@@ -439,7 +439,7 @@ Removed: cases tied to promise_pool (obsolete layer)
     - ✅ NetworkInterceptBiDiTest still passes (362ms)
     - ✅ ClientGuard logs show proper cleanup order: session disconnected → client reset
     - ✅ Example `example_automation_session_minimal` compiles
-  - **Files Affected**: 
+  - **Files Affected**:
     - `include/bidi/automation_session.hpp` (member variables, methods, constructor)
     - `src/bidi_automation_session.cpp` (implementation, start() factory)
     - `docs/automation_session_cleanup_architecture.md` (analysis and decision rationale)
@@ -473,7 +473,7 @@ Removed: cases tied to promise_pool (obsolete layer)
       - `test_clear_event_handlers()`: Clear all event handlers and refcount maps (for cleanup/shutdown)
     - **Design**: All methods strand-safe via `boost::asio::post()`, noexcept with comprehensive try/catch blocks
     - **Use Case**: Enables manual resource inspection/cleanup during shutdown, recovery from protocol errors, and improved testability
-  - **Files Affected**: 
+  - **Files Affected**:
     - `src/bidi_network_intercept_handler.cpp` (weak_ptr callbacks)
     - `include/bidi/guards.hpp` (ClientGuard enhanced)
     - `include/bidi/client.hpp` (new cleanup API declarations)
@@ -579,7 +579,7 @@ Removed: cases tied to promise_pool (obsolete layer)
     - Parallel execution via ctest with `-j$(nproc)`
     - ATOMIC variables for thread-safe test state tracking
     - Proper coroutine async/await patterns with `co_await`/`co_return`
-  - **Results**: 
+  - **Results**:
     - **5/9 tests passing** (56% - core functionality verified)
     - **4/9 tests skipped** (44% - future phases/features)
     - **0 failures** (100% reliability)

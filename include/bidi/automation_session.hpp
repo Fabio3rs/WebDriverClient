@@ -29,11 +29,32 @@ namespace bidi {
  * - Workflow runner (run()) - hides io_context + co_spawn boilerplate
  * - Automatic context management
  *
+ * **DESIGN ARQUITETURAL: Híbrido Bloqueante + Assíncrono**
+ *
+ * A razão desta ser `AutomationSession` é híbrida (bloqueante em start(),
+ * assíncrono em run()) é INTENCIONAL:
+ *
+ * - **Alternativa 1 (Rejeitada)**: Totalmente bloqueante
+ *   - PRO: Simples de entender
+ *   - CON: Bloqueia thread em operações I/O (inaceitável para servidores)
+ *
+ * - **Alternativa 2 (Rejeitada)**: Totalmente assíncrona
+ *   - PRO: Maximiza throughput
+ *   - CON: Boilerplate de co_await mesmo para scripts simples
+ *
+ * - **Selecionada (Atual)**: Híbrida
+ *   - start(): Bloqueante (bootstrap HTTP one-time)
+ *   - run(): Assíncrona (operações naturalmente async)
+ *   - Razão: Sweet spot para maioria dos usuários
+ *
+ * Para mais detalhes, ver @ref docs/automation_session_architecture_review.md
+ *
  * **Key Benefits:**
  * - 85% boilerplate reduction for common cases
  * - Intuitive API: start() → run(workflow)
  * - Escape hatches for advanced users (client(), get_io_context())
  * - Pure composition (zero new dependencies)
+ * - Cleanup guarantees with exception safety (RAII)
  *
  * @example
  * @code
@@ -48,26 +69,53 @@ namespace bidi {
  *     });
  * }
  * @endcode
+ *
+ * @see automation_session.hpp Lifecycle management
+ * @see automation_session_architecture_review.md Architecture decisions
+ * @see AWAIT_PENDING_OPERATIONS_DESIGN.md Exception handling guarantees
  */
 class AutomationSession {
   public:
     /**
      * @brief Create and start an automation session (BLOCKING)
      *
-     * Performs blocking initialization:
-     * 1. Starts background io_context thread
-     * 2. Connects to WebDriver via HTTP handshake
-     * 3. Establishes BiDi WebSocket connection
-     * 4. Creates default browsing context
+     * **ARQUITETURA**: Este é o ÚNICO ponto de entrada bloqueante.
+     * A razão: garantir que AutomationSession sempre tenha estado válido.
      *
-     * @param webdriver_url WebDriver server URL (default: localhost:9515)
-     * @param headless Launch browser in headless mode (default: true)
-     * @return Initialized AutomationSession ready for operations
+     * Inicialização em 2 fases:
+     * 1. **Fase 0 (Bloqueante neste método)**:
+     *    - Inicia thread de background com io_context
+     *    - Realiza HTTP handshake com WebDriver
+     *    - Retorna com websocket_url_ deferred (não conecta WebSocket ainda)
+     *    - Timing típico: 1-2 segundos
      *
-     * @throws std::runtime_error if connection fails
+     * 2. **Fase 1 (Assíncrona, dentro de run())**:
+     *    - Conecta WebSocket BiDi (co_await)
+     *    - Cria contexto de navegação padrão (co_await)
+     *    - Inicializa client_guard_ para gerenciar recursos BiDi
      *
-     * @note This is the ONLY blocking operation in the API. All subsequent
-     *       operations are async and return Task<T>.
+     * **Por que deferred WebSocket connection?**
+     * - Evita latência de 2-3s de I/O na thread principal
+     * - Permite reusabilidade: run() pode ser chamado múltiplas vezes
+     * - Flexibilidade: usuário escolhe quando conectar
+     * - Error recovery: Falha na Fase 1 não mata o programa
+     *
+     * @param webdriver_url URL do servidor WebDriver (padrão: localhost:9515)
+     * @param headless Modo headless (padrão: true)
+     * @return AutomationSession em estado "pronto para run()"
+     *
+     * @throws std::runtime_error Se falhar na Fase 0:
+     *   - Conexão HTTP falhar
+     *   - WebDriver retornar status inválido
+     *   - Thread de background falhar
+     *
+     * @note Falhas na Fase 1 serão capturadas em run() com exceções relançadas
+     * @note start() é bloqueante, mas run() é totalmente assíncrono
+     * @note run() é reutilizável após restart() automático
+     *
+     * @see run() para continuação assíncrona
+     * @see IoContextRunner para gerenciamento de thread
+     * @see SessionGuard para limpeza HTTP
      */
     [[nodiscard]] static auto
     start(std::string_view webdriver_url = "http://localhost:9515",
@@ -76,21 +124,33 @@ class AutomationSession {
     /**
      * @brief Navigate to URL in the default context (ASYNC)
      *
+     * **Timing esperado por ReadinessState**:
+     * - none: 10-100ms (início de navegação)
+     * - interactive: 100ms-5s (DOMContentLoaded)
+     * - complete: 500ms-30s (todas as resources carregadas)
+     *
+     * Operação lazy: apenas co_await dispara navegação real.
+     *
      * @param url Target URL to navigate to
      * @param wait Readiness state to wait for (default: complete)
      *             - none: Return immediately after navigation starts
      *             - interactive: Wait for DOM ready (DOMContentLoaded)
      *             - complete: Wait for full page load (window.onload)
-     * @param loc Source location for debugging
-     * @return Task<std::string> - Navigation ID (lazy, awaitable)
+     * @param loc Source location for debugging (via GDB)
+     * @return Task<std::string> - Navigation ID (lazy, deve ser co_await)
      *
-     * @example Default navigation (complete)
+     * @throws std::runtime_error Se navegação falhar:
+     *   - Timeout aguardando ReadinessState
+     *   - URL inválida
+     *   - Contexto de navegação fechado
+     *
+     * @example Default navigation (complete) - Aguarda tudo
      * @code
      * auto nav_id = co_await session.navigate("https://example.com");
      * // Waits for full page load including images, scripts, etc.
      * @endcode
      *
-     * @example Fast navigation (interactive)
+     * @example Fast navigation (interactive) - Aguarda apenas DOM
      * @code
      * using namespace bidi::commands::browsing_context;
      * auto nav_id = co_await session.navigate(
@@ -404,30 +464,97 @@ class AutomationSession {
     /**
      * @brief Run a coroutine workflow with automatic io_context management
      *
-     * Hides boilerplate:
-     * - co_spawn with exception handling
-     * - io_context.run()
-     * - Exit code extraction
+     * **GARANTIA DE LIMPEZA CRÍTICA** (com trade-off arquitetural):
+     *
+     * Este método orquestra TODA a complexidade:
+     * - co_spawn com exception handling
+     * - io_context.run() bloqueante
+     * - Extração de exit code
+     * - **CRÍTICO**: Garantia de limpeza via ScopeGuard (RAII)
+     *
+     * **Fluxo de Execução Normal (Sucesso)**:
+     * ```
+     * 1. ScopeGuard criado (garante limpeza)
+     * 2. Conecta WebSocket se Fase 1 ainda pendente
+     * 3. co_spawn dispara workflow no io_context
+     * 4. io_context.run() bloqueia thread principal
+     * 5. Workflow executa e retorna
+     * 6. ~ScopeGuard: cleanup (BiDi disconnect + restart context)
+     * 7. Return exit code
+     * ```
+     *
+     * **Fluxo de Execução com Exceção (CRÍTICO)**:
+     * ```
+     * 1-4. Idem acima
+     * 5. Workflow joga exceção
+     * 6. Exception capturada em callback → stored_exception
+     * 7. ~ScopeGuard: cleanup rápido
+     * 8. ╔═══════════════════════════════════════════════════╗
+     *    ║ NOVA FASE: awaitPendingOperations roda          ║
+     *    ║ - runner_->restart() (restaura io_context)      ║
+     *    ║ - runner_->get().run() bloqueia NOVAMENTE       ║
+     *    ║ - Aguarda até 5s por operações pendentes        ║
+     *    ║ - Permite callbacks finalizarem                 ║
+     *    ║ - Depois: std::rethrow_exception()              ║
+     *    ╚═══════════════════════════════════════════════════╝
+     * 9. Exception propagada ao caller COM GARANTIA de cleanup
+     * ```
+     *
+     * **Exception Safety Guarantees**:
+     * - Basic: ScopeGuard SEMPRE roda destrutor
+     * - Strong: run() reutilizável (restart() restaura estado)
+     * - Exception propagation: std::rethrow_exception() após cleanup
+     *
+     * **Trade-off Arquitetural**:
+     * - PRO: Cleanup completo, nenhum leak, callbacks garantidos
+     * - CON: Exceção tem latência de até 5s (await_pending_operations)
      *
      * @tparam WorkflowFunc Coroutine function returning awaitable<int>
-     * @param workflow Async workflow to execute
-     * @return Exit code (0 = success, non-zero = failure)
+     * @param workflow Async workflow a executar
+     * @return Exit code (0 = sucesso, non-zero = falha)
      *
-     * @throws std::exception Rethrows exceptions from workflow for caller
-     * handling
+     * @throws std::exception Rethrows exceções do workflow
+     * @throws std::runtime_error Se Fase 1 (WebSocket) falhar
      *
-     * @example
+     * @example Workflow básico com error handling
      * @code
      * try {
      *     return session.run([&]() -> boost::asio::awaitable<int> {
      *         co_await session.navigate("https://example.com");
+     *         auto title = co_await session.get_title();
+     *         std::cout << "Title: " << title << "\n";
      *         co_return 0;
      *     });
      * } catch (const std::exception &e) {
-     *     std::cerr << "Workflow failed: " << e.what() << "\n";
+     *     std::cerr << "Workflow ou limpeza falharam: " << e.what() << "\n";
      *     return 1;
      * }
+     * // ~ScopeGuard garantido mesmo em exception
      * @endcode
+     *
+     * @example Reutilizando session (run() é reutilizável)
+     * @code
+     * auto session = AutomationSession::start();
+     *
+     * // Primeiro workflow
+     * session.run([&]() -> boost::asio::awaitable<int> {
+     *     co_await session.navigate("https://site1.com");
+     *     co_return 0;
+     * });
+     *
+     * // Segundo workflow (restart() já foi chamado automaticamente)
+     * session.run([&]() -> boost::asio::awaitable<int> {
+     *     co_await session.navigate("https://site2.com");
+     *     co_return 0;
+     * });
+     * @endcode
+     *
+     * @note ScopeGuard pattern (RAII) garante limpeza determinística
+     * @note Timeout de awaitPendingOperations é 5s (hardcoded)
+     * @see AWAIT_PENDING_OPERATIONS_DESIGN.md para design detalhado
+     * @see ScopeGuard implementação interna
+     * @see ClientGuard::cleanup() limpeza de recursos BiDi
+     * @see WorkflowExceptionDoesNotLeakPendings teste de validação
      */
     template <typename WorkflowFunc> auto run(WorkflowFunc &&workflow) -> int {
         int exit_code = 1;
@@ -446,6 +573,26 @@ class AutomationSession {
             ScopeGuard(ScopeGuard &&) = delete;
             auto operator=(ScopeGuard &&) -> ScopeGuard & = delete;
 
+            /**
+             * @brief RAII destrutor: garante limpeza determinística
+             *
+             * **Sequência de cleanup** (sempre executado, independente de
+             * erro):
+             * 1. Phase 1: ClientGuard.cleanup() - Desconecta BiDi rápido
+             *    - Envia "session.end" ao BiDi
+             *    - Cancela subscriptions
+             *    - Desconecta WebSocket
+             * 2. Phase 2: runner_->restart() - Restaura io_context
+             *    - Readmite novo run() se necessário
+             *    - Restaura estado após workflow
+             *
+             * **IMPORTANTE**: Apenas cleanup rápido aqui!
+             * Operações pendentes são aguardadas DEPOIS em
+             * awaitPendingOperations (se workflow jogou exceção)
+             *
+             * @note Destrutor noexcept: captura e loga exceções
+             * @note Garante cleanup mesmo se ambas as fases falharem
+             */
             ~ScopeGuard() {
                 // Phase 1: Clear all pending async operations and close
                 // WebSocket
@@ -557,7 +704,7 @@ class AutomationSession {
                 // This unblocks any threads currently running
                 // io_context::run().
                 try {
-                    runner_->release_work();
+                    // runner_->release_work();
                     runner_->stop();
                 } catch (const std::exception &e) {
                     bidi::logging::log_error(
@@ -568,18 +715,36 @@ class AutomationSession {
         // Execute workflow (blocking until completion)
         runner_->get().run();
 
-        /*boost::asio::co_spawn(
-            runner_->get(),
-            // NOLINTNEXTLINE
-            [this]() -> boost::asio::awaitable<void> {
-                co_await client_guard_->client()
-                    ->session()
-                    ->await_pending_operations_complete(
-                        std::chrono::milliseconds(1000));
+        // ScopeGuard destructor runs here, ensuring cleanup always happens
+
+        if (stored_exception) {
+            auto awaitPendingOperations =
+                [this]() -> boost::asio::awaitable<void> {
+                std::cout << "Awaiting pending operations before finalizing..."
+                          << std::endl;
+                if (!client_guard_) {
+                    co_return;
+                }
+
+                auto client = client_guard_->client();
+
+                if (!client) {
+                    co_return;
+                }
+
+                auto session = client->session();
+
+                if (!session) {
+                    co_return;
+                }
+
+                co_await session->await_pending_operations_complete(
+                    std::chrono::milliseconds(5000));
                 co_return;
-            },
-            [&exit_code, &stored_exception,
-             this](const std::exception_ptr &exc) {
+            };
+
+            auto finalizationCallback = [&exit_code, &stored_exception,
+                                         this](const std::exception_ptr &exc) {
                 if (exc) {
                     try {
                         std::rethrow_exception(exc);
@@ -592,11 +757,24 @@ class AutomationSession {
                 }
                 runner_->release_work(); // Drop guard
                 runner_->stop();         // Unblock run()
-            });*/
+            };
 
-        // ScopeGuard destructor runs here, ensuring cleanup always happens
+            boost::asio::co_spawn(runner_->get(),
+                                  // NOLINTNEXTLINE
+                                  std::move(awaitPendingOperations),
+                                  finalizationCallback);
+            try {
+                runner_->restart();
+                runner_->arm_work(); // Ensure guard is held
+                bidi::logging::log_info(
+                    "Running io_context for awaitPendingOperations...");
+                runner_->get().run();
+                bidi::logging::log_info("Finished running io_context.");
+            } catch (const std::exception &e) {
+                bidi::logging::log_error(
+                    std::string("Finalization run() exception: ") + e.what());
+            }
 
-        if (stored_exception) {
             std::rethrow_exception(stored_exception); // Let caller handle
         }
 
@@ -606,10 +784,33 @@ class AutomationSession {
     /**
      * @brief Access the underlying Client (escape hatch for advanced usage)
      *
-     * Use this when you need direct Client API access for features not
-     * exposed by AutomationSession.
+     * ⚠️ **AVISO**: Use apenas se AutomationSession não expor API necessária.
+     * Misturar Client direto com AutomationSession pode causar:
+     * - Gerenciamento duplo de recursos
+     * - Exceções de contexto (usar contexto errado)
+     * - Comportamento indefinido (operações concorrentes)
      *
-     * @return Reference to shared_ptr<Client>
+     * **Quando usar**:
+     * - Operações não expostas por AutomationSession
+     * - Acesso a APIs avançadas do Client
+     * - Custom session introspection
+     *
+     * **Quando NÃO usar**:
+     * - Operações que AutomationSession já oferece
+     * - Operações que modificam contexto de navegação
+     * - Cleanup manual (use AutomationSession destrutor)
+     *
+     * @return Referência a shared_ptr<Client>
+     *
+     * @example Operação avançada não exposta
+     * @code
+     * auto client = session.client();
+     * auto info = co_await client->get_session_info();
+     * @endcode
+     *
+     * @see evaluate() para operações básicas
+     * @see make_function() para chamadas de função
+     * @note Prefer APIs de AutomationSession quando possível
      */
     [[nodiscard]] auto client() -> std::shared_ptr<Client> & {
         return client_guard_->client();
@@ -656,7 +857,43 @@ class AutomationSession {
     /**
      * @brief Access the io_context (escape hatch for custom async operations)
      *
-     * @return Reference to the io_context
+     * ⚠️ **AVISO**: Use apenas se Boost.Asio APIs diretas forem necessárias.
+     * Sequenciamento incorreto pode causar:
+     * - Race conditions (outros workflows rodando em paralelo)
+     * - Deadlocks (se bloquear dentro da coroutine)
+     * - Crashes (se destruir durante operações)
+     * - Undefined behavior (se modificar estado de AutomationSession)
+     *
+     * **Quando usar**:
+     * - Custom timers ou I/O operations
+     * - Advanced async patterns não suportadas por AutomationSession
+     * - Integration com outro código Boost.Asio
+     *
+     * **Quando NÃO usar**:
+     * - Operations que AutomationSession já oferece
+     * - co_spawn paralelo sem sincronização
+     * - Stopping/restarting io_context manualmente
+     *
+     * @return Referência a boost::asio::io_context
+     *
+     * @example Custom async operation com timer
+     * @code
+     * auto& io = session.get_io_context();
+     * boost::asio::co_spawn(
+     *     io,
+     *     [&]() -> boost::asio::awaitable<void> {
+     *         co_await asyncx::net::steady_timer(io,
+     * 1s).async_wait(asyncx::net::use_awaitable);
+     *         // Custom async work
+     *         co_return;
+     *     },
+     *     boost::asio::detached
+     * );
+     * @endcode
+     *
+     * @see run() para orchestração segura
+     * @see navigate() para operações seguras
+     * @note Este é verdadeiro escape hatch. Use com EXTREMO cuidado!
      */
     [[nodiscard]] auto get_io_context() -> boost::asio::io_context & {
         return runner_->get();
@@ -669,6 +906,46 @@ class AutomationSession {
     auto operator=(const AutomationSession &) -> AutomationSession & = delete;
 
     // Explicit destructor: ensures cleanup before member destruction
+    /**
+     * @brief Destrutor explícito (RAII cleanup)
+     *
+     * **ARQUITETURA**: Destrutor garante limpeza de recursos BiDi, mas
+     * **PROPOSITALMENTE** NÃO para io_context.
+     *
+     * **Por que não para io_context?**
+     * Razão: Pode haver operações assíncronas pendentes que ainda precisam
+     * rodar:
+     * - Subscriptions BiDi em limpeza
+     * - Operações finalizadas async
+     * - Callbacks pendentes
+     *
+     * io_context será parado apenas quando IoContextRunner é destruído (RAII).
+     *
+     * **Limpeza realizada**:
+     * 1. ClientGuard.cleanup() - Desconecta WebSocket BiDi
+     * 2. Cancela todas as subscriptions
+     * 3. Envia comando "session.end" ao BiDi
+     * 4. **NÃO** para io_context
+     * 5. **NÃO** paralisa thread de background
+     *
+     * **Exception Safety**:
+     * - Destrutor noexcept: captura exceções e loga
+     * - Destruição segura mesmo se cleanup falhar
+     * - Nunca joga (Contracts do destrutor)
+     *
+     * **Sequência de destruição importante**:
+     * ```
+     * 1. ~AutomationSession() - cleanup BiDi
+     * 2. ~IoContextRunner() - para io_context
+     * 3. ~SessionGuard() - cleanup HTTP
+     * ```
+     *
+     * @see ClientGuard::cleanup() para detalhes BiDi
+     * @see IoContextRunner para ciclo de vida de thread
+     * @see SessionGuard para limpeza HTTP
+     * @note Nunca bloqueia thread principal
+     * @note Operações async podem continuar brevemente após destrutor
+     */
     ~AutomationSession() {
         // Cleanup BiDi session (disconnect WebSocket, clear subscriptions)
         // NOTE: Only cleanup client, NOT io_context

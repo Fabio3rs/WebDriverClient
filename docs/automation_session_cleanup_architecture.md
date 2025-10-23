@@ -130,14 +130,14 @@ class AutomationSession {
   private:
     std::unique_ptr<IoContextRunner> runner_;
     std::unique_ptr<SessionGuard> session_guard_;
-    
+
     // NEW: Proper BiDi cleanup via ClientGuard
     std::unique_ptr<bidi::ClientGuard> client_guard_;  // ← Manages client lifecycle
-    
+
   public:
     // No change to public API
-    std::shared_ptr<Client> &client() { 
-        return client_guard_->client(); 
+    std::shared_ptr<Client> &client() {
+        return client_guard_->client();
     }
 };
 ```
@@ -174,7 +174,7 @@ class AutomationSession {
 class SessionGuard {
   private:
     WebDriver driver_;  // Store the actual HTTP session
-    
+
   public:
     static auto create(std::string_view url) -> std::unique_ptr<SessionGuard>;
     // Factory takes a connected WebDriver
@@ -200,7 +200,7 @@ class AutomationSession {
     std::unique_ptr<bidi::ClientGuard> client_guard_;  // ← NEW: BiDi cleanup
     // Removed: SessionGuard (rely on browsingContext.close instead)
     std::string context_id_;
-    
+
   public:
     // NEW: Explicit close() method
     auto close() -> Task<void> {
@@ -208,13 +208,13 @@ class AutomationSession {
             co_await client_guard_->client()->close_context(context_id_)();
         }
     }
-    
+
     // NEW: Explicit close_all() for shutdown
     auto close_all() -> Task<void> {
         co_await close();
         client_guard_->cleanup();  // BiDi cleanup
     }
-    
+
     auto client() -> std::shared_ptr<Client> & {
         return client_guard_->client();
     }
@@ -228,10 +228,10 @@ auto AutomationSession::start(...) -> AutomationSession {
     auto runner = std::make_unique<IoContextRunner>();
     auto client = ...;  // Connect via ConnectionBuilder
     auto context_id = ...;  // Create context
-    
+
     // Create ClientGuard to manage BiDi lifecycle
     auto client_guard = std::make_unique<bidi::ClientGuard>(client);
-    
+
     return {std::move(runner), std::move(client_guard), std::move(context_id)};
 }
 ```
@@ -288,3 +288,22 @@ TEST(AutomationSessionCleanupTest, FullShutdownSequence) {
 3. **Option C** (Fix SessionGuard to properly store WebDriver)
    - Pros: Keeps both guards, explicit cleanup at both levels
    - Cons: More complex, more duplication potential
+
+---
+
+## Atualizações Recentes
+
+#### Orquestração de Guards
+- `AutomationSession` agora documenta claramente como orquestra `SessionGuard` e `ClientGuard`.
+- Exemplo de fluxo de limpeza:
+```cpp
+AutomationSession session = AutomationSession::start();
+co_await session.run([]() -> boost::asio::awaitable<void> {
+    co_return;
+});
+// Limpeza automática via destructors de guards
+```
+
+#### Melhorias Propostas
+- Evitar duplicação de responsabilidades entre `SessionGuard` e `ClientGuard`.
+- Centralizar lógica de limpeza em `AutomationSession` para maior clareza.

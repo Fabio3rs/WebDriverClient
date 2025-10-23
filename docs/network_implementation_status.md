@@ -263,8 +263,8 @@ TEST(NetworkInterceptBiDiTest, ErrorCases) {
 ```cpp
 // 1. Intercept requests before sending
 auto id = co_await client->add_intercept(
-    {InterceptPhase::BeforeRequestSent}, 
-    {}, 
+    {InterceptPhase::BeforeRequestSent},
+    {},
     {{UrlPattern::String{"https://api.*"}}}
 );
 
@@ -319,7 +319,7 @@ Observable Events (2):
 > ✅ **YES, the core network interception is FULLY IMPLEMENTED and PRODUCTION-READY**
 >
 > - All 6 interception commands work
-> - continueWithAuth is a separate 8th command (for auth scenarios)  
+> - continueWithAuth is a separate 8th command (for auth scenarios)
 > - All 3 interception phases (BeforeRequestSent, ResponseStarted, AuthRequired) are functional
 > - 2 additional observable events (responseCompleted, fetchError) are subscribable
 > - RAII handler prevents memory leaks

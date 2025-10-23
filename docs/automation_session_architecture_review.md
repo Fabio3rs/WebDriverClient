@@ -663,6 +663,26 @@ The raw `evaluate()` method returns `boost::json::object`, which is low-level. U
 
 ---
 
+## Atualizações Recentes
+
+#### Exemplos Atualizados
+Adicionamos exemplos que demonstram o uso correto das APIs seguras para tipos. Veja abaixo:
+```cpp
+// Exemplo de uso correto de evaluate_as<T>()
+std::string title = co_await session.evaluate_as<std::string>("document.title");
+```
+
+#### Integração com Guards
+- `SessionGuard`: Responsável por limpar sessões HTTP.
+- `ClientGuard`: Gerencia assinaturas e desconexões do BiDi.
+- `AutomationSession`: Orquestra ambos os guards para garantir limpeza completa.
+
+#### Uso de co_await
+- Padrão moderno adotado: `co_await` direto em temporários (rvalues).
+```cpp
+co_await session.navigate("https://example.com");
+```
+
 ## Optional Future Enhancements
 
 ### NavigationResult Domain Type
@@ -782,23 +802,4 @@ cmake --build . -j24
 | Lazy evaluation | ✅ All operations return Task<T> |
 | Modern async pattern | ✅ Direct `co_await` on temporaries (per `docs/awaitable.md`) |
 | Type safety | ✅ Compile-time type checking, no runtime overhead |
-| Modern C++ | ✅ Uses C++20/23 features (templates, concepts-ready) |
-| Development freedom | ✅ Breaking changes allowed (pre-release) |
-| Minimalist design | ✅ Leverages existing infrastructure, no duplication |
-| Escape hatches | ✅ Low-level APIs remain available for advanced users |
-
----
-
-## Conclusion
-
-The `AutomationSession` facade is architecturally sound and properly leverages the existing type-safe script infrastructure. The main issues are:
-
-1. **Example quality** (teaches wrong patterns)
-2. **API completeness** (missing FunctionBidi, ReadinessState)
-3. **Documentation clarity** (when to use low-level vs high-level)
-
-All recommended changes are **non-breaking** and align with the project's zero-cost abstraction philosophy. Total implementation effort: ~3-4 hours.
-
-**Primary focus**: Fix the example first (P1) - it's the primary learning resource for users and currently demonstrates anti-patterns.
-
-**Modern Async Pattern**: All examples now use the modern **direct `co_await`** pattern on temporaries (rvalues) as documented in `docs/awaitable.md`. No extra `()` operator needed.
+| Modern C++ | ✅ Uses C++20/23 features |

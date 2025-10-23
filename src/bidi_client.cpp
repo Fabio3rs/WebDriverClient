@@ -390,7 +390,7 @@ auto Client::evaluate(std::string_view expression, std::string_view context,
     commands::script::Target target{.context = context, .sandbox = {}};
     auto params = commands::script::evaluate(expression, target, await_promise);
     session_->send_command(
-        std::string(bidi::ids::methods::script_evaluate), params,
+        bidi::ids::methods::script_evaluate, params,
         [result](const core::ParsedResponse &response) mutable {
             if (!response.is_success) {
                 result.fail(std::make_exception_ptr(std::runtime_error(
