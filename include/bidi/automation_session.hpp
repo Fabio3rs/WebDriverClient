@@ -1,9 +1,11 @@
 #pragma once
 
+#include "bidi/automation_session_config.hpp"
 #include "bidi/client.hpp"
 #include "bidi/connection_builder.hpp"
 #include "bidi/guards.hpp"
 #include "bidi/io_context_runner.hpp"
+#include "bidi/network_intercept_handler.hpp"
 #include "bidi/script/extraction.hpp"
 #include "bidi/script/function_wrapper.hpp"
 #include "bidi/script_eval.hpp"
@@ -120,6 +122,64 @@ class AutomationSession {
     [[nodiscard]] static auto
     start(std::string_view webdriver_url = "http://localhost:9515",
           bool headless = true) -> AutomationSession;
+
+    /**
+     * @brief Create and start an automation session with full configuration
+     * (BLOCKING)
+     *
+     * Enhanced version of start() that accepts AutomationSessionConfig for
+     * extensive customization. Provides access to all Phase 1 (P0) features:
+     * - Script preload configuration
+     * - Viewport and screenshot settings
+     * - Auto-subscriptions for events
+     * - Custom timeouts and retry policies
+     *
+     * **Initialization remains 2-phase** (same as basic start()):
+     * - Phase 0 (Blocking): HTTP handshake, background thread setup
+     * - Phase 1 (Async in run()): WebSocket connect, context creation, **config
+     * application**
+     *
+     * **Configuration Application Timeline**:
+     * - Phase 0: Browser args, headless mode applied to ChromeDriver launch
+     * - Phase 1: Preload scripts, viewport, subscriptions applied after
+     * WebSocket connect
+     *
+     * @param config Complete session configuration (AutomationSessionConfig)
+     * @return AutomationSession in state "pronto para run()"
+     *
+     * @throws std::runtime_error Se falhar na Fase 0 (same as basic start())
+     *
+     * @example Basic configuration
+     * @code
+     * auto config = AutomationSessionConfig{
+     *     .webdriver_url = "http://localhost:9515",
+     *     .headless = true
+     * };
+     * auto session = AutomationSession::start(config);
+     * @endcode
+     *
+     * @example Advanced P0 configuration
+     * @code
+     * auto config = AutomationSessionConfig{
+     *     .script = {
+     *         .preload_scripts = {{
+     *             .function_declaration = "window.testHelpers = { ... };"
+     *         }}
+     *     },
+     *     .browsing_context = {
+     *         .default_viewport = ViewportConfig{1920, 1080},
+     *         .auto_subscribe_navigation_events = true
+     *     }
+     * };
+     * auto session = AutomationSession::start(config);
+     * @endcode
+     *
+     * @note Prefer AutomationSessionBuilder for fluent API style
+     * @see AutomationSessionBuilder for fluent configuration
+     * @see run() para continuação assíncrona
+     */
+    [[nodiscard]] static auto
+    start(const AutomationSessionConfig &config) -> AutomationSession;
 
     /**
      * @brief Navigate to URL in the default context (ASYNC)
@@ -267,10 +327,10 @@ class AutomationSession {
      * @endcode
      */
     template <typename T>
-    [[nodiscard]] auto evaluate_as(
-        std::string_view expression,
-        const std::source_location &loc = std::source_location::current())
-        -> Task<T> {
+    [[nodiscard]] auto
+    evaluate_as(std::string_view expression,
+                const std::source_location &loc =
+                    std::source_location::current()) -> Task<T> {
         return evaluate(expression, loc)
             .map(
                 [expr = std::string(expression),
@@ -304,10 +364,10 @@ class AutomationSession {
      * @endcode
      */
     template <typename T>
-    [[nodiscard]] auto evaluate_as_or(
-        std::string_view expression, T fallback,
-        const std::source_location &loc = std::source_location::current())
-        -> Task<T> {
+    [[nodiscard]] auto
+    evaluate_as_or(std::string_view expression, T fallback,
+                   const std::source_location &loc =
+                       std::source_location::current()) -> Task<T> {
         return evaluate(expression, loc)
             .map([fallback = std::move(fallback),
                   loc](boost::json::object result) -> T {
@@ -381,12 +441,12 @@ class AutomationSession {
      * @endcode
      */
     template <typename T>
-    [[nodiscard]] auto evaluate_as_outcome(
-        std::string_view expression,
-        script::script_eval_policy policy =
-            script::script_eval_policy::return_outcome,
-        const std::source_location &loc = std::source_location::current())
-        -> Task<T> {
+    [[nodiscard]] auto
+    evaluate_as_outcome(std::string_view expression,
+                        script::script_eval_policy policy =
+                            script::script_eval_policy::return_outcome,
+                        const std::source_location &loc =
+                            std::source_location::current()) -> Task<T> {
         return evaluate_outcome(expression, policy, loc)
             .map([expr = std::string(expression)](
                      script::ScriptEvalOutcome outcome) -> T {
@@ -665,12 +725,40 @@ class AutomationSession {
             }
 
             // Execute user workflow
+            std::exception_ptr stored_workflow_exception;
             try {
                 co_return co_await workflow();
             } catch (...) {
                 bidi::logging::log_error("Workflow execution failed");
-                throw; // Let outer handler deal with it
+                stored_workflow_exception = std::current_exception();
             }
+
+            std::cout << "Awaiting pending operations before finalizing..."
+                      << std::endl;
+            if (!client_guard_) {
+                co_return -1;
+            }
+
+            auto client = client_guard_->client();
+
+            if (!client) {
+                co_return -1;
+            }
+
+            auto session = client->session();
+
+            if (!session) {
+                co_return -1;
+            }
+
+            co_await session->await_pending_operations_complete(
+                std::chrono::milliseconds(5000));
+
+            if (stored_workflow_exception) {
+                std::rethrow_exception(stored_workflow_exception);
+            }
+
+            co_return -1;
         };
 
         boost::asio::co_spawn(
@@ -704,7 +792,7 @@ class AutomationSession {
                 // This unblocks any threads currently running
                 // io_context::run().
                 try {
-                    // runner_->release_work();
+                    runner_->release_work();
                     runner_->stop();
                 } catch (const std::exception &e) {
                     bidi::logging::log_error(
@@ -718,63 +806,6 @@ class AutomationSession {
         // ScopeGuard destructor runs here, ensuring cleanup always happens
 
         if (stored_exception) {
-            auto awaitPendingOperations =
-                [this]() -> boost::asio::awaitable<void> {
-                std::cout << "Awaiting pending operations before finalizing..."
-                          << std::endl;
-                if (!client_guard_) {
-                    co_return;
-                }
-
-                auto client = client_guard_->client();
-
-                if (!client) {
-                    co_return;
-                }
-
-                auto session = client->session();
-
-                if (!session) {
-                    co_return;
-                }
-
-                co_await session->await_pending_operations_complete(
-                    std::chrono::milliseconds(5000));
-                co_return;
-            };
-
-            auto finalizationCallback = [&exit_code, &stored_exception,
-                                         this](const std::exception_ptr &exc) {
-                if (exc) {
-                    try {
-                        std::rethrow_exception(exc);
-                    } catch (const std::exception &e) {
-                        bidi::logging::log_error(
-                            std::string("Finalization exception: ") + e.what());
-                    }
-                    stored_exception = exc;
-                    exit_code = 1;
-                }
-                runner_->release_work(); // Drop guard
-                runner_->stop();         // Unblock run()
-            };
-
-            boost::asio::co_spawn(runner_->get(),
-                                  // NOLINTNEXTLINE
-                                  std::move(awaitPendingOperations),
-                                  finalizationCallback);
-            try {
-                runner_->restart();
-                runner_->arm_work(); // Ensure guard is held
-                bidi::logging::log_info(
-                    "Running io_context for awaitPendingOperations...");
-                runner_->get().run();
-                bidi::logging::log_info("Finished running io_context.");
-            } catch (const std::exception &e) {
-                bidi::logging::log_error(
-                    std::string("Finalization run() exception: ") + e.what());
-            }
-
             std::rethrow_exception(stored_exception); // Let caller handle
         }
 
@@ -852,6 +883,25 @@ class AutomationSession {
      */
     [[nodiscard]] auto context_id() const -> std::string_view {
         return context_id_;
+    }
+
+    /**
+     * @brief Get current session configuration (read-only access)
+     *
+     * Provides access to the configuration used to initialize this session.
+     * Useful for inspecting defaults or sharing config across sessions.
+     *
+     * @return Const reference to AutomationSessionConfig
+     *
+     * @example
+     * @code
+     * auto& cfg = session.config();
+     * std::cout << "Timeout: " << cfg.pending_operations_timeout.count() <<
+     * "ms\n";
+     * @endcode
+     */
+    [[nodiscard]] auto config() const -> const AutomationSessionConfig & {
+        return config_;
     }
 
     /**
@@ -971,12 +1021,13 @@ class AutomationSession {
     // Phase 1: HTTP-only initialization (before WebSocket connect)
     AutomationSession(std::unique_ptr<IoContextRunner> runner,
                       std::string websocket_url,
-                      std::shared_ptr<SessionGuard> session_guard);
+                      std::shared_ptr<SessionGuard> session_guard,
+                      AutomationSessionConfig config);
 
     // Phase 2: Full initialization (after WebSocket connect)
     AutomationSession(std::unique_ptr<IoContextRunner> runner,
                       std::unique_ptr<ClientGuard> client_guard,
-                      std::string context_id);
+                      std::string context_id, AutomationSessionConfig config);
 
     std::unique_ptr<IoContextRunner> runner_;
     std::unique_ptr<ClientGuard> client_guard_;
@@ -985,6 +1036,12 @@ class AutomationSession {
     // Deferred WebSocket connection (populated by start(), consumed by run())
     std::string websocket_url_;
     std::shared_ptr<SessionGuard> session_guard_;
+
+    // Session configuration (stored for reference and Phase 1 application)
+    AutomationSessionConfig config_;
+
+    // Network intercept handler (RAII cleanup, created in run() if enabled)
+    std::shared_ptr<NetworkInterceptHandler> network_handler_;
 };
 
 } // namespace bidi
