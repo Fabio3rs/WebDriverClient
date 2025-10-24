@@ -1,3 +1,4 @@
+#include "asyncx.hpp"
 #include "network_intercept_validation_helpers.hpp"
 #include "test_http_server.hpp"
 #include <atomic>
@@ -157,7 +158,8 @@ TEST_F(NetworkInterceptEnhancedTest, FailRequestValidated) {
         }
         bidi::ClientGuard client_guard(client_ptr);
 
-        std::atomic<bool> request_failed{false};
+        auto waiter = asyncx::make_promise_with_timeout<bool>(
+            20000ms, client_ptr->get_executor());
 
         // ========== SETUP: Configurar para BLOQUEAR ==========
         bidi::NetworkInterceptConfig config;
@@ -169,7 +171,7 @@ TEST_F(NetworkInterceptEnhancedTest, FailRequestValidated) {
 
         config.before_request_handler =
             [&](const auto &) -> std::optional<bidi::RequestResolution> {
-            request_failed = true;
+            waiter.promise.fulfill(true);
             bidi::RequestResolution res;
             res.action = bidi::InterceptAction::Fail; // ✓ BLOCK
             return res;
@@ -191,11 +193,9 @@ TEST_F(NetworkInterceptEnhancedTest, FailRequestValidated) {
                                     std::string(e.what()));
         }
 
-        for (int i = 0; i < 20 && !request_failed.load(); ++i) {
-            co_await asio::steady_timer(io_context, 100ms)
-                .async_wait(asio::use_awaitable);
-        }
-        if (!request_failed.load()) {
+        auto request_failed = co_await std::move(waiter.future);
+
+        if (!request_failed) {
             throw std::runtime_error("Request was not failed");
         }
 

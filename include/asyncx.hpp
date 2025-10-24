@@ -1736,6 +1736,25 @@ inline auto value(std::source_location loc = std::source_location::current())
     return a;
 }
 
+template <class T> struct timeout_async_future {
+    Async<T> promise;
+    Async<T> future;
+
+    timeout_async_future(
+        std::chrono::milliseconds timeval, net::any_io_executor ex,
+        std::source_location loc = std::source_location::current())
+        : promise(Async<T>::make(ex, loc)),
+          future(timeout<T>(promise, ex, timeval, loc)) {}
+};
+
+template <class T>
+auto make_promise_with_timeout(
+    std::chrono::milliseconds timeout, net::any_io_executor ex,
+    std::source_location loc = std::source_location::current())
+    -> timeout_async_future<T> {
+    return timeout_async_future<T>(timeout, ex, loc);
+}
+
 } // namespace asyncx
 
 // =============================
