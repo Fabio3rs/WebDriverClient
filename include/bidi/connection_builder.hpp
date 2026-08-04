@@ -2,20 +2,22 @@
 #include "bidi/client.hpp"
 #include "bidi/guards.hpp"
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace bidi {
 
 class ConnectionBuilder {
   public:
-    static auto to(std::string_view webdriver_url) -> ConnectionBuilder {
+    [[nodiscard]] static auto
+    to(std::string_view webdriver_url) -> ConnectionBuilder {
         ConnectionBuilder builder;
         builder.webdriver_url_ = std::string(webdriver_url);
         return builder;
     }
 
-    [[nodiscard]] auto with_capabilities(WebDriver::json caps) const
-        -> ConnectionBuilder {
+    [[nodiscard]] auto
+    with_capabilities(WebDriver::json caps) const -> ConnectionBuilder {
         ConnectionBuilder out = *this;
         out.capabilities_ = std::move(caps);
         return out;
@@ -48,8 +50,8 @@ class ConnectionBuilder {
         return out;
     }
 
-    [[nodiscard]] auto with_args(std::vector<std::string> args) const
-        -> ConnectionBuilder {
+    [[nodiscard]] auto
+    with_args(std::vector<std::string> args) const -> ConnectionBuilder {
         ConnectionBuilder out = *this;
         out.browser_args_ = std::move(args);
         return out;

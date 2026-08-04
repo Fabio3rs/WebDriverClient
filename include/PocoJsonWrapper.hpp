@@ -191,7 +191,7 @@ struct PocoJsonWrapper {
         }
     };
 
-    auto operator[](size_t index) -> ArrayProxy const {
+    auto operator[](size_t index) const -> ArrayProxy const {
         if (is_array()) {
             auto arr = value.extract<Poco::JSON::Array::Ptr>();
             return {arr, index};
