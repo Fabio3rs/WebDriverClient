@@ -7,11 +7,210 @@
 
 namespace bidi {
 
+// ==================== Network Configuration Helpers ====================
+
+namespace {
+
+/**
+ * @brief Apply extra headers to request resolution
+ *
+ * Merges extra_headers into the resolution's headers field.
+ * Creates headers field if it doesn't exist.
+ */
+void apply_extra_headers(
+    RequestResolution &resolution,
+    const std::map<std::string, std::string> &extra_headers) {
+    if (extra_headers.empty()) {
+        return;
+    }
+
+    // Convert map to Header vector
+    std::vector<types::network::Header> headers;
+    headers.reserve(extra_headers.size());
+
+    for (const auto &[name, value] : extra_headers) {
+        headers.push_back(types::network::Header{
+            .name = name,
+            .value = types::network::StringBytes{.value = value}});
+    }
+
+    // Merge with existing headers (if any)
+    if (resolution.headers) {
+        resolution.headers->insert(resolution.headers->end(),
+                                   std::make_move_iterator(headers.begin()),
+                                   std::make_move_iterator(headers.end()));
+    } else {
+        resolution.headers = std::move(headers);
+    }
+}
+
+/**
+ * @brief Apply cache bypass to request resolution
+ *
+ * Adds Cache-Control: no-cache, no-store header to force fresh fetches.
+ */
+void apply_cache_bypass(RequestResolution &resolution) {
+    if (!resolution.headers) {
+        resolution.headers = std::vector<types::network::Header>{};
+    }
+
+    resolution.headers->push_back(types::network::Header{
+        .name = "Cache-Control",
+        .value = types::network::StringBytes{.value = "no-cache, no-store"}});
+}
+
+/**
+ * @brief Wrap beforeRequestSent callback with convenience features
+ *
+ * Combines user callback (if provided) with extra_headers and cache bypass.
+ * User callback is called first, then convenience features are applied.
+ */
+[[nodiscard]] auto
+wrap_before_request_callback(const NetworkConfiguration &net_config)
+    -> std::optional<BeforeRequestCallback> {
+
+    // Check if we need any wrapping
+    bool has_features = !net_config.extra_headers.empty() ||
+                        net_config.cache_behavior ==
+                            NetworkConfiguration::CacheBehavior::bypass;
+
+    if (!has_features && !net_config.before_request_handler) {
+        return std::nullopt;
+    }
+
+    // Create combined callback
+    return
+        [net_config](const types::network::BeforeRequestSentParameters &params)
+            -> std::optional<RequestResolution> {
+            // Step 1: Call user callback first (if provided)
+            auto resolution = net_config.before_request_handler
+                                  ? (*net_config.before_request_handler)(params)
+                                  : std::make_optional<RequestResolution>();
+
+            if (!resolution) {
+                return std::nullopt; // User wants no action
+            }
+
+            // Step 2: Apply convenience features
+            apply_extra_headers(*resolution, net_config.extra_headers);
+
+            if (net_config.cache_behavior ==
+                NetworkConfiguration::CacheBehavior::bypass) {
+                apply_cache_bypass(*resolution);
+            }
+
+            return resolution;
+        };
+}
+
+/**
+ * @brief Wrap authRequired callback with default authentication
+ *
+ * Combines user callback (if provided) with default_auth credentials.
+ * User callback takes precedence if provided.
+ */
+[[nodiscard]] auto
+wrap_auth_required_callback(const NetworkConfiguration &net_config)
+    -> std::optional<AuthRequiredCallback> {
+
+    if (!net_config.default_auth && !net_config.auth_required_handler) {
+        return std::nullopt;
+    }
+
+    return [net_config](const types::network::AuthRequiredParameters &params)
+               -> std::optional<AuthResolution> {
+        // Step 1: User callback takes precedence
+        if (net_config.auth_required_handler) {
+            return (*net_config.auth_required_handler)(params);
+        }
+
+        // Step 2: Use default_auth
+        if (net_config.default_auth) {
+            return AuthResolution{
+                .action = InterceptAction::Continue,
+                .auth_action = types::network::AuthAction::ProvideCredentials,
+                .credentials = net_config.default_auth};
+        }
+
+        return std::nullopt;
+    };
+}
+
+} // anonymous namespace
+
+// ==================== Public Helper Functions ====================
+
+/**
+ * @brief Build NetworkInterceptConfig from NetworkConfiguration
+ *
+ * Converts AutomationSession's network configuration to NetworkInterceptHandler
+ * configuration, applying convenience features and validation.
+ *
+ * @param net_config Source configuration from AutomationSessionConfig
+ * @param context_id Browsing context ID to filter intercepts
+ * @return Expected NetworkInterceptConfig or error string
+ */
+[[nodiscard]] auto
+build_network_intercept_config(const NetworkConfiguration &net_config,
+                               std::string_view context_id)
+    -> std::expected<NetworkInterceptConfig, std::string> {
+
+    // Validation (fail fast with clear error messages)
+    if (!net_config.extra_headers.empty() &&
+        !net_config.enable_network_intercept) {
+        return std::unexpected(
+            "extra_headers requires enable_network_intercept = true");
+    }
+
+    if (net_config.cache_behavior ==
+            NetworkConfiguration::CacheBehavior::bypass &&
+        !net_config.enable_network_intercept) {
+        return std::unexpected(
+            "cache bypass requires enable_network_intercept = true");
+    }
+
+    if (net_config.default_auth && !net_config.enable_network_intercept) {
+        return std::unexpected(
+            "default_auth requires enable_network_intercept = true");
+    }
+
+    // Determine effective policy
+    auto effective_policy = net_config.intercept_policy;
+    bool has_convenience = !net_config.extra_headers.empty() ||
+                           net_config.cache_behavior ==
+                               NetworkConfiguration::CacheBehavior::bypass ||
+                           net_config.default_auth.has_value();
+
+    if (has_convenience && effective_policy != NetworkInterceptPolicy::Custom) {
+        // Auto-upgrade to Custom when convenience features are used
+        logging::log_info(
+            "Network configuration: auto-upgrading to Custom policy "
+            "(convenience features detected)");
+        effective_policy = NetworkInterceptPolicy::Custom;
+    }
+
+    // Build config with all fields explicitly initialized
+    NetworkInterceptConfig intercept_config{
+        .policy = effective_policy,
+        .phases = net_config.intercept_phases,
+        .contexts = std::vector<std::string>{std::string(context_id)},
+        .url_patterns = net_config.intercept_patterns.empty()
+                            ? std::nullopt
+                            : std::make_optional(net_config.intercept_patterns),
+        .before_request_handler = wrap_before_request_callback(net_config),
+        .response_started_handler = net_config.response_started_handler,
+        .auth_required_handler = wrap_auth_required_callback(net_config)};
+
+    return intercept_config;
+}
+
+// ==================== AutomationSession Implementation ====================
+
 // Phase 1 constructor: HTTP-only initialization (before WebSocket connect)
 AutomationSession::AutomationSession(
     std::unique_ptr<IoContextRunner> runner, std::string websocket_url,
     std::shared_ptr<SessionGuard> session_guard, AutomationSessionConfig config)
-    : runner_(std::move(runner)), client_guard_(nullptr), context_id_(""),
+    : runner_(std::move(runner)), client_guard_(nullptr), context_id_{},
       websocket_url_(std::move(websocket_url)),
       session_guard_(std::move(session_guard)), config_(std::move(config)) {}
 
@@ -21,8 +220,8 @@ AutomationSession::AutomationSession(std::unique_ptr<IoContextRunner> runner,
                                      std::string context_id,
                                      AutomationSessionConfig config)
     : runner_(std::move(runner)), client_guard_(std::move(client_guard)),
-      context_id_(std::move(context_id)), websocket_url_(""),
-      session_guard_(nullptr), config_(std::move(config)) {}
+      context_id_(std::move(context_id)), session_guard_(nullptr),
+      config_(std::move(config)) {}
 
 // Static factory (blocking HTTP handshake only, WebSocket deferred to run())
 // Backward-compatible version - delegates to config-based start()
