@@ -1,0 +1,559 @@
+#pragma once
+/**
+ * @file client.hpp
+ * @brief High-level BiDi Client with lazy evaluation and RAII subscriptions.
+ *
+ * Architectural rationale:
+ * - Lazy evaluation model: The public `Task<T>` API (alias for
+ * `asyncx::Async<T>`) is intentionally lazy. Operations are only materialized
+ * when a terminal is invoked (`.finally()` or `co_await`). This design
+ * minimizes unnecessary allocations and side-effects on the hot path.
+ * - [[nodiscard]] enforcement: Prevents accidental ignoring of lazy operations
+ *   which would otherwise silently do nothing. Compile-time safety for API
+ * misuse.
+ * - RAII subscription management: Event subscriptions return RAII handles that
+ *   auto-unsubscribe on destruction, preventing subscription leaks.
+ * - Integration with BiDiSession: Client wraps core::BiDiSession and provides
+ *   high-level convenience methods while preserving all architectural
+ * guarantees (strand serialization, timer racing, pool-based allocation).
+ * - Pool-based allocation: Underlying BiDiSession uses pending_entry pools and
+ *   buffer pools to minimize allocation overhead under high throughput.
+ * - Zero busy-wait: All async operations use native kernel suspension via
+ *   Boost.Asio primitives (epoll/kqueue/IOCP).
+ *
+ * Threading expectations:
+ * - Client methods are non-blocking and will post work to the session's
+ *   strand when necessary.
+ * - Long blocking waits must not be performed on the strand to avoid deadlocks.
+ * - Terminal operations (.finally, co_await) trigger actual async work.
+ */
+
+#include "asyncx.hpp"
+#include "bidi/commands.hpp"
+#include "bidi/core.hpp"
+#include "bidi/ids.hpp"
+#include "bidi/script_eval.hpp"
+#include "bidi/types/network.hpp"
+#include "bidi/types/script.hpp"
+#include <boost/asio/any_io_executor.hpp>
+#include <boost/asio/async_result.hpp>
+#include <memory>
+#include <string>
+#include <utility>
+
+namespace bidi {
+
+// Type aliases for convenience
+template <typename T> using Task = asyncx::Async<T>;
+
+// High-level BiDi client with monadic/async API
+class Client : public std::enable_shared_from_this<Client> {
+  public:
+    using Ptr = std::shared_ptr<Client>;
+
+    // Create client with existing BiDi session
+    explicit Client(std::shared_ptr<core::BiDiSession> session);
+
+    // Factory: connect to BiDi WebSocket directly
+    static auto
+    connect(boost::asio::io_context &ioc, std::string_view websocket_url,
+            std::source_location loc = std::source_location::current())
+        -> Task<Ptr>;
+
+    // Generic zero-overhead async_send (CompletionToken based)
+    template <class CompletionToken>
+    auto async_send(std::string_view method, boost::json::object params,
+                    CompletionToken &&token);
+
+    // ======================== BrowsingContext API ========================
+
+    [[nodiscard]] auto create_user_context(
+        const boost::json::object &params = {},
+        const std::source_location &loc = std::source_location::current())
+        -> Task<std::string>;
+
+    // Create new browsing context (tab/window)
+    [[nodiscard]] auto create_context(
+        commands::browsing_context::CreateType type =
+            commands::browsing_context::CreateType::window,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<std::string>;
+
+    // Navigate to URL
+    [[nodiscard]] auto
+    navigate(std::string_view context, std::string_view url,
+             commands::browsing_context::ReadinessState wait =
+                 commands::browsing_context::ReadinessState::complete,
+             const std::source_location &loc = std::source_location::current())
+        -> Task<std::string>;
+
+    // Reload browsing context
+    [[nodiscard]] auto
+    reload(std::string_view context, bool ignore_cache = false,
+           commands::browsing_context::ReadinessState wait =
+               commands::browsing_context::ReadinessState::complete,
+           const std::source_location &loc = std::source_location::current())
+        -> Task<std::string>;
+
+    // Activate and focus browsing context
+    [[nodiscard]] auto
+    activate(std::string_view context,
+             const std::source_location &loc = std::source_location::current())
+        -> Task<void>;
+
+    // Close browsing context
+    [[nodiscard]] auto close_context(
+        std::string_view context,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<bool>;
+
+    // Get browsing context tree
+    [[nodiscard]] auto get_context_tree(
+        std::string_view root = {},
+        const std::source_location &loc = std::source_location::current())
+        -> Task<boost::json::object>;
+
+    // Handle user prompt
+    [[nodiscard]] auto handle_user_prompt(
+        std::string_view context, std::optional<bool> accept = std::nullopt,
+        std::optional<std::string_view> user_text = std::nullopt,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<void>;
+
+    /**
+     * @brief Locate DOM nodes using various locator strategies
+     *
+     * Locates elements in the browsing context using CSS selectors, XPath,
+     * accessibility properties, inner text matching, or context-based
+     * references.
+     *
+     * @param context Browsing context ID to search within
+     * @param locator Locator strategy (CSS, XPath, Accessibility, InnerText,
+     * Context)
+     * @param max_node_count Maximum number of nodes to return (optional)
+     * @param sandbox Sandbox name for isolated execution (optional)
+     * @param start_nodes Start nodes for scoped search (SharedReference IDs,
+     * optional)
+     * @param loc Source location for debugging (auto-captured)
+     * @return Task resolving to vector of NodeRemoteValue objects
+     *
+     * @example
+     * // Find elements by CSS selector
+     * auto css_locator = types::browsing_context::CssLocator{"button.submit"};
+     * auto nodes = co_await client->locate_nodes(ctx, css_locator);
+     *
+     * @example
+     * // Find elements by XPath with max count
+     * auto xpath_locator =
+     * types::browsing_context::XPathLocator{"//div[@role='button']"}; auto
+     * nodes = co_await client->locate_nodes(ctx, xpath_locator, 5);
+     *
+     * @example
+     * // Find elements by accessibility role
+     * auto aria_locator = types::browsing_context::AccessibilityLocator{
+     *     .role = "button",
+     *     .name = "Submit"
+     * };
+     * auto nodes = co_await client->locate_nodes(ctx, aria_locator);
+     *
+     * @example
+     * // Find elements by inner text (case-insensitive partial match)
+     * auto text_locator = types::browsing_context::InnerTextLocator{
+     *     .value = "Click here",
+     *     .ignore_case = true,
+     *     .match_type = types::browsing_context::LocateMatchType::Partial
+     * };
+     * auto nodes = co_await client->locate_nodes(ctx, text_locator);
+     *
+     * @see
+     * https://w3c.github.io/webdriver-bidi/#command-browsingContext-locateNodes
+     */
+    [[nodiscard]] auto locate_nodes(
+        std::string_view context,
+        const types::browsing_context::Locator &locator,
+        std::optional<std::uint64_t> max_node_count = std::nullopt,
+        std::optional<std::string_view> sandbox = std::nullopt,
+        std::optional<std::vector<std::string>> start_nodes = std::nullopt,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<std::vector<types::script::NodeRemoteValue>>;
+
+    /**
+     * @brief Capture a screenshot of the provided browsing context.
+     *
+     * @param context Browsing context identifier.
+     * @param origin Screenshot origin (`"viewport"` or `"document"`).
+     * @param format Optional image format and quality descriptor.
+     * @param clip Optional clip rectangle describing the capture region.
+     * @param loc Source location used for tracing/logging diagnostics.
+     * @return Base64-encoded image data as a lazy task.
+     *
+     * @see
+     * https://w3c.github.io/webdriver-bidi/#command-browsingContext-captureScreenshot
+     */
+    [[nodiscard]] auto capture_screenshot(
+        std::string_view context,
+        std::optional<std::string_view> origin = std::nullopt,
+        std::optional<types::browsing_context::ImageFormat> format =
+            std::nullopt,
+        std::optional<types::browsing_context::ClipRectangle> clip =
+            std::nullopt,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<std::string>;
+
+    // ======================== Script API ========================
+
+    // Evaluate JavaScript expression
+    [[nodiscard]] auto
+    evaluate(std::string_view expression, std::string_view context,
+             bool await_promise = true,
+             const std::source_location &loc = std::source_location::current())
+        -> Task<boost::json::object>;
+
+    // Evaluate JavaScript expression with script evaluation policy
+    [[nodiscard]] auto
+    evaluate(std::string_view expression, std::string_view context,
+             script::script_eval_policy policy, bool await_promise = true,
+             const std::source_location &loc = std::source_location::current())
+        -> Task<script::ScriptEvalOutcome>;
+
+    // Call JavaScript function
+    [[nodiscard]] auto call_function(
+        std::string_view function_declaration, std::string_view context,
+        boost::json::array arguments = {}, bool await_promise = true,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<boost::json::object>;
+
+    // Call JavaScript function
+    [[nodiscard]] auto call_function(
+        std::string_view function_declaration, std::string_view context,
+        boost::json::array arguments = {},
+        script::script_eval_policy policy =
+            script::script_eval_policy::return_outcome,
+        bool await_promise = true,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<script::ScriptEvalOutcome>;
+
+    // Add preload script (runs on realm creation)
+    [[nodiscard]] auto add_preload_script(
+        std::string_view function_declaration,
+        boost::json::array arguments = {}, std::string_view sandbox = {},
+        const std::source_location &loc = std::source_location::current())
+        -> Task<std::string>;
+
+    // Remove preload script
+    [[nodiscard]] auto remove_preload_script(
+        std::string_view script_id,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<void>;
+
+    // ======================== Network Interception API
+    // ========================
+
+    /**
+     * @brief Add network intercept
+     *
+     * @param phases Intercept phases (beforeRequestSent, responseStarted,
+     * authRequired)
+     * @param contexts Optional browsing context IDs to limit scope
+     * @param url_patterns Optional URL patterns to filter requests
+     * @param loc Source location for debugging (auto-captured)
+     * @return Task resolving to intercept ID
+     *
+     * @see https://w3c.github.io/webdriver-bidi/#command-network-addIntercept
+     */
+    [[nodiscard]] auto add_intercept(
+        std::vector<types::network::InterceptPhase> phases,
+        std::optional<std::vector<std::string>> contexts = std::nullopt,
+        std::optional<std::vector<types::network::UrlPattern>> url_patterns =
+            std::nullopt,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<types::network::InterceptId>;
+
+    /**
+     * @brief Remove network intercept
+     *
+     * @param intercept_id Intercept ID from addIntercept
+     * @param loc Source location for debugging (auto-captured)
+     * @return Task completing when intercept removed
+     *
+     * @see
+     * https://w3c.github.io/webdriver-bidi/#command-network-removeIntercept
+     */
+    [[nodiscard]] auto remove_intercept(
+        types::network::InterceptId intercept_id,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<void>;
+
+    /**
+     * @brief Continue intercepted request (possibly modified)
+     *
+     * @param request_id Request ID from intercept event
+     * @param body Optional modified request body
+     * @param cookies Optional modified cookies
+     * @param headers Optional modified headers
+     * @param method Optional modified HTTP method
+     * @param url Optional modified URL
+     * @param loc Source location for debugging (auto-captured)
+     * @return Task completing when request continued
+     *
+     * @see
+     * https://w3c.github.io/webdriver-bidi/#command-network-continueRequest
+     */
+    [[nodiscard]] auto continue_request(
+        types::network::RequestId request_id,
+        std::optional<types::network::BytesValue> body = std::nullopt,
+        std::optional<std::vector<types::network::CookieHeader>> cookies =
+            std::nullopt,
+        std::optional<std::vector<types::network::Header>> headers =
+            std::nullopt,
+        std::optional<std::string> method = std::nullopt,
+        std::optional<std::string> url = std::nullopt,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<void>;
+
+    /**
+     * @brief Fail intercepted request
+     *
+     * @param request_id Request ID from intercept event
+     * @param loc Source location for debugging (auto-captured)
+     * @return Task completing when request failed
+     *
+     * @see https://w3c.github.io/webdriver-bidi/#command-network-failRequest
+     */
+    [[nodiscard]] auto fail_request(
+        types::network::RequestId request_id,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<void>;
+
+    /**
+     * @brief Continue intercepted response (possibly modified)
+     *
+     * @param request_id Request ID from intercept event
+     * @param cookies Optional modified Set-Cookie headers
+     * @param headers Optional modified response headers
+     * @param reason_phrase Optional modified reason phrase
+     * @param status_code Optional modified status code
+     * @param loc Source location for debugging (auto-captured)
+     * @return Task completing when response continued
+     *
+     * @see
+     * https://w3c.github.io/webdriver-bidi/#command-network-continueResponse
+     */
+    [[nodiscard]] auto continue_response(
+        types::network::RequestId request_id,
+        std::optional<std::vector<types::network::SetCookieHeader>> cookies =
+            std::nullopt,
+        std::optional<types::network::AuthCredentials> credentials =
+            std::nullopt,
+        std::optional<std::vector<types::network::Header>> headers =
+            std::nullopt,
+        std::optional<std::string> reason_phrase = std::nullopt,
+        std::optional<std::uint64_t> status_code = std::nullopt,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<void>;
+
+    /**
+     * @brief Provide custom response for intercepted request
+     *
+     * @param request_id Request ID from intercept event
+     * @param body Optional response body
+     * @param cookies Optional Set-Cookie headers
+     * @param headers Optional response headers
+     * @param reason_phrase Optional reason phrase
+     * @param status_code Optional status code
+     * @param loc Source location for debugging (auto-captured)
+     * @return Task completing when response provided
+     *
+     * @see
+     * https://w3c.github.io/webdriver-bidi/#command-network-provideResponse
+     */
+    [[nodiscard]] auto provide_response(
+        types::network::RequestId request_id,
+        std::optional<types::network::BytesValue> body = std::nullopt,
+        std::optional<std::vector<types::network::SetCookieHeader>> cookies =
+            std::nullopt,
+        std::optional<std::vector<types::network::Header>> headers =
+            std::nullopt,
+        std::optional<std::string> reason_phrase = std::nullopt,
+        std::optional<std::uint64_t> status_code = std::nullopt,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<void>;
+
+    /**
+     * @brief Continue with auth action
+     *
+     * @param request_id Request ID from intercept event
+     * @param action Auth action (provideCredentials, default, cancel)
+     * @param credentials Optional credentials (required for provideCredentials)
+     * @param loc Source location for debugging (auto-captured)
+     * @return Task completing when auth continued
+     *
+     * @see
+     * https://w3c.github.io/webdriver-bidi/#command-network-continueWithAuth
+     */
+    [[nodiscard]] auto continue_with_auth(
+        types::network::RequestId request_id, types::network::AuthAction action,
+        std::optional<types::network::AuthCredentials> credentials =
+            std::nullopt,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<void>;
+
+    // ======================== Session API ========================
+
+    // Subscribe to events (returns RAII subscription handle)
+    class Subscription {
+      public:
+        Subscription() = default;
+        ~Subscription() noexcept;
+
+        // Move-only
+        Subscription(Subscription &&other) noexcept;
+        auto operator=(Subscription &&other) noexcept -> Subscription &;
+        Subscription(const Subscription &) = delete;
+        auto operator=(const Subscription &) -> Subscription & = delete;
+
+        // Check if subscription is active
+        [[nodiscard]] auto is_active() const -> bool {
+            return !events_.empty();
+        }
+
+      private:
+        friend class Client;
+        Subscription(std::weak_ptr<Client> client,
+                     std::vector<std::string> events);
+
+        std::weak_ptr<Client> client_;
+        std::vector<std::string> events_;
+    };
+
+    // Subscribe to events with RAII cleanup
+    [[nodiscard]] auto
+    subscribe(const std::vector<std::string> &events,
+              const std::vector<std::string> &contexts = {},
+              const std::source_location &loc = std::source_location::current())
+        -> Task<Subscription>;
+
+    // Set event handler for specific method
+    auto set_event_handler(
+        std::string_view method,
+        std::function<void(boost::json::object)> handler,
+        const std::source_location &loc = std::source_location::current())
+        -> boost::asio::awaitable<void>;
+
+    auto set_event_handler_subscription(
+        std::string_view method,
+        std::function<void(boost::json::object)> handler,
+        const std::source_location &loc = std::source_location::current())
+        -> asyncx::Async<
+            std::shared_ptr<bidi::core::BiDiSession::Subscription>>;
+
+    // ======================== Utility ========================
+
+    // Get underlying session (for advanced usage)
+    auto session() const -> std::shared_ptr<core::BiDiSession> {
+        return session_;
+    }
+
+    // Get executor for async operations
+    auto get_executor() const -> boost::asio::any_io_executor;
+
+    /**
+     * @brief Get count of pending requests
+     *
+     * Useful for debugging and monitoring request lifecycle.
+     * Returns the number of in-flight requests awaiting responses.
+     */
+    [[nodiscard]] auto pending_request_count() const -> std::size_t;
+
+    /**
+     * @brief Clear all pending requests (dangerous - can lose request data)
+     *
+     * Clears the pending_responses map without waiting for actual responses.
+     * WARNING: This may leave requests in-flight on the server. Use only when:
+     * - Forcefully shutting down the client
+     * - Recovering from a protocol error
+     * - Running cleanup in destructors
+     *
+     * Safe to call multiple times (idempotent).
+     */
+    void clear_pending_requests() noexcept;
+
+    /**
+     * @brief Clear all event handlers
+     *
+     * Removes all registered event handlers without unsubscribing from the
+     * server. This prevents further events from being delivered locally
+     * but does NOT send unsubscribe commands to the server.
+     *
+     * Useful for cleanup when disconnecting or recovering from errors.
+     * Safe to call multiple times (idempotent).
+     */
+    void clear_event_handlers() noexcept;
+
+    /**
+     * @brief Drain pending operations and gracefully disconnect
+     *
+     * Performs comprehensive cleanup in this order:
+     * 1. Cancel/fail all pending requests
+     * 2. Clear event handler registry
+     * 3. Close WebSocket connection
+     * 4. Reset session
+     *
+     * Provides detailed logging of each cleanup step.
+     * Safe to call multiple times (idempotent).
+     *
+     * @note This is more aggressive than disconnect() and should be used
+     *       when you need guaranteed cleanup even if the server is unreachable.
+     */
+    void drain_and_cleanup() noexcept;
+
+    /**
+     * @brief Graceful disconnect (minimal cleanup)
+     *
+     * Releases pending responses and closes WebSocket connection.
+     * This is a lightweight disconnect that assumes normal operation.
+     * For more comprehensive cleanup, use drain_and_cleanup().
+     *
+     * Safe to call multiple times (idempotent).
+     */
+    void disconnect() noexcept;
+
+  private:
+    std::shared_ptr<core::BiDiSession> session_;
+
+    // Internal: unsubscribe events
+    void unsubscribe_events(
+        const std::vector<std::string> &events,
+        const std::source_location &loc = std::source_location::current());
+};
+
+// Inline template implementation
+template <class CompletionToken>
+auto Client::async_send(std::string_view method, boost::json::object params,
+                        CompletionToken &&token) {
+    using handler_sig = void(boost::system::error_code, boost::json::object);
+    return boost::asio::async_initiate<CompletionToken, handler_sig>(
+        [self = shared_from_this(), method,
+         params = std::move(params)](auto completion_handler) mutable {
+            // Wrap completion_handler in shared_ptr to ensure copyable functor
+            auto handler_wrapper =
+                std::make_shared<decltype(completion_handler)>(
+                    std::move(completion_handler));
+            self->session_->send_command(
+                std::string(method), params,
+                [handler_wrapper](
+                    const core::ParsedResponse &response) mutable {
+                    auto &completion_ref = *handler_wrapper;
+                    if (!response.is_success) {
+                        boost::system::error_code ec = make_error_code(
+                            boost::system::errc::operation_canceled);
+                        completion_ref(ec, boost::json::object{});
+                    } else {
+                        completion_ref({}, response.result);
+                    }
+                });
+        },
+        token);
+}
+
+} // namespace bidi

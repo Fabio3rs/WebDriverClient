@@ -1,0 +1,115 @@
+#pragma once
+/**
+ * @file metrics.hpp
+ * @brief Lightweight metrics primitives used by pools and tests.
+ *
+ * The goal is a tiny, dependency-free metrics surface suitable for examples
+ * and unit tests: counters, histograms (bucketed), and a centralized
+ * Registry. PoolMetrics is the agreed-upon shape for all pool instrumentation
+ * and is used by `PendingEntryPoolVec` and others to expose capacity, in_use
+ * and cumulative counters.
+ */
+
+#include <atomic>
+#include <chrono>
+#include <map>
+#include <mutex>
+#include <string>
+#include <vector>
+
+namespace bidi::metrics {
+
+// Unification of pool metrics (P0-3):
+// Standardized shape for all resource pools.
+// Cumulative fields where applicable; in_use is instantaneous.
+struct PoolMetrics {
+    std::size_t capacity{0}; // configured slots or logical capacity
+    std::size_t in_use{0};   // slots currently borrowed/occupied
+    std::size_t acquired{0}; // total acquisitions (includes reused + created)
+    std::size_t reused{
+        0}; // acquisitions served from already-initialized object
+    std::size_t created{0};  // actual object constructions
+    std::size_t fallback{0}; // times fell back to heap/out-of-pool
+    std::size_t failures{0}; // construction failures or other transient errors
+};
+
+// Simple thread-safe counter
+class Counter {
+  public:
+    Counter() noexcept : value_(0) {}
+    void inc(std::uint64_t n = 1) noexcept {
+        value_.fetch_add(n, std::memory_order_relaxed);
+    }
+    void dec(std::uint64_t n = 1) noexcept {
+        value_.fetch_sub(n, std::memory_order_relaxed);
+    }
+    [[nodiscard]] auto value() const noexcept -> std::uint64_t {
+        return value_.load(std::memory_order_relaxed);
+    }
+
+  private:
+    std::atomic<std::uint64_t> value_;
+};
+
+// Lightweight histogram buckets (power-of-two-ish) for latency in microseconds
+class Histogram {
+  public:
+    Histogram() = default;
+    void observe(std::uint64_t usec) {
+        std::lock_guard<std::mutex> lk(m_);
+        auto idx = bucket_index(usec);
+        if (idx >= buckets_.size()) {
+            buckets_.resize(idx + 1);
+        }
+        ++buckets_[idx];
+        ++count_;
+        total_ += usec;
+    }
+
+    auto count() const noexcept -> std::uint64_t { return count_; }
+    auto total() const noexcept -> std::uint64_t { return total_; }
+
+    // Return a snapshot of buckets (index -> count)
+    auto snapshot() const -> std::vector<std::uint64_t> {
+        std::lock_guard<std::mutex> lk(m_);
+        return buckets_;
+    }
+
+  private:
+    static auto bucket_index(std::uint64_t usec) noexcept -> std::size_t {
+        // buckets: [0-1), [1-2), [2-4), [4-8), ...
+        std::size_t index = 0;
+        std::uint64_t value_for_shift = usec;
+        while (value_for_shift > 1) {
+            value_for_shift >>= 1;
+            ++index;
+        }
+        return index;
+    }
+
+    mutable std::mutex m_;
+    std::vector<std::uint64_t> buckets_;
+    std::uint64_t count_ = 0;
+    std::uint64_t total_ = 0;
+};
+
+// Registry for named metrics (very small, safe for examples)
+class Registry {
+  public:
+    auto counter(const std::string &name) -> Counter & {
+        std::lock_guard<std::mutex> lk(m_);
+        return counters_[name];
+    }
+
+    auto histogram(const std::string &name) -> Histogram & {
+        std::lock_guard<std::mutex> lk(m_);
+        return histograms_[name];
+    }
+
+  private:
+    std::mutex m_;
+    std::map<std::string, Counter> counters_;
+    std::map<std::string, Histogram> histograms_;
+};
+
+} // namespace bidi::metrics

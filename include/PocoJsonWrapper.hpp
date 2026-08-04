@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 #include <variant>
 
 namespace PocoJsonWrapperIt {
@@ -30,15 +31,16 @@ template <class T> struct iterator {
     iterator() = default;
 
     // Array iterator constructor
-    iterator(Poco::JSON::Array::Ptr arr, size_t index)
+    iterator(const Poco::JSON::Array::Ptr &arr, size_t index)
         : Storage(Poco::Dynamic::Var(arr)), state(index) {}
 
     // Object iterator constructor
-    iterator(Poco::JSON::Object::Ptr obj, Poco::JSON::Object::ConstIterator it)
+    iterator(const Poco::JSON::Object::Ptr &obj,
+             Poco::JSON::Object::ConstIterator it)
         : Storage(Poco::Dynamic::Var(obj)), state(it) {}
 
     // Common iterator operations
-    iterator &operator++() {
+    auto operator++() -> iterator & {
         if (auto *arr = std::get_if<0>(&state)) {
             ++(*arr);
         } else if (auto *obj = std::get_if<1>(&state)) {
@@ -47,32 +49,33 @@ template <class T> struct iterator {
         return *this;
     }
 
-    bool operator!=(const iterator &other) const {
+    auto operator!=(const iterator &other) const -> bool {
         return state != other.state;
     }
 
-    bool operator==(const iterator &other) const {
+    auto operator==(const iterator &other) const -> bool {
         return state == other.state;
     }
 
-    value_type operator*() const {
-        if (auto *arr = std::get_if<0>(&state)) {
+    auto operator*() const -> value_type {
+        if (const auto *arr = std::get_if<0>(&state)) {
             return Storage.value.template extract<Poco::JSON::Array::Ptr>()
                 ->get(*arr);
-        } else if (auto *obj = std::get_if<1>(&state)) {
+        }
+        if (auto *obj = std::get_if<1>(&state)) {
             return (*obj)->second;
         }
         throw std::runtime_error("Invalid iterator state");
     }
 
-    value_type *operator->() {
+    auto operator->() -> value_type * {
         CurrentStorage = **this;
         return &CurrentStorage;
     }
 
     // For object iteration: get current key
-    std::string key() const {
-        if (auto *obj = std::get_if<1>(&state)) {
+    auto key() const -> std::string {
+        if (const auto *obj = std::get_if<1>(&state)) {
             return (*obj)->first;
         }
         throw std::runtime_error("Not an object iterator");
@@ -84,13 +87,13 @@ struct PocoJsonWrapper {
     using iterator = PocoJsonWrapperIt::iterator<PocoJsonWrapper>;
 
     // Constructors for basic types
-    PocoJsonWrapper() : value(Poco::Dynamic::Var()) {} // Represents null
+    PocoJsonWrapper() {} // Represents null
 
     template <class T> PocoJsonWrapper(T val) : value(val) {}
 
     PocoJsonWrapper(const char *val) : value(std::string(val)) {}
     PocoJsonWrapper(const std::string &val) : value(val) {}
-    PocoJsonWrapper(std::nullptr_t) : value(Poco::Dynamic::Var()) {}
+    PocoJsonWrapper(std::nullptr_t) {}
 
     // Construct from Poco::Dynamic::Var
     PocoJsonWrapper(const Poco::Dynamic::Var &var) : value(var) {}
@@ -98,8 +101,8 @@ struct PocoJsonWrapper {
     PocoJsonWrapper(const PocoJsonWrapper &) = default;
     PocoJsonWrapper(PocoJsonWrapper &&) = default;
 
-    PocoJsonWrapper &operator=(const PocoJsonWrapper &) = default;
-    PocoJsonWrapper &operator=(PocoJsonWrapper &&) = default;
+    auto operator=(const PocoJsonWrapper &) -> PocoJsonWrapper & = default;
+    auto operator=(PocoJsonWrapper &&) -> PocoJsonWrapper & = default;
 
     // Construct objects from key-value pairs
     PocoJsonWrapper(
@@ -122,7 +125,7 @@ struct PocoJsonWrapper {
     }
 
     // Parse JSON string
-    static PocoJsonWrapper parse(const std::string &jsonStr) {
+    static auto parse(const std::string &jsonStr) -> PocoJsonWrapper {
         Poco::JSON::Parser parser;
         Poco::Dynamic::Var result = parser.parse(jsonStr);
         return PocoJsonWrapper(result);
@@ -134,10 +137,10 @@ struct PocoJsonWrapper {
         std::string key_;
 
       public:
-        ObjectProxy(Poco::JSON::Object::Ptr obj, const std::string &key)
-            : obj_(obj), key_(key) {}
+        ObjectProxy(Poco::JSON::Object::Ptr obj, std::string key)
+            : obj_(std::move(std::move(obj))), key_(std::move(key)) {}
 
-        ObjectProxy &operator=(const PocoJsonWrapper &val) {
+        auto operator=(const PocoJsonWrapper &val) -> ObjectProxy & {
             obj_->set(key_, val.value);
             return *this;
         }
@@ -149,7 +152,7 @@ struct PocoJsonWrapper {
         }
     };
 
-    ObjectProxy operator[](const std::string &key) const {
+    auto operator[](const std::string &key) const -> ObjectProxy {
         if (is_empty()) {
             Poco::JSON::Object::Ptr obj = new Poco::JSON::Object;
             value = obj;
@@ -171,9 +174,9 @@ struct PocoJsonWrapper {
 
       public:
         ArrayProxy(Poco::JSON::Array::Ptr arr, size_t index)
-            : arr_(arr), index_(index) {}
+            : arr_(std::move(std::move(arr))), index_(index) {}
 
-        ArrayProxy &operator=(const PocoJsonWrapper &val) {
+        auto operator=(const PocoJsonWrapper &val) -> ArrayProxy & {
             if (index_ >= arr_->size()) {
                 arr_->add(val.value);
             } else {
@@ -188,15 +191,15 @@ struct PocoJsonWrapper {
         }
     };
 
-    ArrayProxy operator[](size_t index) {
+    auto operator[](size_t index) const -> ArrayProxy const {
         if (is_array()) {
             auto arr = value.extract<Poco::JSON::Array::Ptr>();
-            return ArrayProxy(arr, index);
+            return {arr, index};
         }
         throw std::runtime_error("Not a JSON array");
     }
 
-    void push_back(const PocoJsonWrapper &val) {
+    void push_back(const PocoJsonWrapper &val) const {
         if (is_array()) {
             auto arr = value.extract<Poco::JSON::Array::Ptr>();
             arr->add(val.value);
@@ -205,38 +208,41 @@ struct PocoJsonWrapper {
         }
     }
 
-    bool is_empty() const { return value.isEmpty(); }
+    auto is_empty() const -> bool { return value.isEmpty(); }
 
-    bool empty() const { return value.isEmpty(); }
+    auto empty() const -> bool { return value.isEmpty(); }
 
     // Type checks
-    bool is_object() const {
+    auto is_object() const -> bool {
         return !value.isEmpty() &&
                value.type() == typeid(Poco::JSON::Object::Ptr);
     }
 
-    bool is_array() const {
+    auto is_array() const -> bool {
         return !value.isEmpty() &&
                value.type() == typeid(Poco::JSON::Array::Ptr);
     }
 
-    bool is_string() const { return value.isString(); }
-    bool is_number() const { return value.isInteger() || value.isNumeric(); }
-    bool is_boolean() const { return value.isBoolean(); }
-    bool is_null() const { return value.isEmpty(); }
+    auto is_string() const -> bool { return value.isString(); }
+    auto is_number() const -> bool {
+        return value.isInteger() || value.isNumeric();
+    }
+    auto is_boolean() const -> bool { return value.isBoolean(); }
+    auto is_null() const -> bool { return value.isEmpty(); }
 
     // Size of object/array
-    size_t size() const {
+    auto size() const -> size_t {
         if (is_object()) {
             return value.extract<Poco::JSON::Object::Ptr>()->size();
-        } else if (is_array()) {
+        }
+        if (is_array()) {
             return value.extract<Poco::JSON::Array::Ptr>()->size();
         }
         return 0;
     }
 
     // Serialize to JSON string
-    std::string dump() const {
+    auto dump() const -> std::string {
         std::ostringstream oss;
         try {
             if (is_object()) {
@@ -247,10 +253,10 @@ struct PocoJsonWrapper {
                 throw std::runtime_error("Not a JSON object or array");
             }
         } catch (const Poco::Exception &e) {
-            std::cerr << e.displayText() << std::endl;
+            std::cerr << e.displayText() << '\n';
             throw;
         } catch (const std::exception &e) {
-            std::cerr << e.what() << std::endl;
+            std::cerr << e.what() << '\n';
             throw;
         }
 
@@ -258,17 +264,18 @@ struct PocoJsonWrapper {
     }
 
     // Value conversion
-    template <typename T> T get() const { return value.convert<T>(); }
+    template <typename T> auto get() const -> T { return value.convert<T>(); }
 
-    iterator begin() const {
+    auto begin() const -> iterator {
         if (empty()) {
             return iterator{};
         }
 
         if (is_array()) {
             auto arr = value.extract<Poco::JSON::Array::Ptr>();
-            return iterator(arr, 0);
-        } else if (is_object()) {
+            return {arr, 0};
+        }
+        if (is_object()) {
             auto obj = value.extract<Poco::JSON::Object::Ptr>();
             return iterator(obj, obj->begin());
         }
@@ -276,15 +283,16 @@ struct PocoJsonWrapper {
         return iterator{};
     }
 
-    iterator end() const {
+    auto end() const -> iterator {
         if (empty()) {
             return iterator{};
         }
 
         if (is_array()) {
             auto arr = value.extract<Poco::JSON::Array::Ptr>();
-            return iterator(arr, arr->size());
-        } else if (is_object()) {
+            return {arr, arr->size()};
+        }
+        if (is_object()) {
             auto obj = value.extract<Poco::JSON::Object::Ptr>();
             return iterator(obj, obj->end());
         }
@@ -292,7 +300,7 @@ struct PocoJsonWrapper {
         return iterator{};
     }
 
-    iterator find(const std::string &key) const {
+    auto find(const std::string &key) const -> iterator {
         if (empty()) {
             return iterator{};
         }
@@ -303,7 +311,7 @@ struct PocoJsonWrapper {
                 return pair.first == key;
             });
             if (it != obj->end()) {
-                return iterator(obj, it);
+                return {obj, it};
             }
         }
 

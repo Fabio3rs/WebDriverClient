@@ -42,11 +42,47 @@ sudo apt-get install python3-pip chromium-chromedriver
    ```
 
 2. **Create a build directory**:
-   ```bash
-   mkdir -p build
-   ```
+## Configuração e Build
 
-3. **Configure the project with CMake**:
+### Opções de Configuração
+
+```cmake
+# Dependências (configuráveis)
+option(WEBDRIVER_USE_CONAN "Use Conan package manager" OFF)
+option(WEBDRIVER_USE_BOOST "Enable Boost for BiDi protocol" ON)
+option(WEBDRIVER_USE_POCO "Use Poco libraries" ON)
+
+# Tipo de biblioteca
+option(WEBDRIVER_BUILD_SHARED "Build shared library" OFF)
+option(WEBDRIVER_HEADER_ONLY "Header-only library" OFF)
+```
+
+### Build Standalone
+
+```bash
+# Com Conan (recomendado para desenvolvimento)
+mkdir build && cd build
+cmake .. -DWEBDRIVER_USE_CONAN=ON
+cmake --build .
+
+# Sem Conan (system packages - produção)
+sudo apt install libcurl4-openssl-dev libboost-all-dev libpoco-dev  # Ubuntu
+mkdir build && cd build
+cmake .. -DWEBDRIVER_USE_CONAN=OFF
+cmake --build .
+```
+
+### Como Biblioteca em Outros Projetos
+
+```cmake
+# Método 1: Como subprojeto
+add_subdirectory(webdriverclientcpp)
+target_link_libraries(myapp WebDriverClient::webdriverclientcpp)
+
+# Método 2: Via find_package (após install)
+find_package(WebDriverClient REQUIRED)
+target_link_libraries(myapp WebDriverClient::webdriverclientcpp)
+```3. **Configure the project with CMake**:
    ```bash
    cd build
    export CC=$(which clang-15)

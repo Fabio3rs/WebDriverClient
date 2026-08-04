@@ -1,7 +1,13 @@
 .vscode
 .cache
 .env
+.venv/
 bin
+chromedriver-linux64/
+
+# Downloaded references and local test executables
+*.pdf
+/test_new_bidi
 
 # Prerequisites
 *.d
@@ -40,5 +46,6 @@ bin
 !.vscode/launch.json
 !.vscode/extensions.json
 
-build
-
+build/
+conan-build/
+Testing/Temporary/

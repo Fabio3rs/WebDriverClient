@@ -1,12 +1,12 @@
 name: Test, Build and Test - MAIN
 
-on: 
+on:
   push:
     branches:
       - main
 
 jobs:
-  Testing_Code_Quality: 
+  Testing_Code_Quality:
     runs-on: ubuntu-latest
     steps:
       # Checkout
@@ -24,6 +24,7 @@ jobs:
           sudo apt-get update && sudo apt-get install libcurl4 libcurl4-openssl-dev libpoco-dev -y
           sudo apt install libgtest-dev googletest -y
           sudo apt install python3-pip chromium-chromedriver -y
+          sudo apt install libboost-all-dev -y
 
       - name: Download nlohmann/json
         run: |

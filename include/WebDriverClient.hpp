@@ -20,6 +20,7 @@
 #ifdef USE_POCO_JSON
 #include "PocoJsonWrapper.hpp"
 #else
+#include "bidi/logging.hpp"
 #include <nlohmann/json.hpp>
 #endif
 
@@ -30,9 +31,9 @@ struct WebDriver {
     using json = nlohmann::json;
 #endif
 
-    auto jsonToString(const json &obj) { return obj.dump(); }
+    static auto jsonToString(const json &obj) { return obj.dump(); }
 
-    auto analyzeError(const json &obj) {
+    static auto analyzeError(const json &obj) {
         /*
         {
     "value": {
@@ -65,17 +66,19 @@ chrome=129.0.6668.70)", "stacktrace": "#0 0x5dd8a5bff10a \u003Cunknown>\n#1
         }
 
         auto message = (*value)["message"].get<std::string>();
-        std::cerr << "Error: " << message << std::endl;
+        bidi::logging::log_error(std::string("Error: ") + message);
         throw std::runtime_error("Error: " + errorIt->get<std::string>() +
                                  "\n" + message);
     }
 
-    void connect(const json &args = {},
-                 const std::string &browserName = "chrome") {
+    auto connect(const json &args = {},
+                 const std::string &browserName = "chrome",
+                 bool webSocketUrl = true) {
         json obj;
         json capabilities;
         json alwaysMatch;
         alwaysMatch["browserName"] = browserName;
+        alwaysMatch["webSocketUrl"] = webSocketUrl;
 
         if (!args.empty()) {
             json browserOptions;
@@ -93,16 +96,32 @@ chrome=129.0.6668.70)", "stacktrace": "#0 0x5dd8a5bff10a \u003Cunknown>\n#1
             alwaysMatch[key] = browserOptions;
         }
 
+        {
+            //  {"unhandledPromptBehavior", "ignore"}
+            alwaysMatch["unhandledPromptBehavior"] = "ignore";
+        }
+
         capabilities["alwaysMatch"] = alwaysMatch;
         obj["capabilities"] = capabilities;
 
         auto reqStr = jsonToString(obj);
 
-        std::cout << reqStr << std::endl;
+        bidi::logging::log_info(reqStr);
 
         auto URL = webDriverUrl + "/session";
         auto value = callUrlDriver("POST", URL, reqStr);
         sessionId = value["sessionId"].get<std::string>();
+        return value;
+    }
+
+    // Create a session using a pre-built payload (full capabilities object)
+    auto connect_with_payload(const json &payload) {
+        auto reqStr = jsonToString(payload);
+        bidi::logging::log_info(reqStr);
+        auto URL = webDriverUrl + "/session";
+        auto value = callUrlDriver("POST", URL, reqStr);
+        sessionId = value["sessionId"].get<std::string>();
+        return value;
     }
 
     void gotoUrl(const std::string &url) {
@@ -112,7 +131,7 @@ chrome=129.0.6668.70)", "stacktrace": "#0 0x5dd8a5bff10a \u003Cunknown>\n#1
 
         auto reqStr = jsonToString(obj);
 
-        std::cout << reqStr << std::endl;
+        bidi::logging::log_info(reqStr);
 
         auto URL = webDriverUrl + "/session/" + sessionId + "/url";
         callUrlDriver("POST", URL, reqStr);
@@ -126,7 +145,7 @@ chrome=129.0.6668.70)", "stacktrace": "#0 0x5dd8a5bff10a \u003Cunknown>\n#1
 
         auto reqStr = jsonToString(obj);
 
-        std::cout << reqStr << std::endl;
+        bidi::logging::log_info(reqStr);
 
         auto URL = webDriverUrl + "/session/" + sessionId + "/element/" +
                    elementId + "/value";
@@ -153,7 +172,7 @@ chrome=129.0.6668.70)", "stacktrace": "#0 0x5dd8a5bff10a \u003Cunknown>\n#1
 
         auto reqStr = jsonToString(obj);
 
-        std::cout << reqStr << std::endl;
+        bidi::logging::log_info(reqStr);
 
         auto URL = webDriverUrl + "/session/" + sessionId + "/element";
         return callUrlDriver("POST", URL, reqStr);
@@ -193,7 +212,7 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
             return;
         }
 
-        std::cout << "Response: " << res.dump() << std::endl;
+        bidi::logging::log_info(std::string("Response: ") + res.dump());
     }
 
     auto uploadFile(const std::string &filePath) {
@@ -386,7 +405,7 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
     auto
     waitElement(const std::string &selector, const std::string &value,
                 std::chrono::milliseconds maxTime = std::chrono::seconds(5)) {
-        auto script = R"js(
+        const auto *script = R"js(
             function waitForElement(selector, selectorType, timeout = 5000) {
                 return new Promise((resolve, reject) => {
                     // Function to find an element by CSS or XPath
@@ -623,12 +642,10 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
 
     template <class... T>
     auto w3cExecuteScript(const std::string &script, const T &...args) {
-        json argsjs = json::array(args...);
+        json argsjs = json::array();
+        (argsjs.push_back(args), ...);
 
-        json obj = json::object({
-            {"script", script},
-            {"args", argsjs},
-        });
+        json obj = json::object({{"script", script}, {"args", argsjs}});
 
         auto reqStr = jsonToString(obj);
 
@@ -651,12 +668,10 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
 
     template <class... T>
     auto w3cExecuteScriptAsync(const std::string &script, const T &...args) {
-        json argsjs = json::array(args...);
+        json argsjs = json::array();
+        (argsjs.push_back(args), ...);
 
-        json obj = json::object({
-            {"script", script},
-            {"args", argsjs},
-        });
+        json obj = json::object({{"script", script}, {"args", argsjs}});
 
         auto reqStr = jsonToString(obj);
 
@@ -857,12 +872,10 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
 
     template <class... T>
     auto executeAsyncScript(const std::string &script, const T &...args) {
-        json argsjs = json::array(args...);
+        json argsjs = json::array();
+        (argsjs.push_back(args), ...);
 
-        json obj = json::object({
-            {"script", script},
-            {"args", argsjs},
-        });
+        json obj = json::object({{"script", script}, {"args", argsjs}});
 
         auto reqStr = jsonToString(obj);
 
@@ -937,12 +950,12 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
 
     auto callUrlDriver(const std::string &verb, const std::string &url,
                        const std::string &body = "") -> json {
-        auto &req = CurlRAII::instance();
+        [[maybe_unused]] auto &req = CurlRAII::instance();
 
-        auto res =
-            body.empty() ? req.request(verb, url) : req.postJson(url, body);
+        auto res = body.empty() ? CurlRAII::request(verb, url)
+                                : CurlRAII::postJson(url, body);
 
-        std::cout << "Response: " << res.buffer << std::endl;
+        std::cout << "Response: " << res.buffer << '\n';
 
         if (res.curl_perfm_res != CURLE_OK) {
             throw std::runtime_error("Error: " + std::string(curl_easy_strerror(
@@ -963,10 +976,10 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
     WebDriver() = default;
 
     WebDriver(const WebDriver &) = default;
-    WebDriver &operator=(const WebDriver &) = default;
+    auto operator=(const WebDriver &) -> WebDriver & = default;
 
     WebDriver(WebDriver &&) = default;
-    WebDriver &operator=(WebDriver &&) = default;
+    auto operator=(WebDriver &&) -> WebDriver & = default;
 
     ~WebDriver() {
         if (sessionId.empty()) {
@@ -974,14 +987,14 @@ if (form.dispatchEvent(e)) { HTMLFormElement.prototype.submit.call(form); }
         }
 
         try {
-            auto &req = CurlRAII::instance();
+            [[maybe_unused]] auto &req = CurlRAII::instance();
 
-            auto res =
-                req.request("DELETE", webDriverUrl + "/session/" + sessionId);
+            auto res = CurlRAII::request("DELETE", webDriverUrl + "/session/" +
+                                                       sessionId);
 
-            std::cout << "Response: " << res.response_code << std::endl;
+            std::cout << "Response: " << res.response_code << '\n';
         } catch (const std::exception &e) {
-            std::cerr << "Error: " << e.what() << std::endl;
+            std::cerr << "Error: " << e.what() << '\n';
         }
     }
 

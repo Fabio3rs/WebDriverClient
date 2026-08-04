@@ -7,6 +7,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <ranges>
 #include <regex>
 #include <span>
 #include <string>
@@ -15,48 +16,47 @@
 
 class Strutils {
   public:
-    static inline void to_upper(std::string &str) {
-        std::transform(str.begin(), str.end(), str.begin(),
-                       [](unsigned char c) -> unsigned char {
-                           return static_cast<unsigned char>(std::toupper(c));
-                       });
+    static void to_upper(std::string &str) {
+        std::ranges::transform(
+            str, str.begin(), [](unsigned char c) -> unsigned char {
+                return static_cast<unsigned char>(std::toupper(c));
+            });
     }
 
-    static inline void to_lower(std::string &str) {
-        std::transform(str.begin(), str.end(), str.begin(),
-                       [](unsigned char c) -> unsigned char {
-                           return static_cast<unsigned char>(std::tolower(c));
-                       });
+    static void to_lower(std::string &str) {
+        std::ranges::transform(
+            str, str.begin(), [](unsigned char c) -> unsigned char {
+                return static_cast<unsigned char>(std::tolower(c));
+            });
     }
 
-    static inline void ltrim(std::string &str) {
-        str.erase(str.begin(),
-                  std::find_if(str.begin(), str.end(), [](unsigned char ch) {
+    static void ltrim(std::string &str) {
+        str.erase(str.begin(), std::ranges::find_if(str, [](unsigned char ch) {
                       return !std::isspace(ch);
                   }));
     }
 
-    static inline void rtrim(std::string &str) {
-        str.erase(
-            std::find_if(str.rbegin(), str.rend(),
-                         [](unsigned char ch) { return !std::isspace(ch); })
-                .base(),
-            str.end());
+    static void rtrim(std::string &str) {
+        str.erase(std::ranges::find_if(
+                      std::ranges::reverse_view(str),
+                      [](unsigned char ch) { return !std::isspace(ch); })
+                      .base(),
+                  str.end());
     }
 
-    static inline void trim(std::string &str) {
+    static void trim(std::string &str) {
         ltrim(str);
         rtrim(str);
     }
 
-    static inline auto trimCopy(std::string str) {
+    static auto trimCopy(std::string str) {
         ltrim(str);
         rtrim(str);
 
         return str;
     }
 
-    static inline void replace_chr(std::string &str, char chin, char chout) {
+    static void replace_chr(std::string &str, char chin, char chout) {
         for (auto &ch : str) {
             if (ch == chin) {
                 ch = chout;
@@ -64,12 +64,12 @@ class Strutils {
         }
     }
 
-    static inline constexpr auto constexpr_strlen(const char *str) -> size_t {
+    static constexpr auto constexpr_strlen(const char *str) -> size_t {
         return std::string_view(str).size();
     }
 
-    static inline constexpr auto constexpr_strncpy(char *dest, const char *src,
-                                                   const size_t n) -> char * {
+    static constexpr auto constexpr_strncpy(char *dest, const char *src,
+                                            const size_t n) -> char * {
         for (size_t i = 0; i < n; i++) {
             dest[i] = src[i];
         }
@@ -77,10 +77,9 @@ class Strutils {
         return dest;
     }
 
-    static inline constexpr auto constexpr_strncat(char *dest,
-                                                   const size_t start,
-                                                   const char *src,
-                                                   const size_t n) -> char * {
+    static constexpr auto constexpr_strncat(char *dest, const size_t start,
+                                            const char *src, const size_t n)
+        -> char * {
         for (size_t i = start; i < n; i++) {
             dest[i] = src[i];
         }
@@ -88,13 +87,13 @@ class Strutils {
         return dest;
     }
 
-    static inline auto getCNPJNumbers(const std::string &cnpj) -> std::string {
+    static auto getCNPJNumbers(const std::string &cnpj) -> std::string {
         return std::regex_replace(cnpj, std::regex("[^0-9]*"),
                                   std::string("$1"));
     }
 
-    static inline auto join(const std::span<const std::string> &vec,
-                            const std::string &term) -> std::string {
+    static auto join(const std::span<const std::string> &vec,
+                     const std::string &term) -> std::string {
         std::string result;
         result.reserve(vec.size() * term.size());
 
