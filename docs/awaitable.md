@@ -1,126 +1,60 @@
-# Awaitable Support and Direct `co_await`
+# Lazy async operations and `co_await`
 
-This page documents how `Async<T>` (also known as `Task<T>`) can be used with
-`co_await` in coroutines. As of the current implementation, `Async<T>`
-implements the awaiter interface directly, allowing direct `co_await` without
-any conversion operator in most cases.
+BiDi commands return `asyncx::Async<T>`. An operation is lazy: building or
+composing it does not start network work. A terminal operation such as direct
+`co_await` or `.finally(...)` materializes the chain.
 
-Summary
--------
-- **Direct co_await (Preferred)**: `Task<T>` objects can be awaited directly
-  when they are temporaries (rvalues): `co_await client->operation()`
-- **Operator() for lvalues**: When awaiting stored `Task<T>` variables (lvalues),
-  use `operator()` or `std::move()` to convert to awaitable:
-  `co_await task()` or `co_await std::move(task)`
-- On success, the awaitable returns the value (or returns normally for `void`).
-- On failure, if the shared state stored a `std::exception_ptr` (for example
-  `ScriptEvaluateException`), the awaitable rethrows it — this ensures the
-  awaiting caller receives the original typed exception.
-- If no `std::exception_ptr` is present and Boost.Asio raised a
-  `boost::system::system_error` (e.g. from cancellation or transport), that
-  `system_error` is propagated.
+## Direct coroutine use
 
-Why Two Patterns?
------------------
-Boost.Asio's `await_transform` requires rvalues for awaitable conversion:
-- **Temporaries (rvalues)**: Direct function returns can be awaited directly
-- **Lvalues (stored variables)**: Must be converted to rvalues via `operator()`
-  or `std::move()`
-
-This is a limitation of Boost.Asio's awaitable machinery, not of `Task<T>` itself.
-
-Motivation
-----------
-Many asynchronous operations store a `std::exception_ptr` when failures are
-domain-level (for example, script evaluation errors). Without the proper
-exception translation, a `co_await` might only observe a generic system error
-(e.g. `operation_aborted`) and lose the higher-level exception information. The
-awaiter implementation recovers that `exception_ptr` from the shared state
-(under mutex) and rethrows it when appropriate.
-
-Recommended usage
------------------
-
-**Pattern 1: Direct co_await on temporaries (Preferred)**
-
-Most common case - awaiting function returns directly:
+For a temporary operation, await it directly:
 
 ```cpp
-try {
-    // Direct co_await on temporary (rvalue)
-    auto result = co_await client->evaluate("document.title", ctx);
-    // use result
-} catch (const ScriptEvaluateException &e) {
-    // handle script-specific error
-} catch (const boost::system::system_error &se) {
-    // handle transport / cancellation errors
-} catch (const std::exception &ex) {
-    // generic fallback
+boost::asio::awaitable<void> inspect(bidi::Client &client) {
+    auto tree = co_await client.browsing_context_get_tree();
+    // Use tree here.
 }
 ```
 
-**Pattern 2: Parallel composition with lvalues**
-
-When launching multiple operations and awaiting them later:
+If an operation is stored first, move it into the await because an async chain
+represents single-consumer work:
 
 ```cpp
-// Launch operations (store as lvalues)
-auto task1 = client->operation1();
-auto task2 = client->operation2();
-
-// ... do other work ...
-
-// Await stored tasks (requires () or std::move for lvalues)
-auto result1 = co_await task1();  // or co_await std::move(task1)
-auto result2 = co_await task2();  // or co_await std::move(task2)
+auto operation = client.browsing_context_get_tree();
+auto tree = co_await std::move(operation);
 ```
 
-Implementation notes
---------------------
-- The implementation in `include/asyncx.hpp` provides two implicit conversion
-  operators: `operator boost::asio::awaitable<T>()` for non-void types and
-  `operator boost::asio::awaitable<void>()` for void types.
-- These operators internally use the CompletionToken path (`use_awaitable`) and
-  inspect the `State<T>::result` under `std::scoped_lock` to decide whether to
-  rethrow a stored `std::exception_ptr`.
-- For `void` operations the behavior is analogous: a stored `std::exception_ptr`
-  is rethrown for awaiters, otherwise an `EC` leads to a thrown `system_error`.
-- The explicit `operator()()` method is still provided for compatibility and
-  for cases where explicit conversion is needed (lvalue to rvalue conversion).
+Do not keep a reference or `string_view` into frame-local JSON or an arena after
+the handler returns. Copy or convert values that must outlive parsing.
 
-Recommendations for examples
----------------------------
-- Prefer direct `co_await` on function returns (temporaries) whenever possible.
-- Use `operator()` or `std::move()` only when awaiting stored Task variables
-  (parallel composition pattern).
-- Do not check `if (!ptr)` after `co_await`; a failed Task throws when
-  awaited — use `try/catch` instead.
-- Document which exceptions each high-level API can throw (e.g.:
-  `ScriptEvaluateException` for `Client::evaluate`).
+## Composition
 
-FAQ
----
-- Q: When do I need to use `operator()` or `std::move()`?
-  A: Only when awaiting a stored Task variable (lvalue). Direct function returns
-  (temporaries/rvalues) can be awaited directly: `co_await client->operation()`.
+Use `map` for synchronous value transformation, `and_then` when the next step
+returns another async operation, and `on_error` for deliberate recovery.
+Attach a timeout at the operation boundary that owns the latency requirement.
 
-- Q: Why not only propagate `system_error`?
-  A: `system_error` represents transport/cancellation failures; domain
-  exceptions (e.g. script evaluation errors) contain additional information
-  and should be preserved for diagnostics and local handling.
+Prefer a named coroutine or extracted function when a long callback chain adds
+nested scopes. This keeps ownership and error propagation visible while still
+using the library's lazy model.
 
-- Q: Do I need to change my existing handlers?
-  A: Existing code using `co_await operation()()` still works, but can be
-  simplified to `co_await operation()` for direct function returns. Replace
-  pointer-return checks with `try/catch` when using `co_await` on operations
-  that may fail with domain exceptions.
+## Errors and cancellation
 
-- Q: Why does Boost.Asio require rvalues for await_transform?
-  A: This is a design decision in Boost.Asio's awaitable machinery to prevent
-  accidentally awaiting the same Task object multiple times. The conversion
-  operators consume the Task by moving it.
+Transport, protocol, timeout, and cancellation failures propagate through the
+chain. Recovery handlers should handle only errors they can resolve; otherwise
+preserve the original error. Cancellation must release pending registrations
+and timers.
 
-Reference
----------
-- Header: `include/asyncx.hpp` (search for `operator boost::asio::awaitable<T>()`
-  and `auto operator()() -> boost::asio::awaitable<T>`)
+Avoid these patterns:
+
+- calling `future::get()` from an Asio handler;
+- detaching a coroutine whose lifetime is not owned elsewhere;
+- starting an operation without retaining its terminal result or callback;
+- capturing short-lived references in delayed callbacks.
+
+## Current limitation
+
+The generic `make_promise_with_timeout<void>` instantiation is not currently a
+supported public pattern. Use a meaningful completion value or an existing
+`Async<void>` operation with the regular timeout composition until the helper
+has explicit `void` support and coverage.
+
+The exact operator and callback contracts live in `include/asyncx.hpp`.
