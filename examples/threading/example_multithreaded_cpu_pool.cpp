@@ -6,18 +6,22 @@
 // - Proper coordination between thread pools
 // - Offloading JSON parsing and transformations
 
-#include "WebDriverClient.hpp"
 #include "bidi/client.hpp"
+#include "bidi/connection_builder.hpp"
 #include "bidi/logging.hpp"
+#include "io_context_threads.hpp"
+#include <algorithm>
 #include <boost/asio.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/thread_pool.hpp>
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/json.hpp>
-#include <chrono>
+#include <cstdint>
 #include <format>
+#include <memory>
+#include <sstream>
+#include <string>
 #include <thread>
-#include <vector>
 
 namespace asio = boost::asio;
 
@@ -36,24 +40,30 @@ auto process_heavy_data(const boost::json::object &input)
     bidi::logging::log_info(
         std::format("CPU thread {}: Processing heavy data", thread_id));
 
-    // Simulate expensive computation
+    const auto serialized = boost::json::serialize(input);
+    std::uint64_t checksum = 1469598103934665603ULL;
+    for (int pass = 0; pass < 1000; ++pass) {
+        for (const char character : serialized) {
+            const auto byte = static_cast<unsigned char>(character);
+            checksum ^= byte;
+            checksum *= 1099511628211ULL;
+        }
+    }
+
     boost::json::object result;
     result["processed"] = true;
     result["thread_id"] = thread_id;
     result["input_size"] = input.size();
-
-    // Simulate CPU work
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    result["checksum"] = checksum;
 
     return result;
 }
 
 // Coroutine that offloads work to CPU pool
 // Pass context_id by value to avoid lifetime issues
-auto process_with_cpu_offload(std::shared_ptr<bidi::Client> client,
-                              std::string context_id,
-                              std::shared_ptr<asio::thread_pool> cpu_pool)
-    -> asio::awaitable<void> {
+auto process_with_cpu_offload(
+    std::shared_ptr<bidi::Client> client, std::string context_id,
+    std::shared_ptr<asio::thread_pool> cpu_pool) -> asio::awaitable<void> {
 
     bidi::logging::log_info(
         std::format("I/O thread {}: Starting command", get_thread_info()));
@@ -85,139 +95,50 @@ auto process_with_cpu_offload(std::shared_ptr<bidi::Client> client,
                     get_thread_info(), boost::json::serialize(processed)));
 }
 
-// Main demo coroutine
-auto run_cpu_pool_demo(std::string websocket_url,
+auto run_cpu_pool_demo(asio::io_context &io_context, std::string websocket_url,
                        std::shared_ptr<asio::thread_pool> cpu_pool)
     -> asio::awaitable<int> {
-    try {
-        auto executor = co_await asio::this_coro::executor;
-        auto &ioc = static_cast<asio::io_context &>(executor.context());
+    auto client = co_await bidi::Client::connect(io_context, websocket_url);
+    const auto context = co_await client->create_context();
+    co_await client->navigate(context, "https://example.com");
 
-        bidi::logging::log_info(
-            std::format("Connecting on I/O thread {}", get_thread_info()));
-
-        auto client = co_await bidi::Client::connect(ioc, websocket_url);
-        if (!client) {
-            bidi::logging::log_error("Failed to connect");
-            co_return 1;
-        }
-
-        auto ctx = co_await client->create_context();
-        co_await client->navigate(ctx, "https://example.com");
-
-        // Launch multiple concurrent operations
-        // Each will offload CPU work to the thread pool
-        std::vector<asio::awaitable<void>> tasks;
-        tasks.reserve(5);
-        for (int i = 0; i < 5; ++i) {
-            tasks.push_back(process_with_cpu_offload(client, ctx, cpu_pool));
-        }
-
-        // Wait for all to complete
-        for (auto &task : tasks) {
-            co_await std::move(task);
-        }
-
-        bidi::logging::log_info("All tasks completed");
-
-        // Cleanup: close context and disconnect
-        try {
-            co_await client->close_context(ctx);
-            bidi::logging::log_info("Closed browsing context");
-        } catch (const std::exception &e) {
-            bidi::logging::log_error(
-                std::format("close_context error: {}", e.what()));
-        }
-
-        client->disconnect();
-        co_await asio::post(asio::use_awaitable); // Allow disconnect to post
-
-        co_return 0;
-
-    } catch (const std::exception &e) {
-        bidi::logging::log_error(std::format("Exception: {}", e.what()));
-        co_return 1;
+    for (int task = 0; task < 5; ++task) {
+        bidi::logging::log_info(std::format("Starting CPU task {}", task));
+        co_await process_with_cpu_offload(client, context, cpu_pool);
     }
+
+    co_await client->close_context(context);
+    client->disconnect();
+    co_await asio::post(asio::use_awaitable);
+    co_return 0;
+}
+
+auto run_example() -> int {
+    auto [websocket_url, session_guard] =
+        bidi::connect_to("http://localhost:9515")
+            .headless()
+            .no_sandbox()
+            .get_websocket_url();
+
+    asio::io_context io_context;
+    const unsigned int cpu_thread_count =
+        std::clamp(std::thread::hardware_concurrency(), 1U, 8U);
+    auto cpu_pool = std::make_shared<asio::thread_pool>(cpu_thread_count);
+    auto result = asio::co_spawn(
+        io_context, run_cpu_pool_demo(io_context, websocket_url, cpu_pool),
+        asio::use_future);
+    const bidi::examples::IoContextThreads io_threads(io_context, 2U);
+
+    const int exit_code = result.get();
+    cpu_pool->stop();
+    cpu_pool->join();
+    (void)session_guard;
+    return exit_code;
 }
 
 auto main() -> int {
     try {
-        bidi::logging::log_info("=== CPU Thread Pool Example ===");
-
-        // Setup ChromeDriver session
-        WebDriver driver;
-        driver.webDriverUrl = "http://localhost:9515";
-        WebDriver::json args =
-            WebDriver::json::array({"--headless", "--no-sandbox"});
-        auto response = driver.connect(args, "chrome", true);
-
-        if (!response.contains("capabilities") ||
-            !response["capabilities"].contains("webSocketUrl")) {
-            bidi::logging::log_error("No webSocketUrl");
-            return 1;
-        }
-
-        std::string ws_url =
-            response["capabilities"]["webSocketUrl"].get<std::string>();
-
-        // Create io_context for I/O operations
-        asio::io_context ioc;
-
-        // Create separate thread pool for CPU-bound work (use shared_ptr for
-        // lifetime safety)
-        const unsigned int cpu_threads = std::thread::hardware_concurrency();
-        auto cpu_pool = std::make_shared<asio::thread_pool>(cpu_threads);
-
-        bidi::logging::log_info(
-            std::format("Created CPU pool with {} threads", cpu_threads));
-
-        // Spawn demo
-        auto future = asio::co_spawn(ioc, run_cpu_pool_demo(ws_url, cpu_pool),
-                                     asio::use_future);
-
-        // Run I/O context on 2 threads (for WebSocket I/O)
-        const unsigned int io_threads = 2;
-        bidi::logging::log_info(
-            std::format("Starting {} I/O threads", io_threads));
-
-        std::vector<std::thread> io_thread_vec;
-        io_thread_vec.reserve(io_threads);
-        for (unsigned int i = 0; i < io_threads; ++i) {
-            io_thread_vec.emplace_back([&ioc, i]() {
-                bidi::logging::log_info(std::format(
-                    "I/O thread {} ({}) started", i, get_thread_info()));
-                ioc.run();
-                bidi::logging::log_info(std::format(
-                    "I/O thread {} ({}) finished", i, get_thread_info()));
-            });
-        }
-
-        // IMPORTANT: Get future result FIRST (waits for coroutine)
-        int result = 1;
-        try {
-            result = future.get();
-        } catch (const std::exception &e) {
-            bidi::logging::log_error(
-                std::format("Future exception: {}", e.what()));
-        }
-
-        // THEN stop io_context
-        ioc.stop();
-
-        // THEN join I/O threads
-        for (auto &thread : io_thread_vec) {
-            if (thread.joinable()) {
-                thread.join();
-            }
-        }
-
-        // Stop CPU pool
-        cpu_pool->stop();
-        cpu_pool->join();
-
-        bidi::logging::log_info("Demo completed");
-        return result;
-
+        return run_example();
     } catch (const std::exception &e) {
         bidi::logging::log_error(std::format("Fatal error: {}", e.what()));
         return 1;

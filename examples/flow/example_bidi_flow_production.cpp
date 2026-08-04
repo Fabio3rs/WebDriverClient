@@ -1,112 +1,62 @@
-// Example: Production-grade BiDi flow (RAII implicit everywhere)
-// Renamed from *_raii to reflect that RAII is standard across all examples.
-
-#include "WebDriverClient.hpp"
-#include "bidi/client.hpp"
-#include "bidi/commands.hpp"
-#include "bidi/guards.hpp"
+#include "bidi/automation_session.hpp"
+#include "bidi/automation_session_builder.hpp"
+#include "bidi/commands/browsing_context.hpp"
 #include "bidi/logging.hpp"
-#include "bidi/user_prompt_handler.hpp"
-#include <boost/asio.hpp>
+#include "bidi/script_eval.hpp"
+
 #include <boost/asio/awaitable.hpp>
-#include <boost/asio/co_spawn.hpp>
-#include <boost/asio/use_future.hpp>
 #include <chrono>
-#include <expected>
+#include <format>
+#include <iostream>
 #include <string>
 
 namespace asio = boost::asio;
 using namespace std::chrono_literals;
 
-struct ExampleProductionConfig {
-    std::string webdriver_url{"http://localhost:9515"};
-    std::chrono::seconds operation_timeout{30s};
-};
+namespace {
 
-class ProductionFlowExample {
-  private:
-    asio::io_context io_context_;
-    std::atomic<bool> finished_{false};
-    ExampleProductionConfig config_{};
+auto run_workflow(bidi::AutomationSession &session) -> asio::awaitable<int> {
+    co_await session.navigate("https://example.com");
 
-  public:
-    explicit ProductionFlowExample(ExampleProductionConfig cfg = {})
-        : config_(std::move(cfg)) {}
-    auto run() -> std::expected<int, std::string> {
-        try {
-            bidi::SessionGuard session(config_.webdriver_url);
-            WebDriver::json args =
-                WebDriver::json::array({"--headless", "--no-sandbox"});
-            auto ws_url_result = session.connect(args, "chrome", true);
-            if (!ws_url_result) {
-                return std::unexpected(ws_url_result.error());
-            }
-            const auto &websocket_url = ws_url_result.value();
-            auto future_result = asio::co_spawn(
-                io_context_, run_bidi_flow(websocket_url), asio::use_future);
-            io_context_.run();
-            int flow_result = future_result.get();
-            if (flow_result != 0) {
-                return std::unexpected("flow error");
-            }
-            return flow_result;
-        } catch (const std::exception &e) {
-            return std::unexpected(std::string("Fatal error: ") + e.what());
-        } catch (...) {
-            return std::unexpected("Unknown fatal error");
-        }
-    }
+    const auto title = co_await session.get_title();
+    const auto description = co_await session.evaluate_as_or(
+        "document.querySelector('meta[name=description]')?.content",
+        std::string{"No description"});
 
-  private:
-    auto run_bidi_flow(std::string websocket_url) -> asio::awaitable<int> {
-        using namespace bidi::commands::browsing_context;
-        try {
-            auto client_ptr =
-                co_await bidi::Client::connect(io_context_, websocket_url);
-            if (!client_ptr) {
-                co_return 1;
-            }
-            bidi::ClientGuard client_guard(client_ptr);
-            auto context_id = co_await client_guard.client()->create_context(
-                CreateType::window);
-            auto prompt_handler = co_await bidi::UserPromptHandler::create(
-                client_ptr, bidi::UserPromptHandlerConfig::accept_all());
+    std::cout << std::format("{}\n{}\n", title, description);
+    co_return 0;
+}
 
-            (void)co_await client_guard.client()->navigate(
-                context_id, "https://example.com");
-            (void)co_await client_guard.client()->evaluate("document.title",
-                                                           context_id);
+auto create_session() -> bidi::AutomationSession {
+    return bidi::AutomationSessionBuilder::create()
+        .webdriver_url("http://localhost:9515")
+        .headless()
+        .window_size(1366, 768)
+        .with_default_navigation_wait(
+            bidi::commands::browsing_context::ReadinessState::interactive)
+        .with_default_script_policy(
+            bidi::script::script_eval_policy::throw_on_script_exception)
+        .with_timeout(10s)
+        .start();
+}
 
-            auto elementTest = co_await client_guard.client()->evaluate(
-                "document.documentElement", context_id);
+auto run_example() -> int {
+    auto session = create_session();
+    return session.run([&session] { return run_workflow(session); });
+}
 
-            auto evaluateAlert = co_await client_guard.client()->evaluate(
-                "confirm('Test Alert')", context_id);
-
-            bidi::logging::log_info(std::string("  elementTest: ") +
-                                    boost::json::serialize(elementTest));
-            finished_.store(true, std::memory_order_release);
-            co_return 0;
-        } catch (...) {
-            finished_.store(true, std::memory_order_release);
-            co_return 1;
-        }
-    }
-};
+} // namespace
 
 auto main() -> int {
-    bidi::logging::log_info("Production BiDi Flow Example");
     try {
-        ProductionFlowExample example_flow;
-        auto result = example_flow.run();
-        if (!result) {
-            bidi::logging::log_error(std::string("Example failed: ") +
-                                     result.error());
-            return 1;
-        }
-        return *result;
-    } catch (const std::exception &e) {
-        bidi::logging::log_error(std::string("Fatal exception: ") + e.what());
+        return run_example();
+    } catch (const bidi::script::ScriptEvaluateException &error) {
+        bidi::logging::log_error(
+            std::format("JavaScript failed: {}", error.what()));
+        return 1;
+    } catch (const std::exception &error) {
+        bidi::logging::log_error(
+            std::format("Production flow failed: {}", error.what()));
         return 1;
     }
 }

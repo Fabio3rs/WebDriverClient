@@ -358,6 +358,13 @@ add_library(WebDriverClient::webdriverclientcpp ALIAS webdriverclientcpp)
 # Example Executable (optional)
 # =============================================================================
 if(WEBDRIVER_BUILD_EXAMPLES)
+    function(add_webdriver_example target source)
+        add_executable(${target} ${source})
+        target_link_libraries(${target} PRIVATE webdriverclientcpp)
+        configure_compiler_flags(${target})
+        configure_sanitizers(${target})
+    endfunction()
+
     add_executable(webdriverclientcpp_example "src/main.cpp")
     target_link_libraries(webdriverclientcpp_example
         PRIVATE webdriverclientcpp
@@ -367,70 +374,26 @@ if(WEBDRIVER_BUILD_EXAMPLES)
 
     # BiDi integration demo (requires Boost)
     if(WEBDRIVER_USE_BOOST)
-        # New unified examples (renamed from legacy demo_* files)
-        add_executable(example_bidi_flow_end_to_end "examples/flow/example_bidi_flow_end_to_end.cpp")
-        target_link_libraries(example_bidi_flow_end_to_end PRIVATE webdriverclientcpp)
-        configure_compiler_flags(example_bidi_flow_end_to_end)
-        configure_sanitizers(example_bidi_flow_end_to_end)
+        add_webdriver_example(example_automation_session_minimal
+                              "examples/flow/example_automation_session_minimal.cpp")
+        add_webdriver_example(example_bidi_flow_minimal
+                              "examples/flow/example_bidi_flow_minimal.cpp")
+        add_webdriver_example(example_bidi_flow_production
+                              "examples/flow/example_bidi_flow_production.cpp")
+        add_webdriver_example(example_bidi_flow_script_exception
+                              "examples/flow/example_bidi_flow_script_exception.cpp")
+        add_webdriver_example(example_log_monitoring
+                              "examples/flow/example_log_monitoring.cpp")
 
-        add_executable(example_bidi_flow_minimal "examples/flow/example_bidi_flow_minimal.cpp")
-        target_link_libraries(example_bidi_flow_minimal PRIVATE webdriverclientcpp)
-        configure_compiler_flags(example_bidi_flow_minimal)
-        configure_sanitizers(example_bidi_flow_minimal)
+        add_webdriver_example(example_multithreaded_basic
+                              "examples/threading/example_multithreaded_basic.cpp")
+        add_webdriver_example(example_multithreaded_cpu_pool
+                              "examples/threading/example_multithreaded_cpu_pool.cpp")
 
-        add_executable(example_bidi_threading_baseline "examples/threading/example_bidi_threading_baseline.cpp")
-        target_link_libraries(example_bidi_threading_baseline PRIVATE webdriverclientcpp)
-        configure_compiler_flags(example_bidi_threading_baseline)
-        configure_sanitizers(example_bidi_threading_baseline)
-
-        # New multi-threading examples with strand safety
-        add_executable(example_multithreaded_basic "examples/threading/example_multithreaded_basic.cpp")
-        target_link_libraries(example_multithreaded_basic PRIVATE webdriverclientcpp)
-        configure_compiler_flags(example_multithreaded_basic)
-        configure_sanitizers(example_multithreaded_basic)
-
-        add_executable(example_multithreaded_cpu_pool "examples/threading/example_multithreaded_cpu_pool.cpp")
-        target_link_libraries(example_multithreaded_cpu_pool PRIVATE webdriverclientcpp)
-        configure_compiler_flags(example_multithreaded_cpu_pool)
-        configure_sanitizers(example_multithreaded_cpu_pool)
-
-        add_executable(example_strand_safety "examples/threading/example_strand_safety.cpp")
-        target_link_libraries(example_strand_safety PRIVATE webdriverclientcpp)
-        configure_compiler_flags(example_strand_safety)
-        configure_sanitizers(example_strand_safety)
-
-        add_executable(example_production_threading "examples/threading/example_production_threading.cpp")
-        target_link_libraries(example_production_threading PRIVATE webdriverclientcpp)
-        configure_compiler_flags(example_production_threading)
-        configure_sanitizers(example_production_threading)
-
-        add_executable(example_strand_explained "examples/threading/example_strand_explained.cpp")
-        target_link_libraries(example_strand_explained PRIVATE webdriverclientcpp)
-        configure_compiler_flags(example_strand_explained)
-        configure_sanitizers(example_strand_explained)
-
-    add_executable(example_bidi_flow_production "examples/flow/example_bidi_flow_production.cpp")
-    target_link_libraries(example_bidi_flow_production PRIVATE webdriverclientcpp)
-    configure_compiler_flags(example_bidi_flow_production)
-    configure_sanitizers(example_bidi_flow_production)
-
-    # Example demonstrating handling of a JavaScript exception thrown by script.evaluate
-    add_executable(example_bidi_flow_script_exception "examples/flow/example_bidi_flow_script_exception.cpp")
-    target_link_libraries(example_bidi_flow_script_exception PRIVATE webdriverclientcpp)
-    configure_compiler_flags(example_bidi_flow_script_exception)
-    configure_sanitizers(example_bidi_flow_script_exception)
-
-    # Example demonstrating log.entryAdded event with typed log entry handlers
-    add_executable(example_log_monitoring "examples/flow/example_log_monitoring.cpp")
-    target_link_libraries(example_log_monitoring PRIVATE webdriverclientcpp)
-    configure_compiler_flags(example_log_monitoring)
-    configure_sanitizers(example_log_monitoring)
-
-    # Example demonstrating AutomationSession facade with type-safe APIs
-    add_executable(example_automation_session_minimal "examples/flow/example_automation_session_minimal.cpp")
-    target_link_libraries(example_automation_session_minimal PRIVATE webdriverclientcpp)
-    configure_compiler_flags(example_automation_session_minimal)
-    configure_sanitizers(example_automation_session_minimal)
+        add_webdriver_example(example_scraping_patterns
+                              "examples/scraping/real_world_scraping_patterns.cpp")
+        add_webdriver_example(example_spa_and_lazy_loading
+                              "examples/scraping/spa_and_lazy_loading.cpp")
     endif()
 endif()
 
