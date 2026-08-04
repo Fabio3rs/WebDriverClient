@@ -21,37 +21,9 @@ struct ProductSummary {
     std::string availability;
 };
 
-auto wait_for_primary_content(bidi::AutomationSession &session)
-    -> bidi::Task<bool> {
-    return session.evaluate_as<bool>(R"(
-        new Promise((resolve) => {
-            const selector = 'h1';
-            if (document.querySelector(selector)) {
-                resolve(true);
-                return;
-            }
-
-            const observer = new MutationObserver(() => {
-                if (document.querySelector(selector)) {
-                    observer.disconnect();
-                    resolve(true);
-                }
-            });
-            observer.observe(document.documentElement, {
-                childList: true,
-                subtree: true
-            });
-            setTimeout(() => {
-                observer.disconnect();
-                resolve(false);
-            }, 5000);
-        })
-    )");
-}
-
 auto scrape_product(bidi::AutomationSession &session)
     -> asio::awaitable<ProductSummary> {
-    const bool content_found = co_await wait_for_primary_content(session);
+    const bool content_found = co_await session.wait_for_element("h1", 5s);
     if (!content_found) {
         throw std::runtime_error("primary content did not appear in time");
     }

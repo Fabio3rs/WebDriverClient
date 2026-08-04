@@ -15,6 +15,7 @@
 #include <boost/json/object.hpp>
 #include <cassert>
 #include <chrono>
+#include <cstdint>
 #include <memory>
 #include <source_location>
 #include <stdexcept>
@@ -22,6 +23,9 @@
 #include <string_view>
 
 namespace bidi {
+
+/** Selector strategy used by AutomationSession::wait_for_element(). */
+enum class ElementSelectorType : std::uint8_t { css, xpath };
 
 // Forward declaration for network configuration helper
 struct NetworkConfiguration;
@@ -367,6 +371,35 @@ class AutomationSession {
     [[nodiscard]] auto
     get_url(const std::source_location &loc = std::source_location::current())
         -> Task<std::string>;
+
+    /**
+     * @brief Wait until an element exists in the default browsing context
+     *
+     * Uses a browser-side MutationObserver, so waiting does not poll either
+     * the browser or the client. The operation completes immediately when the
+     * element already exists and returns false when the timeout expires.
+     * Invalid selectors and script or transport failures remain errors.
+     *
+     * @param selector CSS selector or XPath expression
+     * @param timeout Maximum browser-side wait duration
+     * @param type Selector strategy (CSS by default)
+     * @param loc Source location for diagnostics
+     * @return Lazy task containing true when the element is found, otherwise
+     * false on timeout
+     *
+     * @example
+     * @code
+     * const bool found = co_await session.wait_for_element("main", 5s);
+     * const bool heading = co_await session.wait_for_element(
+     *     "//h1", 5s, bidi::ElementSelectorType::xpath);
+     * @endcode
+     */
+    [[nodiscard]] auto wait_for_element(
+        std::string_view selector,
+        std::chrono::milliseconds timeout = std::chrono::seconds{5},
+        ElementSelectorType type = ElementSelectorType::css,
+        const std::source_location &loc = std::source_location::current())
+        -> Task<bool>;
 
     /**
      * @brief Type-safe JavaScript evaluation (ASYNC)

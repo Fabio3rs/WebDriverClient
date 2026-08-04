@@ -13,7 +13,8 @@ with the same warnings and sanitizers as the library.
   need direct `bidi::Client` access.
 - `flow/example_bidi_flow_script_exception.cpp` and
   `flow/example_log_monitoring.cpp` each focus on one protocol behavior.
-- `scraping/` contains page-oriented workflows built on `AutomationSession`.
+- `scraping/` contains page-oriented workflows built on `AutomationSession`,
+  including event-driven element waiting without client-side polling.
 - `threading/` contains advanced executor and CPU-pool patterns.
 
 Use one level consistently inside a workflow. Accessing `session.client()` is an

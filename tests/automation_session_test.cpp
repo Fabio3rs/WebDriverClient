@@ -1,11 +1,32 @@
 #include "bidi/automation_session.hpp"
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
+#include <chrono>
 #include <cstdlib>
 #include <gtest/gtest.h>
 #include <stdexcept>
 
 using namespace bidi;
+using namespace std::chrono_literals;
+
+TEST(AutomationSessionIntegration, WaitForElementUsesBrowserObservation) {
+    AutomationSession session = AutomationSession::start();
+
+    const auto result =
+        session.run([&session]() -> boost::asio::awaitable<int> {
+            co_await session.navigate("http://localhost:8080");
+
+            EXPECT_TRUE(co_await session.wait_for_element("h1", 100ms));
+            EXPECT_TRUE(co_await session.wait_for_element(
+                "//*[@id='new-timed-element']", 2s,
+                ElementSelectorType::xpath));
+            EXPECT_FALSE(
+                co_await session.wait_for_element("#does-not-exist", 10ms));
+            co_return 0;
+        });
+
+    EXPECT_EQ(result, 0);
+}
 
 TEST(AutomationSessionIntegration, WorkflowExceptionDoesNotLeakPendings) {
     // Start a real session (blocking). Requires chromedriver / webdriver

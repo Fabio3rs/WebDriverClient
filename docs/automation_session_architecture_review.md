@@ -62,6 +62,10 @@ High-level helpers should make the common path short and typed. They may
 delegate to `Client`, but must retain the library's timeout, serialization,
 error, and cleanup semantics.
 
+`wait_for_element` is the preferred element-discovery primitive. It uses
+browser-side observation with typed `script.callFunction` arguments, avoiding
+client-side polling and JavaScript string interpolation.
+
 Expose `client()` only for a feature that is not represented by the facade.
 Code using it is responsible for understanding lazy `asyncx` operations and
 the lifetime of any returned subscription handle. It must not stop the owned

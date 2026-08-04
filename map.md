@@ -34,7 +34,8 @@ Non-goal: providing a complete high-level UI automation framework.
 The recommended application facade. It owns WebDriver setup, the BiDi client,
 the default browsing context, the event loop runner, and cleanup. Common
 operations expose typed helpers such as navigation, title/URL access,
-`evaluate_as<T>`, fallback extraction, and policy-aware script evaluation.
+`wait_for_element`, `evaluate_as<T>`, fallback extraction, and policy-aware
+script evaluation.
 
 `AutomationSessionBuilder` configures browser arguments, navigation defaults,
 script policy, viewport, timeouts, subscriptions, screenshots, and network

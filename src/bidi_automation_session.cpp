@@ -1,15 +1,114 @@
 #include "bidi/automation_session.hpp"
 #include "bidi/connection_builder.hpp"
 #include "bidi/logging.hpp"
+#include "bidi/script/marshalling.hpp"
 #include <boost/json/object.hpp>
 #include <boost/json/string.hpp>
+#include <limits>
 #include <stdexcept>
+#include <utility>
 
 namespace bidi {
 
 // ==================== Network Configuration Helpers ====================
 
 namespace {
+
+constexpr std::string_view wait_for_element_function = R"js(
+function(selector, selectorType, timeoutMs) {
+    return new Promise((resolve, reject) => {
+        let observer = null;
+        let timeoutId = null;
+        let domReadyHandler = null;
+
+        const cleanup = () => {
+            if (observer !== null) {
+                observer.disconnect();
+                observer = null;
+            }
+            if (timeoutId !== null) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+            }
+            if (domReadyHandler !== null) {
+                document.removeEventListener("DOMContentLoaded", domReadyHandler);
+                domReadyHandler = null;
+            }
+        };
+
+        const findElement = () => {
+            if (selectorType === "css") {
+                return document.querySelector(selector);
+            }
+            return document.evaluate(
+                selector,
+                document,
+                null,
+                XPathResult.FIRST_ORDERED_NODE_TYPE,
+                null
+            ).singleNodeValue;
+        };
+
+        const check = () => {
+            try {
+                if (findElement() === null) {
+                    return false;
+                }
+                cleanup();
+                resolve(true);
+                return true;
+            } catch (error) {
+                cleanup();
+                reject(error);
+                return true;
+            }
+        };
+
+        const observe = () => {
+            if (check()) {
+                return;
+            }
+
+            const root = document.documentElement || document.body;
+            if (root === null) {
+                domReadyHandler = observe;
+                document.addEventListener(
+                    "DOMContentLoaded",
+                    domReadyHandler,
+                    {once: true}
+                );
+                return;
+            }
+
+            observer = new MutationObserver(check);
+            observer.observe(root, {
+                attributes: true,
+                childList: true,
+                subtree: true
+            });
+        };
+
+        timeoutId = setTimeout(() => {
+            if (!check()) {
+                cleanup();
+                resolve(false);
+            }
+        }, timeoutMs);
+        observe();
+    });
+}
+)js";
+
+[[nodiscard]] constexpr auto
+selector_type_name(ElementSelectorType type) -> std::string_view {
+    switch (type) {
+    case ElementSelectorType::css:
+        return "css";
+    case ElementSelectorType::xpath:
+        return "xpath";
+    }
+    std::unreachable();
+}
 
 /**
  * @brief Apply extra headers to request resolution
@@ -315,6 +414,32 @@ auto AutomationSession::get_title(const std::source_location &loc)
 auto AutomationSession::get_url(const std::source_location &loc)
     -> Task<std::string> {
     return evaluate_as_or("document.location.href", std::string(""), loc);
+}
+
+auto AutomationSession::wait_for_element(
+    std::string_view selector, std::chrono::milliseconds timeout,
+    ElementSelectorType type, const std::source_location &loc) -> Task<bool> {
+    if (!client_guard_) {
+        throw std::runtime_error(
+            "wait_for_element called before run() - WebSocket not connected");
+    }
+    if (timeout.count() < 0 ||
+        timeout.count() > std::numeric_limits<std::int32_t>::max()) {
+        throw std::invalid_argument(
+            "wait_for_element timeout must be between 0ms and 2147483647ms");
+    }
+
+    auto arguments = script::make_args_array(selector, selector_type_name(type),
+                                             timeout.count());
+    return client_guard_->client()
+        ->call_function(
+            wait_for_element_function, context_id_, std::move(arguments),
+            script::script_eval_policy::throw_on_script_exception, true, loc)
+        .map(
+            [](const script::ScriptEvalOutcome &outcome) {
+                return script::extract_value_from_outcome<bool>(outcome);
+            },
+            loc);
 }
 
 } // namespace bidi

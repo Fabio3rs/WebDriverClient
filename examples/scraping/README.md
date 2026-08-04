@@ -19,6 +19,7 @@ chromedriver --port=9515
 - waiting with a DOM `MutationObserver`, without C++ polling;
 - extracting independent fields concurrently with `asyncx::all`;
 - typed values and explicit fallbacks through `evaluate_as_or`.
+- event-driven element discovery through `wait_for_element`.
 
 The example waits for `h1` so its default URL has a successful path, then uses
 `data-price` and `data-stock` for optional commerce fields. Adapt those
